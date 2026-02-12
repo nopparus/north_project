@@ -1,0 +1,8 @@
+{
+  "name": "Nexus App Portal",
+  "description": "A modern, high-contrast dark mode portal for accessing multiple sub-applications with a persistent minimalist sidebar.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}

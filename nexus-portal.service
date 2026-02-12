@@ -1,0 +1,17 @@
+[Unit]
+Description=Nexus Portal Services (API + Proxy)
+After=network.target
+
+[Service]
+Type=forking
+User=nopparus2
+WorkingDirectory=/home/nopparus2/www
+ExecStart=/home/nopparus2/www/start-all.sh
+ExecStop=/bin/bash -c 'kill $(cat /tmp/nexus-api.pid) $(cat /tmp/nexus-proxy.pid)'
+Restart=on-failure
+RestartSec=10
+StandardOutput=append:/tmp/nexus-systemd.log
+StandardError=append:/tmp/nexus-systemd.log
+
+[Install]
+WantedBy=multi-user.target

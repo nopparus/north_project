@@ -1,0 +1,5 @@
+{
+  "name": "EMS แปลงข้อมูลค่าไฟฟ้า",
+  "description": "A web application to transform and flatten data from Excel sheets into a CSV format.",
+  "requestFramePermissions": []
+}

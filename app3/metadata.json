@@ -1,0 +1,5 @@
+{
+  "name": "Excel & CSV File Merger",
+  "description": "An application to merge multiple Excel or CSV files with identical headers. It validates headers, shows a preview of row counts, and allows downloading the combined data as a single CSV file.",
+  "requestFramePermissions": []
+}

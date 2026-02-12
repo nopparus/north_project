@@ -1,0 +1,16 @@
+{
+  "name": "nexus-proxy-server",
+  "version": "1.0.0",
+  "description": "Node.js proxy server for Nexus Portal (nginx alternative)",
+  "main": "proxy-server.js",
+  "scripts": {
+    "start": "node proxy-server.js",
+    "pm2:start": "pm2 start proxy-server.js --name nexus-proxy",
+    "pm2:stop": "pm2 stop nexus-proxy",
+    "pm2:restart": "pm2 restart nexus-proxy",
+    "pm2:logs": "pm2 logs nexus-proxy"
+  },
+  "dependencies": {
+    "http-proxy": "^1.18.1"
+  }
+}
