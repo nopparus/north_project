@@ -200,7 +200,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
     const oldIcon = icons.find(i => i.associatedCategory === category);
     if (oldIcon && oldIcon.id !== iconId) {
       try {
-        await fetch(`api/icons/${oldIcon.id}`, {
+        await fetch(`/app4/api/icons/${oldIcon.id}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ ...oldIcon, associatedCategory: undefined }) // Unlink
@@ -215,7 +215,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
       const newIcon = icons.find(i => i.id === iconId);
       if (newIcon) {
         try {
-          await fetch(`api/icons/${newIcon.id}`, {
+          await fetch(`/app4/api/icons/${newIcon.id}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ ...newIcon, associatedCategory: category })
@@ -241,7 +241,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
     if (!material) return;
 
     try {
-      const res = await fetch(`api/materials/${id}`, {
+      const res = await fetch(`/app4/api/materials/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...material, symbol_group: newGroup })
@@ -267,7 +267,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
     if (!editingMaterial) return;
 
     // API Call to update material
-    fetch(`api/materials/${editingMaterial.id}`, {
+    fetch(`/app4/api/materials/${editingMaterial.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(editingMaterial)
@@ -296,7 +296,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
       return;
     }
     // API Call to create material
-    fetch('api/materials', {
+    fetch('/app4/api/materials', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newMaterial)
@@ -321,7 +321,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
   const handleDelete = (id: number) => {
     if (confirm('Are you sure you want to delete this item?')) {
       // API Call to delete
-      fetch(`api/materials/${id}`, { method: 'DELETE' })
+      fetch(`/app4/api/materials/${id}`, { method: 'DELETE' })
         .then(res => {
           if (res.ok) {
             setMaterials(materials.filter(m => m.id !== id));

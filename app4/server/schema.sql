@@ -33,5 +33,7 @@ CREATE TABLE IF NOT EXISTS custom_icons (
     dots TEXT,
     data_url TEXT,
     associated_category TEXT,
-    is_system INTEGER DEFAULT 0
+    is_system INTEGER DEFAULT 0,
+    icon_group TEXT,
+    sort_order INTEGER DEFAULT 0
 );

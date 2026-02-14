@@ -54,6 +54,8 @@ export interface CustomIcon {
   dataUrl?: string;
   associatedCategory?: string; // Changed from associatedMaterialType
   isSystem?: boolean;          // true = built-in standard symbol, cannot be deleted/edited
+  iconGroup?: string;          // Custom grouping for organizing icons
+  sortOrder?: number;          // Manual sort order within group
 }
 
 export interface NetworkNode {

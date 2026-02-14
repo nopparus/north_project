@@ -125,13 +125,17 @@ apiRouter.post('/materials/seed', async (req, res) => {
 // Icons API
 apiRouter.get('/icons', async (req, res) => {
     try {
-        const result = await db.query('SELECT * FROM custom_icons');
-        const icons = result.rows.map(i => ({
-            ...i,
-            dots: JSON.parse(i.dots),
-            isSystem: !!i.is_system,
-            associatedCategory: i.associated_category,
-            dataUrl: i.data_url
+        const { rows } = await db.query('SELECT * FROM custom_icons ORDER BY sort_order ASC, id ASC');
+        const icons = rows.map(row => ({
+            id: row.id,
+            name: row.name,
+            description: row.description,
+            dots: JSON.parse(row.dots || '[]'),
+            dataUrl: row.data_url,
+            associatedCategory: row.associated_category,
+            isSystem: row.is_system === 1,
+            iconGroup: row.icon_group,
+            sortOrder: row.sort_order || 0
         }));
         res.json(icons);
     } catch (err) {
@@ -140,12 +144,12 @@ apiRouter.get('/icons', async (req, res) => {
 });
 
 apiRouter.post('/icons', async (req, res) => {
-    const { id, name, description, dots, dataUrl, associatedCategory, isSystem } = req.body;
+    const { id, name, description, dots, dataUrl, associatedCategory, isSystem, iconGroup, sortOrder } = req.body;
     try {
         await db.run(
-            `INSERT INTO custom_icons (id, name, description, dots, data_url, associated_category, is_system)
-             VALUES (?, ?, ?, ?, ?, ?, ?)`,
-            [id, name, description, JSON.stringify(dots), dataUrl, associatedCategory, isSystem ? 1 : 0]
+            `INSERT INTO custom_icons (id, name, description, dots, data_url, associated_category, is_system, icon_group, sort_order)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, name, description, JSON.stringify(dots), dataUrl, associatedCategory, isSystem ? 1 : 0, iconGroup || null, sortOrder || 0]
         );
         res.status(201).json({ message: 'Icon saved' });
     } catch (err) {
@@ -155,12 +159,22 @@ apiRouter.post('/icons', async (req, res) => {
 
 apiRouter.put('/icons/:id', async (req, res) => {
     const { id } = req.params;
-    const { name, description, dots, dataUrl, associatedCategory, isSystem } = req.body;
+
+    // Accept both camelCase (iconGroup) and snake_case (icon_group) from frontend
+    const { name, description, dots, dataUrl, data_url, associatedCategory, associated_category, isSystem, is_system, iconGroup, icon_group, sortOrder, sort_order } = req.body;
+
+    // Prefer snake_case (what frontend sends) over camelCase (what GET returns)
+    const finalDataUrl = data_url ?? dataUrl;
+    const finalCategory = associated_category ?? associatedCategory;
+    const finalIsSystem = is_system ?? isSystem;
+    const finalIconGroup = icon_group ?? iconGroup;
+    const finalSortOrder = sort_order ?? sortOrder;
+
     try {
         const result = await db.run(
-            `UPDATE custom_icons SET name=?, description=?, dots=?, data_url=?, associated_category=?, is_system=?
+            `UPDATE custom_icons SET name=?, description=?, dots=?, data_url=?, associated_category=?, is_system=?, icon_group=?, sort_order=?
              WHERE id=?`,
-            [name, description, JSON.stringify(dots), dataUrl, associatedCategory, isSystem ? 1 : 0, id]
+            [name, description, JSON.stringify(dots || []), finalDataUrl, finalCategory, finalIsSystem ? 1 : 0, finalIconGroup || null, finalSortOrder !== undefined ? finalSortOrder : 0, id]
         );
         if (result.changes === 0) return res.status(404).json({ error: 'Icon not found' });
         res.json({ message: 'Icon updated' });
@@ -176,6 +190,50 @@ apiRouter.delete('/icons/:id', async (req, res) => {
         if (result.changes === 0) return res.status(404).json({ error: 'Icon not found' });
         res.json({ message: 'Icon deleted' });
     } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// Batch update for drag-and-drop reordering
+apiRouter.put('/icons/batch/reorder', async (req, res) => {
+    const { updates } = req.body; // Array of { id, iconGroup, sortOrder }
+    if (!Array.isArray(updates)) {
+        return res.status(400).json({ error: 'Expected updates array' });
+    }
+
+    try {
+        // Use transaction for atomic updates
+        const sqlite3 = require('sqlite3').verbose();
+        const dbPath = path.resolve(__dirname, 'database.sqlite');
+        const rawDb = new sqlite3.Database(dbPath);
+
+        await new Promise((resolve, reject) => {
+            rawDb.serialize(() => {
+                rawDb.run('BEGIN TRANSACTION', (err) => {
+                    if (err) return reject(err);
+                });
+
+                const stmt = rawDb.prepare('UPDATE custom_icons SET icon_group = ?, sort_order = ? WHERE id = ?');
+                for (const update of updates) {
+                    stmt.run(update.iconGroup || null, update.sortOrder !== undefined ? update.sortOrder : 0, update.id);
+                }
+                stmt.finalize();
+
+                rawDb.run('COMMIT', (err) => {
+                    if (err) {
+                        rawDb.run('ROLLBACK');
+                        rawDb.close();
+                        return reject(err);
+                    }
+                    rawDb.close();
+                    resolve();
+                });
+            });
+        });
+
+        res.json({ message: `Updated ${updates.length} icons` });
+    } catch (err) {
+        console.error('Batch update error:', err);
         res.status(500).json({ error: err.message });
     }
 });

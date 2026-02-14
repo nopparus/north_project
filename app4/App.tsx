@@ -7,7 +7,6 @@ import DatabasePage from './pages/Database';
 import BOQSummary from './pages/BOQSummary';
 import IconEditor from './pages/IconEditor';
 import NetworkPrintModal from './pages/NetworkPrintModal';
-import { SYSTEM_ICONS, NODE_SYMBOL_MAP } from './constants';
 import { ProjectState, Material, CustomIcon, IconDot, SavedProject } from './types';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 
@@ -54,7 +53,7 @@ const AppContent: React.FC = () => {
     if (isMaterialLoaded.current) return;
     isMaterialLoaded.current = true;
 
-    fetch('api/materials')
+    fetch('/app4/api/materials')
       .then(res => {
         if (!res.ok) throw new Error('Failed to fetch materials');
         return res.json();
@@ -79,7 +78,7 @@ const AppContent: React.FC = () => {
   }, []);
 
   // Icons state - initially just system icons until fetched
-  const [icons, setIcons] = useState<CustomIcon[]>(SYSTEM_ICONS);
+  const [icons, setIcons] = useState<CustomIcon[]>([]);
   const isIconsLoaded = useRef(false);
 
   useEffect(() => {
@@ -88,7 +87,7 @@ const AppContent: React.FC = () => {
 
     const fetchAndMigrateIcons = async () => {
       try {
-        const res = await fetch('api/icons');
+        const res = await fetch('/app4/api/icons');
         if (!res.ok) throw new Error('Failed to fetch icons');
         const serverIcons: CustomIcon[] = await res.json();
 
@@ -103,15 +102,15 @@ const AppContent: React.FC = () => {
                 console.log("Migrating icons to server...");
                 // Migrate one by one
                 for (const icon of userIcons) {
-                  await fetch('api/icons', {
+                  await fetch('/app4/api/icons', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(icon)
                   });
                 }
-                const newRes = await fetch('api/icons');
+                const newRes = await fetch('/app4/api/icons');
                 const newIcons = await newRes.json();
-                setIcons([...SYSTEM_ICONS, ...newIcons]);
+                setIcons(newIcons);
                 // localStorage.removeItem('fiber_icons'); // Optional: keep as backup or remove? prefer remove to be clean
                 return;
               }
@@ -122,7 +121,7 @@ const AppContent: React.FC = () => {
         }
 
         // Normal load
-        setIcons([...SYSTEM_ICONS, ...serverIcons]);
+        setIcons(serverIcons);
       } catch (err) {
         console.error("Error loading icons:", err);
       }
@@ -135,7 +134,7 @@ const AppContent: React.FC = () => {
 
   // Fetch projects from server on mount
   useEffect(() => {
-    fetch('api/projects')
+    fetch('/app4/api/projects')
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -222,7 +221,7 @@ const AppContent: React.FC = () => {
         // To be safe, we should use functional update or refs, but for now:
         const payload = { ...currentProj, state: project };
 
-        fetch(`api/projects/${activeProjectId}`, {
+        fetch(`/app4/api/projects/${activeProjectId}`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
@@ -319,7 +318,7 @@ const AppContent: React.FC = () => {
         setActiveProjectId(newId);
 
         // Sync to Server
-        fetch('api/projects', {
+        fetch('/app4/api/projects', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(imported)
@@ -369,7 +368,7 @@ const AppContent: React.FC = () => {
     setNewProjectWorkType('ทดแทนของเดิม');
 
     // Server Sync
-    fetch('api/projects', {
+    fetch('/app4/api/projects', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(newProj)
@@ -403,7 +402,7 @@ const AppContent: React.FC = () => {
     }
 
     // Server Sync
-    fetch(`api/projects/${projectToDelete.id}`, { method: 'DELETE' })
+    fetch(`/app4/api/projects/${projectToDelete.id}`, { method: 'DELETE' })
       .catch(err => console.error("Delete failed:", err));
 
     setIsDeleteModalOpen(false);
@@ -617,6 +616,9 @@ ${edgesKML}
     );
   };
 
+  const location = useLocation();
+  const isNetworkDesignPage = location.pathname === '/';
+
   return (
     <div className={`flex flex-col min-h-screen ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
       <header className={`no-print backdrop-blur-md border-b sticky top-0 z-50 px-6 py-4 flex items-center justify-between shadow-2xl ${isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-white/80 border-slate-200'}`}>
@@ -688,14 +690,20 @@ ${edgesKML}
           </button>
 
           <input ref={importProjectRef} type="file" accept=".json" className="hidden" onChange={handleImportProject} />
-          <button onClick={() => importProjectRef.current?.click()} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="นำเข้าโปรเจกต์จากไฟล์ .json">
-            <Upload size={16} />
-            <span>Import</span>
-          </button>
-          <button onClick={handleSave} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="บันทึกโปรเจกต์นี้เป็นไฟล์ .json">
-            <Save size={16} />
-            <span>Save</span>
-          </button>
+
+          {/* Show Import/Save buttons only on Network Design page */}
+          {isNetworkDesignPage && (
+            <>
+              <button onClick={() => importProjectRef.current?.click()} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="นำเข้าโปรเจกต์จากไฟล์ .json">
+                <Upload size={16} />
+                <span>Import</span>
+              </button>
+              <button onClick={handleSave} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="บันทึกโปรเจกต์นี้เป็นไฟล์ .json">
+                <Save size={16} />
+                <span>Save</span>
+              </button>
+            </>
+          )}
           <ExportKMLButton />
           <PrintButton />
         </div>

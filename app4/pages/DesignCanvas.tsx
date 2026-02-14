@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { NodeType, ProjectState, Material, NetworkNode, NetworkEdge, CustomIcon } from '../types';
 import { NODE_SYMBOL_MAP, PIN_PATH } from '../constants';
-import { Trash2, Link as LinkIcon, Edit3, MousePointer2, ChevronDown, Package, Ruler, Tag, Zap, Grid3X3, Cable, Check, X, MapPin } from 'lucide-react';
+import { Trash2, Link as LinkIcon, Edit3, MousePointer2, ChevronDown, ChevronRight, Package, Ruler, Tag, Zap, Grid3X3, Cable, Check, X, MapPin } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface DesignCanvasProps {
@@ -30,6 +30,16 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
   const [editingItem, setEditingItem] = useState<{ type: 'node' | 'edge'; id: string } | null>(null);
   const [draftNode, setDraftNode] = useState<DraftNode | null>(null);
   const [draftEdge, setDraftEdge] = useState<DraftEdge | null>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+
+  const toggleGroup = (groupName: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(groupName)) next.delete(groupName);
+      else next.add(groupName);
+      return next;
+    });
+  };
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -153,7 +163,7 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
   const customIconsGrouped = useMemo(() => {
     const groups: Record<string, CustomIcon[]> = {};
     customIcons.forEach(icon => {
-      const cat = icon.associatedCategory || 'Other Icons';
+      const cat = icon.iconGroup || icon.associatedCategory || 'Other Icons';
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(icon);
     });
@@ -252,7 +262,7 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
       type,
       iconId: iconId || undefined,
       x, y,
-      label: iconId ? customIcons.find(i => i.id === iconId)?.name || 'Custom' : NODE_SYMBOL_MAP[type].label,
+      label: iconId ? customIcons.find(i => i.id === iconId)?.name || 'Custom' : (customIcons.find(i => i.id === type)?.name || 'Point'),
       materialId: defaultMaterialId,
       quantity: 1,
     };
@@ -321,61 +331,22 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
   };
 
   // ── Render symbols ─────────────────────────────────────────────────────────
-  const renderTechnicalSymbol = (type: NodeType, isSelected: boolean) => {
-    const color = isSelected ? '#3b82f6' : '#1e293b';
-    switch (type) {
-      case NodeType.CABINET:
-        return <svg width="32" height="32" viewBox="0 0 32 32"><path d="M8 26 L8 12 A8 8 0 0 1 24 12 L24 26 Z" fill="white" stroke={color} strokeWidth="2" /><line x1="8" y1="26" x2="24" y2="26" stroke={color} strokeWidth="2" /></svg>;
-      case NodeType.EXCHANGE:
-        return <svg width="32" height="32" viewBox="0 0 32 32"><rect x="6" y="6" width="20" height="20" fill="white" stroke={color} strokeWidth="2" /><path d="M6 6 L26 26 M6 26 L26 6" stroke={color} strokeWidth="1" /><path d="M6 6 L16 16 L6 26 Z" fill={color} /><path d="M26 6 L16 16 L26 26 Z" fill={color} /></svg>;
-      case NodeType.STRAIGHT_JOINT:
-        return <svg width="24" height="24" viewBox="0 0 24 24"><line x1="0" y1="12" x2="24" y2="12" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" /><circle cx="12" cy="12" r="4" fill={color} /></svg>;
-      case NodeType.BRANCH_JOINT:
-        return <svg width="24" height="24" viewBox="0 0 24 24"><line x1="0" y1="16" x2="24" y2="16" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" /><line x1="12" y1="4" x2="12" y2="15" stroke={color} strokeWidth="1.5" /><path d="M8 12 L12 16 L16 12" fill="none" stroke={color} strokeWidth="1.5" /><text x="13" y="10" fontSize="7" fontWeight="bold" fill={color}>BJ</text></svg>;
-      case NodeType.ODP:
-        return <svg width="32" height="32" viewBox="0 0 32 32"><line x1="0" y1="16" x2="16" y2="16" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" /><path d="M12 8 A10 10 0 0 1 12 24" fill="none" stroke={color} strokeWidth="1.5" /><path d="M20 8 A10 10 0 0 0 20 24" fill="none" stroke={color} strokeWidth="1.5" /><line x1="10" y1="16" x2="22" y2="16" stroke={color} strokeWidth="1" /><line x1="6" y1="16" x2="10" y2="16" stroke={color} strokeWidth="2" /><path d="M6 14 L2 16 L6 18 Z" fill={color} /></svg>;
-      default: return null;
-    }
-  };
 
-  const renderPin = (type: NodeType, isSelected: boolean) => {
-    const tech = renderTechnicalSymbol(type, isSelected);
-    if (tech) return tech;
-    const config = NODE_SYMBOL_MAP[type];
+  const renderIcon = (node: NetworkNode) => {
+    const iconId = node.iconId || node.type;
+    const icon = customIcons.find(i => i.id === iconId);
+    if (icon?.dataUrl) return <img src={icon.dataUrl} className="w-10 h-10 object-contain image-pixelated" alt={icon.name} />;
+
     return (
       <svg width="32" height="32" viewBox="0 0 24 24" className="drop-shadow-sm">
-        <path d={PIN_PATH} fill={isSelected ? '#3b82f6' : config.color} stroke="white" strokeWidth="1" />
+        <path d={PIN_PATH} fill={selectedNodeId === node.id ? '#3b82f6' : '#1e293b'} stroke="white" strokeWidth="1" />
         <circle cx="12" cy="9" r="5" fill="white" fillOpacity="0.2" />
-        <text x="12" y="11" textAnchor="middle" fontSize="6" fontWeight="bold" fill="white" style={{ pointerEvents: 'none' }}>{config.short}</text>
+        <text x="12" y="11" textAnchor="middle" fontSize="6" fontWeight="bold" fill="white" style={{ pointerEvents: 'none' }}>??</text>
       </svg>
     );
   };
 
-  const renderIcon = (node: NetworkNode) => {
-    if (node.iconId) {
-      const icon = customIcons.find(i => i.id === node.iconId);
-      if (icon?.dataUrl) return <img src={icon.dataUrl} className="w-10 h-10 object-contain image-pixelated" alt={icon.name} />;
-    }
-    return renderPin(node.type, selectedNodeId === node.id);
-  };
-
   // ── Catalog section component ──────────────────────────────────────────────
-  const CatalogSection = ({ title, types, description }: { title: string; types: NodeType[]; description?: string }) => (
-    <div className="mb-6">
-      <div className={`flex flex-col mb-3 px-1 border-l-2 ${cls.catalogSectionBorder} pl-3`}>
-        <h4 className={`text-[10px] font-black ${cls.catalogSectionText} uppercase tracking-[0.1em]`}>{title}</h4>
-        {description && <p className={`text-[8px] ${cls.catalogSectionDesc} font-medium italic mt-0.5`}>{description}</p>}
-      </div>
-      <div className="grid grid-cols-2 gap-x-1 gap-y-1">
-        {types.map(type => (
-          <div key={type} draggable onDragStart={(e) => onDragStart(e, type)} className={`flex items-center space-x-2 p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border ${cls.catalogItem}`}>
-            <div className="flex-shrink-0 scale-75">{renderPin(type, false)}</div>
-            <span className={`text-[10px] font-bold truncate leading-none ${cls.catalogItemText}`}>{NODE_SYMBOL_MAP[type].label}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
 
   // ── Modal content (node) ───────────────────────────────────────────────────
   const renderNodeModal = () => {
@@ -623,41 +594,38 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
 
 
 
-            {customIconsGrouped.map(([category, groupIcons]) => (
-              <div key={category} className="mt-6">
-                <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.15em] mb-3 px-1 border-l-2 border-blue-500 pl-3">{category}</h4>
-                <div className="space-y-1">
-                  {groupIcons.map(icon => (
-                    <div key={icon.id} draggable onDragStart={(e) => onDragStart(e, NodeType.CUSTOM, icon.id)} className={`flex items-center space-x-3 p-2 rounded-xl cursor-grab active:cursor-grabbing transition-all border shadow-sm ${cls.customIconBg}`}>
-                      <div className={`w-8 h-8 border rounded overflow-hidden flex items-center justify-center shadow-inner ${cls.customIconImgBg}`}>
-                        {icon.dataUrl
-                          ? <img src={icon.dataUrl} className="w-full h-full object-contain image-pixelated p-0.5" alt={icon.name} />
-                          : <div className={`text-[8px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>BMP</div>
-                        }
-                      </div>
-                      <div className="flex-grow min-w-0">
-                        <div className={`text-[10px] font-bold truncate ${cls.customIconName}`}>{icon.name}</div>
-                        <div className={`text-[8px] uppercase font-black tracking-tight ${cls.customIconCat}`}>{category}</div>
-                      </div>
+            {customIconsGrouped.map(([category, groupIcons]) => {
+              const isCollapsed = collapsedGroups.has(category);
+              return (
+                <div key={category} className="mt-6">
+                  <h4
+                    className="text-[10px] font-black text-blue-400 uppercase tracking-[0.15em] mb-3 px-1 border-l-2 border-blue-500 pl-3 flex items-center gap-2 cursor-pointer select-none"
+                    onClick={() => toggleGroup(category)}
+                  >
+                    {isCollapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                    {category}
+                  </h4>
+                  {!isCollapsed && (
+                    <div className="space-y-1">
+                      {groupIcons.map(icon => (
+                        <div key={icon.id} draggable onDragStart={(e) => onDragStart(e, NodeType.CUSTOM, icon.id)} className={`flex items-center space-x-3 p-2 rounded-xl cursor-grab active:cursor-grabbing transition-all border shadow-sm ${cls.customIconBg}`}>
+                          <div className={`w-8 h-8 border rounded overflow-hidden flex items-center justify-center shadow-inner ${cls.customIconImgBg}`}>
+                            {icon.dataUrl
+                              ? <img src={icon.dataUrl} className="w-full h-full object-contain image-pixelated p-0.5" alt={icon.name} />
+                              : <div className={`text-[8px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>BMP</div>
+                            }
+                          </div>
+                          <div className="flex-grow min-w-0">
+                            <div className={`text-[10px] font-bold truncate ${cls.customIconName}`}>{icon.name}</div>
+                            <div className={`text-[8px] uppercase font-black tracking-tight ${cls.customIconCat}`}>{category}</div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </div>
-              </div>
-            ))}
-            <div className="mt-6">
-              <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 px-1 border-l-2 pl-3 ${cls.otherNodesText} ${cls.otherNodesBorder}`}>Other Nodes</h4>
-              <div className="grid grid-cols-2 gap-x-1 gap-y-0.5">
-                {Object.entries(NodeType)
-                  .filter(([k]) => ![NodeType.CUSTOM].includes(k as NodeType))
-                  .map(([key, type]) => (
-                    <div key={key} draggable onDragStart={(e) => onDragStart(e, type as NodeType)} className={`flex items-center space-x-2 p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent ${isDark ? 'hover:bg-slate-800 hover:border-slate-700' : 'hover:bg-slate-100 hover:border-slate-200'}`}>
-                      <div className="flex-shrink-0 scale-75">{renderPin(type as NodeType, false)}</div>
-                      <span className={`text-[9px] font-bold truncate ${cls.otherNodesItemText}`}>{NODE_SYMBOL_MAP[type as NodeType].label}</span>
-                    </div>
-                  ))
-                }
-              </div>
-            </div>
+              );
+            })}
 
           </div>
         </div>
