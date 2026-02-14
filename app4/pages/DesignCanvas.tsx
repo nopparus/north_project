@@ -108,7 +108,7 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
   // ── TER materials ──────────────────────────────────────────────────────────
   const terMaterials = useMemo(() =>
     materials.filter(m => m.symbol_group?.trim().toUpperCase().startsWith('TER')),
-  [materials]);
+    [materials]);
 
   const terGroups = useMemo(() => {
     const groups: Record<string, Material[]> = {};
@@ -619,8 +619,9 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
 
         <div className={`flex-grow overflow-y-auto ${cls.catalogBg}`}>
           <div className="p-3">
-            <CatalogSection title="Professional Symbols" description="General Plan Standard" types={[NodeType.EXCHANGE, NodeType.CABINET, NodeType.ODP, NodeType.STRAIGHT_JOINT, NodeType.BRANCH_JOINT]} />
-            <CatalogSection title="Classic Markers" types={[NodeType.TOT_POLE, NodeType.MANHOLE, NodeType.DP, NodeType.SDP, NodeType.RISER, NodeType.AIS]} />
+
+
+
 
             {customIconsGrouped.map(([category, groupIcons]) => (
               <div key={category} className="mt-6">
@@ -643,12 +644,11 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
                 </div>
               </div>
             ))}
-
             <div className="mt-6">
               <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 px-1 border-l-2 pl-3 ${cls.otherNodesText} ${cls.otherNodesBorder}`}>Other Nodes</h4>
               <div className="grid grid-cols-2 gap-x-1 gap-y-0.5">
                 {Object.entries(NodeType)
-                  .filter(([k]) => ![NodeType.EXCHANGE, NodeType.CABINET, NodeType.STRAIGHT_JOINT, NodeType.BRANCH_JOINT, NodeType.ODP, NodeType.SDP, NodeType.TOT_POLE, NodeType.MANHOLE, NodeType.DP, NodeType.RISER, NodeType.AIS, NodeType.CUSTOM].includes(k as NodeType))
+                  .filter(([k]) => ![NodeType.CUSTOM].includes(k as NodeType))
                   .map(([key, type]) => (
                     <div key={key} draggable onDragStart={(e) => onDragStart(e, type as NodeType)} className={`flex items-center space-x-2 p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent ${isDark ? 'hover:bg-slate-800 hover:border-slate-700' : 'hover:bg-slate-100 hover:border-slate-200'}`}>
                       <div className="flex-shrink-0 scale-75">{renderPin(type as NodeType, false)}</div>
@@ -658,6 +658,7 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
                 }
               </div>
             </div>
+
           </div>
         </div>
 

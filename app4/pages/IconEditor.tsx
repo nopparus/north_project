@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { CustomIcon, IconDot, Material } from '../types';
-import { Plus, Trash2, Save, Palette, Info, Upload, Download, Eraser, Pipette, Tag, Lock, Shield } from 'lucide-react';
+import { Plus, Trash2, Save, Palette, Info, Upload, Download, Eraser, Pipette, Tag, Lock, Shield, Copy, Unlock } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface IconEditorProps {
@@ -214,17 +214,35 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
     }
   };
 
-  const saveIcon = () => {
+  const saveIcon = async () => {
     if (!activeIcon) return;
     const dataUrl = generateDataUrl(activeIcon.dots);
     const updatedIcon = { ...activeIcon, dataUrl };
 
-    setIcons(prev => {
-      const exists = prev.find(i => i.id === activeIcon.id);
-      if (exists) return prev.map(i => i.id === activeIcon.id ? updatedIcon : i);
-      return [...prev, updatedIcon];
-    });
-    alert('Icon definition saved successfully.');
+    try {
+      // Check if it exists in current state to decide POST vs PUT
+      // Note: activeIcon.id is generated with Date.now() in createNew, technically unique.
+      // But if we clicked an existing one, it matches.
+      const isExisting = icons.some(i => i.id === activeIcon.id);
+      const url = isExisting ? `api/icons/${activeIcon.id}` : 'api/icons';
+      const method = isExisting ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedIcon)
+      });
+      if (!res.ok) throw new Error('Failed to save to server');
+
+      setIcons(prev => {
+        if (isExisting) return prev.map(i => i.id === activeIcon.id ? updatedIcon : i);
+        return [...prev, updatedIcon];
+      });
+      alert('Icon definition saved to server.');
+    } catch (e: any) {
+      console.error(e);
+      alert('Error saving icon: ' + e.message);
+    }
   };
 
   const handleImageImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -271,6 +289,60 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
     link.click();
   };
 
+  const handleDuplicate = async () => {
+    if (!activeIcon) return;
+    if (!confirm(`Duplicate "${activeIcon.name}"?`)) return;
+
+    const newIcon: CustomIcon = {
+      ...activeIcon,
+      id: `custom-${Date.now()}`, // Ensure new ID
+      name: `${activeIcon.name} (Copy)`,
+      isSystem: false, // Always custom
+    };
+
+    try {
+      const res = await fetch('api/icons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newIcon)
+      });
+      if (!res.ok) throw new Error('Failed to save duplicate');
+
+      setIcons(prev => [...prev, newIcon]);
+      setActiveIcon(newIcon);
+    } catch (err: any) {
+      console.error(err);
+      alert('Error duplication icon: ' + err.message);
+    }
+  };
+
+  const handleToggleLock = async () => {
+    if (!activeIcon) return;
+    const newSystemState = !activeIcon.isSystem;
+    const msg = newSystemState
+      ? "Lock this icon? It will become a read-only Standard Symbol."
+      : "Unlock this icon? It will become an editable Custom Icon.";
+
+    if (!confirm(msg)) return;
+
+    const updated = { ...activeIcon, isSystem: newSystemState };
+
+    try {
+      const res = await fetch(`api/icons/${activeIcon.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated)
+      });
+      if (!res.ok) throw new Error('Failed to update status');
+
+      setIcons(prev => prev.map(i => i.id === activeIcon.id ? updated : i));
+      setActiveIcon(updated);
+    } catch (err: any) {
+      console.error(err);
+      alert('Error updating lock status: ' + err.message);
+    }
+  };
+
   return (
     <div className={`flex h-full overflow-hidden ${cls.root}`}>
       <div className={`w-80 border-r p-6 overflow-y-auto flex flex-col ${cls.sidebar}`}>
@@ -281,7 +353,7 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
             className="p-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-shadow shadow-lg shadow-blue-900/40"
             aria-label="Create new icon"
           >
-            <Plus size={20}/>
+            <Plus size={20} />
           </button>
         </div>
 
@@ -353,11 +425,22 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
                   </div>
                 </div>
                 <button
-                  onClick={(e) => { e.stopPropagation(); if(confirm('Delete?')) setIcons(prev => prev.filter(i => i.id !== icon.id)); }}
+                  onClick={async (e) => {
+                    e.stopPropagation();
+                    if (!confirm('Delete?')) return;
+                    try {
+                      const res = await fetch(`api/icons/${icon.id}`, { method: 'DELETE' });
+                      if (!res.ok) throw new Error('Failed to delete');
+                      setIcons(prev => prev.filter(i => i.id !== icon.id));
+                    } catch (err) {
+                      alert('Error deleting icon');
+                      console.error(err);
+                    }
+                  }}
                   className={`p-1.5 transition-colors ${cls.deleteBtn}`}
                   aria-label={`Delete icon ${icon.name}`}
                 >
-                  <Trash2 size={14}/>
+                  <Trash2 size={14} />
                 </button>
               </div>
             </div>
@@ -421,6 +504,25 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
                 </div>
                 <p className={`text-[9px] mt-2 font-medium px-1 ${cls.metaHint}`}>เชื่อมสัญลักษณ์นี้กับกลุ่มวัสดุ เพื่อกรองรายการวัสดุในหน้าออกแบบ</p>
               </div>
+
+              {/* Actions */}
+              <div className="mt-8 grid grid-cols-2 gap-4">
+                <button
+                  onClick={handleDuplicate}
+                  className={`flex flex-col items-center justify-center p-4 rounded-2xl transition-all border ${isDark ? 'bg-slate-800 border-slate-700 hover:bg-slate-700' : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'} shadow-sm`}
+                >
+                  <Copy size={20} className={isDark ? 'text-blue-400' : 'text-blue-600'} />
+                  <span className={`text-[10px] font-black uppercase tracking-widest mt-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Duplicate</span>
+                </button>
+
+                <button
+                  onClick={handleToggleLock}
+                  className={`flex flex-col items-center justify-center p-4 rounded-2xl transition-all border ${isDark ? 'bg-slate-800 border-slate-700 hover:bg-slate-700' : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'} shadow-sm group`}
+                >
+                  <Unlock size={20} className="text-amber-500 group-hover:text-amber-400" />
+                  <span className={`text-[10px] font-black uppercase tracking-widest mt-2 ${isDark ? 'text-slate-300' : 'text-slate-600'}`}>Unlock</span>
+                </button>
+              </div>
             </div>
           </div>
         ) : activeIcon ? (
@@ -428,62 +530,62 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
             <div className="flex-grow">
               <div className={`p-8 rounded-[40px] shadow-2xl border ${cls.editorCard}`}>
                 <div className="flex items-center justify-between mb-8">
-                   <div className="flex items-center space-x-4">
-                     <div className={`p-3 rounded-2xl ${isDark ? 'bg-blue-900/40 text-blue-400' : 'bg-blue-50 text-blue-600'}`}>
-                       <Palette size={24} />
-                     </div>
-                     <div>
-                       <h3 className={`text-xl font-black tracking-tight ${cls.editorTitle}`}>Bitmap Editor</h3>
-                       <p className={`text-[10px] font-bold uppercase tracking-widest ${cls.editorSubtitle}`}>50 x 50 High Resolution</p>
-                     </div>
-                   </div>
+                  <div className="flex items-center space-x-4">
+                    <div className={`p-3 rounded-2xl ${isDark ? 'bg-blue-900/40 text-blue-400' : 'bg-blue-50 text-blue-600'}`}>
+                      <Palette size={24} />
+                    </div>
+                    <div>
+                      <h3 className={`text-xl font-black tracking-tight ${cls.editorTitle}`}>Bitmap Editor</h3>
+                      <p className={`text-[10px] font-bold uppercase tracking-widest ${cls.editorSubtitle}`}>50 x 50 High Resolution</p>
+                    </div>
+                  </div>
 
-                   <div className="flex items-center space-x-4">
-                     <div className={`flex items-center rounded-2xl p-2 space-x-2 border ${cls.toolbarBg}`} role="toolbar" aria-label="Color tools">
-                       <div className={`flex space-x-1 pr-2 border-r ${cls.colorDivider}`}>
-                         {PRESET_COLORS.map(c => (
-                           <button
-                             key={c}
-                             onClick={() => setSelectedColor(c)}
-                             className={`w-6 h-6 rounded-full border-2 transition-all ${selectedColor === c ? 'border-white ring-2 ring-blue-500 scale-110 shadow-sm' : 'border-transparent'}`}
-                             style={{ backgroundColor: c }}
-                             aria-label={`Select preset color ${c}`}
-                             aria-pressed={selectedColor === c}
-                           />
-                         ))}
-                       </div>
+                  <div className="flex items-center space-x-4">
+                    <div className={`flex items-center rounded-2xl p-2 space-x-2 border ${cls.toolbarBg}`} role="toolbar" aria-label="Color tools">
+                      <div className={`flex space-x-1 pr-2 border-r ${cls.colorDivider}`}>
+                        {PRESET_COLORS.map(c => (
+                          <button
+                            key={c}
+                            onClick={() => setSelectedColor(c)}
+                            className={`w-6 h-6 rounded-full border-2 transition-all ${selectedColor === c ? 'border-white ring-2 ring-blue-500 scale-110 shadow-sm' : 'border-transparent'}`}
+                            style={{ backgroundColor: c }}
+                            aria-label={`Select preset color ${c}`}
+                            aria-pressed={selectedColor === c}
+                          />
+                        ))}
+                      </div>
 
-                       <div className="flex items-center space-x-2 pl-1">
-                         <div className="relative flex items-center">
-                            <input
-                              ref={colorPickerRef}
-                              type="color"
-                              className="absolute opacity-0 w-8 h-8 cursor-pointer"
-                              value={selectedColor === '#ffffff' ? '#000000' : selectedColor}
-                              onChange={(e) => setSelectedColor(e.target.value)}
-                              aria-label="Custom color picker"
-                            />
-                            <button
-                              className={`w-8 h-8 rounded-lg flex items-center justify-center border-2 transition-all ${selectedColor !== '#ffffff' && !PRESET_COLORS.includes(selectedColor) ? 'border-white ring-2 ring-blue-500 shadow-sm' : isDark ? 'bg-slate-700 border-slate-600' : 'bg-slate-200 border-slate-300'}`}
-                              style={{ backgroundColor: selectedColor !== '#ffffff' ? selectedColor : undefined }}
-                              onClick={() => colorPickerRef.current?.click()}
-                              aria-label={`Current custom color: ${selectedColor}`}
-                            >
-                              <Pipette size={14} className={selectedColor === '#ffffff' ? (isDark ? 'text-slate-400' : 'text-slate-500') : 'text-white mix-blend-difference'} />
-                            </button>
-                         </div>
+                      <div className="flex items-center space-x-2 pl-1">
+                        <div className="relative flex items-center">
+                          <input
+                            ref={colorPickerRef}
+                            type="color"
+                            className="absolute opacity-0 w-8 h-8 cursor-pointer"
+                            value={selectedColor === '#ffffff' ? '#000000' : selectedColor}
+                            onChange={(e) => setSelectedColor(e.target.value)}
+                            aria-label="Custom color picker"
+                          />
+                          <button
+                            className={`w-8 h-8 rounded-lg flex items-center justify-center border-2 transition-all ${selectedColor !== '#ffffff' && !PRESET_COLORS.includes(selectedColor) ? 'border-white ring-2 ring-blue-500 shadow-sm' : isDark ? 'bg-slate-700 border-slate-600' : 'bg-slate-200 border-slate-300'}`}
+                            style={{ backgroundColor: selectedColor !== '#ffffff' ? selectedColor : undefined }}
+                            onClick={() => colorPickerRef.current?.click()}
+                            aria-label={`Current custom color: ${selectedColor}`}
+                          >
+                            <Pipette size={14} className={selectedColor === '#ffffff' ? (isDark ? 'text-slate-400' : 'text-slate-500') : 'text-white mix-blend-difference'} />
+                          </button>
+                        </div>
 
-                         <button
-                           onClick={() => setSelectedColor('#ffffff')}
-                           className={`w-8 h-8 rounded-lg flex items-center justify-center border-2 transition-all ${selectedColor === '#ffffff' ? 'bg-slate-300 border-slate-300 ring-2 ring-blue-500 shadow-sm' : isDark ? 'bg-slate-700 border-slate-600 hover:bg-slate-600' : 'bg-slate-200 border-slate-300 hover:bg-slate-300'}`}
-                           aria-label="Eraser tool"
-                           aria-pressed={selectedColor === '#ffffff'}
-                         >
-                           <Eraser size={14} className={isDark ? 'text-slate-400' : 'text-slate-500'} />
-                         </button>
-                       </div>
-                     </div>
-                   </div>
+                        <button
+                          onClick={() => setSelectedColor('#ffffff')}
+                          className={`w-8 h-8 rounded-lg flex items-center justify-center border-2 transition-all ${selectedColor === '#ffffff' ? 'bg-slate-300 border-slate-300 ring-2 ring-blue-500 shadow-sm' : isDark ? 'bg-slate-700 border-slate-600 hover:bg-slate-600' : 'bg-slate-200 border-slate-300 hover:bg-slate-300'}`}
+                          aria-label="Eraser tool"
+                          aria-pressed={selectedColor === '#ffffff'}
+                        >
+                          <Eraser size={14} className={isDark ? 'text-slate-400' : 'text-slate-500'} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="relative group">
@@ -510,7 +612,7 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
             <div className="w-[320px] space-y-6">
               <div className={`p-6 rounded-[32px] shadow-xl border ${cls.metaCard}`}>
                 <h4 className={`text-[11px] font-black uppercase tracking-widest mb-6 flex items-center ${cls.metaTitle}`}>
-                  <Info size={14} className="mr-2"/> Metadata
+                  <Info size={14} className="mr-2" /> Metadata
                 </h4>
                 <div className="space-y-4">
                   <div>
@@ -526,8 +628,8 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
                   <div>
                     <label htmlFor="material-group" className={`block text-[10px] font-black uppercase tracking-widest mb-1.5 ml-1 ${cls.labelText}`}>กลุ่มสัญลักษณ์ / Associated Group</label>
                     <div className="relative">
-                       <Tag size={16} className={`absolute left-4 top-1/2 -translate-y-1/2 ${cls.selectIcon}`} />
-                       <select
+                      <Tag size={16} className={`absolute left-4 top-1/2 -translate-y-1/2 ${cls.selectIcon}`} />
+                      <select
                         id="material-group"
                         className={`w-full border rounded-xl pl-12 pr-4 py-3 text-sm font-bold outline-none ${cls.selectBg}`}
                         value={activeIcon.associatedCategory}
@@ -578,6 +680,23 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
                   <Save size={18} />
                   <span>Save Definition</span>
                 </button>
+
+                <div className="grid grid-cols-2 gap-3 mt-4">
+                  <button
+                    onClick={handleDuplicate}
+                    className={`flex items-center justify-center space-x-2 p-3 rounded-xl transition-colors ${cls.actionBtn}`}
+                  >
+                    <Copy size={14} />
+                    <span className="text-[10px] font-bold uppercase">Duplicate</span>
+                  </button>
+                  <button
+                    onClick={handleToggleLock}
+                    className={`flex items-center justify-center space-x-2 p-3 rounded-xl transition-colors ${cls.actionBtn} hover:text-amber-500`}
+                  >
+                    <Lock size={14} />
+                    <span className="text-[10px] font-bold uppercase">Lock</span>
+                  </button>
+                </div>
               </div>
 
               <div className={`p-8 rounded-[32px] shadow-2xl border ${cls.previewCard}`}>
@@ -587,15 +706,15 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
                 </div>
                 <div className="flex flex-col items-center">
                   <div className={`w-32 h-32 rounded-2xl p-4 flex items-center justify-center border shadow-inner overflow-hidden mb-4 ${cls.previewImgBg}`} aria-label="Icon preview area">
-                     {activeIcon.dots.length > 0 ? (
-                       <img
+                    {activeIcon.dots.length > 0 ? (
+                      <img
                         src={generateDataUrl(activeIcon.dots)}
                         className="w-full h-full object-contain image-pixelated"
                         alt={`Preview of icon ${activeIcon.name}`}
-                       />
-                     ) : (
-                       <div className={`text-xs italic font-bold ${cls.previewEmpty}`}>Canvas Empty</div>
-                     )}
+                      />
+                    ) : (
+                      <div className={`text-xs italic font-bold ${cls.previewEmpty}`}>Canvas Empty</div>
+                    )}
                   </div>
                   <div className="text-center">
                     <div className={`text-sm font-black truncate max-w-[200px] ${cls.previewName}`}>{activeIcon.name || 'Untitled'}</div>

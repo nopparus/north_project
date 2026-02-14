@@ -1,0 +1,209 @@
+[
+  {
+    "id": "sample-1",
+    "name": "โครงการ FTTH Aerial - Zone A",
+    "description": "ติดตั้งสาย Fiber Optic แบบ Aerial 12F-SM/ADSS-FR สำหรับ FTTH บ้านพักอาศัย",
+    "createdAt": "2025-01-15T08:00:00.000Z",
+    "state": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "EXCHANGE",
+          "x": 80,
+          "y": 250,
+          "label": "EXC-CNX-01"
+        },
+        {
+          "id": "n2",
+          "type": "TOT_POLE",
+          "x": 280,
+          "y": 150,
+          "label": "POLE-001",
+          "materialId": 1
+        },
+        {
+          "id": "n3",
+          "type": "ODP",
+          "x": 480,
+          "y": 200,
+          "label": "ODP-001",
+          "materialId": 175
+        },
+        {
+          "id": "n4",
+          "type": "SDP",
+          "x": 680,
+          "y": 300,
+          "label": "SDP-001",
+          "materialId": 185
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "source": "n1",
+          "target": "n2",
+          "materialId": 26,
+          "distance": 500
+        },
+        {
+          "id": "e2",
+          "source": "n2",
+          "target": "n3",
+          "materialId": 26,
+          "distance": 300
+        },
+        {
+          "id": "e3",
+          "source": "n3",
+          "target": "n4",
+          "materialId": 26,
+          "distance": 200
+        }
+      ]
+    }
+  },
+  {
+    "id": "sample-2",
+    "name": "โครงการ Duct Backbone - City Center",
+    "description": "วางสาย Fiber Optic แบบ Duct 48F-SM/D สำหรับ Backbone ใต้ดิน",
+    "createdAt": "2025-02-01T08:00:00.000Z",
+    "state": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "EXCHANGE",
+          "x": 100,
+          "y": 300,
+          "label": "EXC-CITY-01"
+        },
+        {
+          "id": "n2",
+          "type": "STRAIGHT_JOINT",
+          "x": 300,
+          "y": 250,
+          "label": "Inline-001",
+          "materialId": 171
+        },
+        {
+          "id": "n3",
+          "type": "OFCCC",
+          "x": 500,
+          "y": 200,
+          "label": "OFCCC-001",
+          "materialId": 158
+        },
+        {
+          "id": "n4",
+          "type": "CABINET",
+          "x": 700,
+          "y": 300,
+          "label": "FDF-001",
+          "materialId": 126
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "source": "n1",
+          "target": "n2",
+          "materialId": 74,
+          "distance": 800
+        },
+        {
+          "id": "e2",
+          "source": "n2",
+          "target": "n3",
+          "materialId": 74,
+          "distance": 600
+        },
+        {
+          "id": "e3",
+          "source": "n3",
+          "target": "n4",
+          "materialId": 74,
+          "distance": 400
+        }
+      ]
+    }
+  },
+  {
+    "id": "sample-3",
+    "name": "โครงการ FTTB - Office Building",
+    "description": "ติดตั้ง Fiber Optic แบบ Building 12F-SM/ADSS-FR สำหรับอาคารสำนักงาน",
+    "createdAt": "2025-03-01T08:00:00.000Z",
+    "state": {
+      "nodes": [
+        {
+          "id": "n1",
+          "type": "EXCHANGE",
+          "x": 100,
+          "y": 300,
+          "label": "EXC-BLD-01"
+        },
+        {
+          "id": "n2",
+          "type": "OFCCC",
+          "x": 350,
+          "y": 200,
+          "label": "iFDT-001",
+          "materialId": 143
+        },
+        {
+          "id": "n3",
+          "type": "ODP",
+          "x": 550,
+          "y": 150,
+          "label": "ODP-BLD-01",
+          "materialId": 175
+        },
+        {
+          "id": "n4",
+          "type": "SDP",
+          "x": 750,
+          "y": 250,
+          "label": "SDP-FL01",
+          "materialId": 185
+        },
+        {
+          "id": "n5",
+          "type": "SDP",
+          "x": 750,
+          "y": 400,
+          "label": "SDP-FL02",
+          "materialId": 185
+        }
+      ],
+      "edges": [
+        {
+          "id": "e1",
+          "source": "n1",
+          "target": "n2",
+          "materialId": 99,
+          "distance": 200
+        },
+        {
+          "id": "e2",
+          "source": "n2",
+          "target": "n3",
+          "materialId": 99,
+          "distance": 150
+        },
+        {
+          "id": "e3",
+          "source": "n3",
+          "target": "n4",
+          "materialId": 99,
+          "distance": 100
+        },
+        {
+          "id": "e4",
+          "source": "n3",
+          "target": "n5",
+          "materialId": 99,
+          "distance": 120
+        }
+      ]
+    }
+  }
+]

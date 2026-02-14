@@ -113,6 +113,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Route: /app4/api/* -> Proxy to Express API
+  if (pathname.startsWith('/app4/api/')) {
+    // We can forward the request as is, because app4/server acts on /app4/api too
+    apiProxy.web(req, res);
+    return;
+  }
+
   // Route: /api/* -> Proxy to Express API
   if (pathname.startsWith('/api/')) {
     apiProxy.web(req, res);

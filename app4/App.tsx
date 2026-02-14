@@ -1,16 +1,16 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Layout, Database, FileText, PenTool, Printer, Save, Palette, Shield, User, ShieldCheck, Sun, Moon, ChevronDown, FolderOpen, Plus, Trash2, Map, Upload } from 'lucide-react';
+import { Layout, Database, FileText, PenTool, Printer, Save, Palette, Shield, User, ShieldCheck, Sun, Moon, ChevronDown, FolderOpen, Plus, Trash2, Map as MapIcon, Upload } from 'lucide-react';
 import DesignCanvas from './pages/DesignCanvas';
 import DatabasePage from './pages/Database';
 import BOQSummary from './pages/BOQSummary';
 import IconEditor from './pages/IconEditor';
 import NetworkPrintModal from './pages/NetworkPrintModal';
-import { INITIAL_MATERIALS, SYSTEM_ICONS, NODE_SYMBOL_MAP } from './constants';
+import { SYSTEM_ICONS, NODE_SYMBOL_MAP } from './constants';
 import { ProjectState, Material, CustomIcon, IconDot, SavedProject } from './types';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
-import { SAMPLE_PROJECTS } from './materials-db';
+
 
 const generateBox = (xStart: number, yStart: number, width: number, height: number, color: string): IconDot[] => {
   const dots: IconDot[] = [];
@@ -40,51 +40,139 @@ const AppContent: React.FC = () => {
     return localStorage.getItem('fiber_is_admin') === 'true';
   });
 
-  const [materials, setMaterials] = useState<Material[]>(() => {
-    const MATERIALS_VERSION = '3.2'; // bumped: added symbol_group to source data
-    const savedVersion = localStorage.getItem('fiber_materials_version');
-    if (savedVersion !== MATERIALS_VERSION) {
-      localStorage.setItem('fiber_materials_version', MATERIALS_VERSION);
-      localStorage.removeItem('fiber_materials');
-      return INITIAL_MATERIALS;
-    }
-    const saved = localStorage.getItem('fiber_materials');
-    if (!saved) return INITIAL_MATERIALS;
-    // Merge symbol_group from source into saved materials (preserves user edits)
-    const parsed: Material[] = JSON.parse(saved);
-    const srcMap = new Map(INITIAL_MATERIALS.map(m => [m.id, m]));
-    return parsed.map(m => ({
-      ...m,
-      symbol_group: m.symbol_group ?? srcMap.get(m.id)?.symbol_group ?? '',
-    }));
-  });
+  /* 
+   * Materials State Management (Migrated to Server-Side DB)
+   * 
+   * OLD LOGIC: Read from localStorage -> if empty, use INITIAL_MATERIALS
+   * NEW LOGIC: Initialize empty array -> Fetch from API on mount
+   */
+  const [materials, setMaterials] = useState<Material[]>([]);
+  const isMaterialLoaded = useRef(false);
 
-  const [icons, setIcons] = useState<CustomIcon[]>(() => {
-    const saved = localStorage.getItem('fiber_icons');
-    // Load user-created icons (filter out old sys-* or isSystem entries from storage)
-    const userIcons: CustomIcon[] = saved
-      ? (JSON.parse(saved) as CustomIcon[]).filter(i => !i.isSystem && !i.id.startsWith('sys-'))
-      : [];
-    // Always prepend the built-in system icons
-    return [...SYSTEM_ICONS, ...userIcons];
-  });
+  // Fetch materials from API on startup
+  useEffect(() => {
+    if (isMaterialLoaded.current) return;
+    isMaterialLoaded.current = true;
 
-  const [savedProjects, setSavedProjects] = useState<SavedProject[]>(() => {
-    const saved = localStorage.getItem('fiber_saved_projects');
-    if (saved) {
-      try { return JSON.parse(saved); } catch { return SAMPLE_PROJECTS; }
-    }
-    return SAMPLE_PROJECTS;
-  });
+    fetch('api/materials')
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to fetch materials');
+        return res.json();
+      })
+      .then(data => {
+        // Convert numeric strings to numbers if DB returns them as strings (pg default for decimal)
+        const parsed = data.map((m: any) => ({
+          ...m,
+          id: Number(m.id),
+          unit_price: Number(m.unit_price),
+          cable_unit_price: Number(m.cable_unit_price),
+          labor_unit_price: Number(m.labor_unit_price),
+        }));
+        setMaterials(parsed);
+      })
+      .catch(err => {
+        console.error("Error loading materials:", err);
+        // User requested "Database on server only", so we do NOT fall back to local constants.
+        // We set empty list or handle error UI.
+        setMaterials([]);
+      });
+  }, []);
+
+  // Icons state - initially just system icons until fetched
+  const [icons, setIcons] = useState<CustomIcon[]>(SYSTEM_ICONS);
+  const isIconsLoaded = useRef(false);
+
+  useEffect(() => {
+    if (isIconsLoaded.current) return;
+    isIconsLoaded.current = true;
+
+    const fetchAndMigrateIcons = async () => {
+      try {
+        const res = await fetch('api/icons');
+        if (!res.ok) throw new Error('Failed to fetch icons');
+        const serverIcons: CustomIcon[] = await res.json();
+
+        // Migration Check: If server empty but localStorage has data
+        const localSaved = localStorage.getItem('fiber_icons');
+        if (serverIcons.length === 0 && localSaved) {
+          try {
+            const parsed = JSON.parse(localSaved);
+            if (Array.isArray(parsed)) {
+              const userIcons = parsed.filter((i: any) => !i.isSystem && !i.id.startsWith('sys-'));
+              if (userIcons.length > 0) {
+                console.log("Migrating icons to server...");
+                // Migrate one by one
+                for (const icon of userIcons) {
+                  await fetch('api/icons', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(icon)
+                  });
+                }
+                const newRes = await fetch('api/icons');
+                const newIcons = await newRes.json();
+                setIcons([...SYSTEM_ICONS, ...newIcons]);
+                // localStorage.removeItem('fiber_icons'); // Optional: keep as backup or remove? prefer remove to be clean
+                return;
+              }
+            }
+          } catch (e) {
+            console.error("Migration failed:", e);
+          }
+        }
+
+        // Normal load
+        setIcons([...SYSTEM_ICONS, ...serverIcons]);
+      } catch (err) {
+        console.error("Error loading icons:", err);
+      }
+    };
+
+    fetchAndMigrateIcons();
+  }, []);
+
+  const [savedProjects, setSavedProjects] = useState<SavedProject[]>([]);
+
+  // Fetch projects from server on mount
+  useEffect(() => {
+    fetch('api/projects')
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          // Parse state if it's a string (though our API parses it before sending, check index.js)
+          // The API we wrote: res.json(projects) where project.state is already parsed.
+          // But let's be safe.
+          setSavedProjects(data);
+
+          // If we have an active ID in LS (or just use first), set it.
+          // User might want to keep active ID logic or reset. 
+          // Let's keep active ID in LS for convenience (it's essentially a session preference), 
+          // or just pick the first one. User said "Remove client DB", session prefs are usually ok.
+          // But to be strict, let's just pick the first one if the current active one isn't found.
+          const storedId = localStorage.getItem('fiber_active_project_id');
+          const found = data.find((p: any) => p.id === storedId);
+          if (found) {
+            // It will be set by state initializer? No, initializer ran already.
+            // We need to set it here if we want to ensure it matches.
+            // But activeProjectId state is already set.
+          } else if (data.length > 0) {
+            setActiveProjectId(data[0].id);
+          }
+        }
+      })
+      .catch(err => console.error("Failed to load projects:", err));
+  }, []);
 
   const [activeProjectId, setActiveProjectId] = useState<string>(() =>
-    localStorage.getItem('fiber_active_project_id') || SAMPLE_PROJECTS[0].id
+    localStorage.getItem('fiber_active_project_id') || ''
   );
 
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
   const [showNetworkPrint, setShowNetworkPrint] = useState(false);
   const [kmlExporting, setKmlExporting] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<SavedProject | null>(null);
   const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
   const [saveFileName, setSaveFileName] = useState('');
   const [newProjectName, setNewProjectName] = useState('');
@@ -94,16 +182,8 @@ const AppContent: React.FC = () => {
   const [newProjectWorkType, setNewProjectWorkType] = useState<'ทดแทนของเดิม' | 'ขอพาดสายสื่อสารใหม่'>('ทดแทนของเดิม');
 
   const [project, setProject] = useState<ProjectState>(() => {
-    const saved = localStorage.getItem('fiber_saved_projects');
-    if (saved) {
-      try {
-        const projects: SavedProject[] = JSON.parse(saved);
-        const activeId = localStorage.getItem('fiber_active_project_id') || SAMPLE_PROJECTS[0].id;
-        const active = projects.find(p => p.id === activeId);
-        if (active) return active.state;
-      } catch {}
-    }
-    return SAMPLE_PROJECTS[0].state;
+    // Initial state can be empty or default, will be populated by useEffect when savedProjects loads
+    return { nodes: [], edges: [] };
   });
 
   const isLoadingProject = useRef(false);
@@ -124,22 +204,43 @@ const AppContent: React.FC = () => {
       isLoadingProject.current = false;
       return;
     }
+
+    // 1. Update local list state for UI responsiveness
     setSavedProjects(prev => prev.map(p =>
       p.id === activeProjectId ? { ...p, state: project } : p
     ));
+
+    // 2. Debounce save to server
+    const timer = setTimeout(() => {
+      const currentProj = savedProjects.find(p => p.id === activeProjectId);
+      if (currentProj) {
+        // Construct the payload. Note: currentProj from closure might be stale regarding 'state',
+        // but we have the latest 'project' state here.
+        // We need updated metadata (name etc) which might have changed?
+        // Usually only state changes here.
+
+        // To be safe, we should use functional update or refs, but for now:
+        const payload = { ...currentProj, state: project };
+
+        fetch(`api/projects/${activeProjectId}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).catch(e => console.error("Auto-save failed:", e));
+      }
+    }, 1000);
+
+    return () => clearTimeout(timer);
   }, [project]);
 
-  useEffect(() => {
-    localStorage.setItem('fiber_saved_projects', JSON.stringify(savedProjects));
-  }, [savedProjects]);
+  // Removed localStorage sync
+  // useEffect(() => {
+  //   localStorage.setItem('fiber_saved_projects', JSON.stringify(savedProjects));
+  // }, [savedProjects]);
 
   useEffect(() => {
     localStorage.setItem('fiber_active_project_id', activeProjectId);
   }, [activeProjectId]);
-
-  useEffect(() => {
-    localStorage.setItem('fiber_materials', JSON.stringify(materials));
-  }, [materials]);
 
   useEffect(() => {
     // Only persist user-created icons; system icons are always regenerated from SYSTEM_ICONS constant
@@ -207,11 +308,26 @@ const AppContent: React.FC = () => {
     reader.onload = ev => {
       try {
         const data = JSON.parse(ev.target?.result as string) as SavedProject;
+        // Basic validation
         if (!data.state || !Array.isArray(data.state.nodes)) throw new Error('ไฟล์ไม่ถูกต้อง');
+
         const newId = `proj-${Date.now()}`;
         const imported: SavedProject = { ...data, id: newId, name: data.name || file.name.replace('.json', '') };
+
+        // Optimistic update
         setSavedProjects(prev => [...prev, imported]);
         setActiveProjectId(newId);
+
+        // Sync to Server
+        fetch('api/projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(imported)
+        }).catch(err => {
+          console.error("Import sync failed:", err);
+          alert("บันทึกไปยัง Server ไม่สำเร็จ แต่ใช้งานได้ชั่วคราว");
+        });
+
       } catch (err: any) {
         alert(`นำเข้าไม่สำเร็จ: ${err.message}`);
       }
@@ -240,21 +356,58 @@ const AppContent: React.FC = () => {
       area: newProjectArea,
       workType: newProjectWorkType,
     };
+
+    // Optimistic update
     setSavedProjects(prev => [...prev, newProj]);
     setActiveProjectId(id);
+
     setIsNewProjectModalOpen(false);
     setNewProjectName('');
     setNewProjectProvince('');
     setNewProjectBudgetYear(String(new Date().getFullYear() + 544));
     setNewProjectArea('');
     setNewProjectWorkType('ทดแทนของเดิม');
+
+    // Server Sync
+    fetch('api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newProj)
+    }).catch(err => console.error("Create project failed:", err));
   };
 
   const handleDeleteProject = (id: string) => {
-    if (savedProjects.length <= 1) return;
-    const remaining = savedProjects.filter(p => p.id !== id);
+    const proj = savedProjects.find(p => p.id === id);
+    if (!proj) return;
+
+    setProjectToDelete(proj);
+    setIsDeleteModalOpen(true);
+  };
+
+  const confirmDeleteProject = () => {
+    if (!projectToDelete) return;
+
+    const remaining = savedProjects.filter(p => p.id !== projectToDelete.id);
     setSavedProjects(remaining);
-    if (activeProjectId === id) setActiveProjectId(remaining[0].id);
+
+    if (activeProjectId === projectToDelete.id) {
+      if (remaining.length > 0) {
+        setActiveProjectId(remaining[0].id);
+      } else {
+        setActiveProjectId('');
+        // Reset project state to empty
+        setProject({ nodes: [], edges: [] });
+        // Remove from local storage
+        localStorage.removeItem('fiber_active_project_id');
+      }
+    }
+
+    // Server Sync
+    fetch(`api/projects/${projectToDelete.id}`, { method: 'DELETE' })
+      .catch(err => console.error("Delete failed:", err));
+
+    setIsDeleteModalOpen(false);
+    setProjectToDelete(null);
   };
 
   // ── KML Export ────────────────────────────────────────────────────────────
@@ -313,7 +466,7 @@ const AppContent: React.FC = () => {
       DP: 'ff0040c0', BRANCH_JOINT: 'ff606060', STRAIGHT_JOINT: 'ff808080',
     };
 
-    const nodeStyles = [...new Set(nodesWithCoords.map(n => n.type))].map(type => {
+    const nodeStyles = [...new Set(nodesWithCoords.map(n => n.type))].map((type: any) => {
       const color = typeColor[type] || 'ff0000ff';
       return `    <Style id="s-${type}">
       <IconStyle>
@@ -417,12 +570,12 @@ ${edgesKML}
       >
         {kmlExporting ? (
           <>
-            <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56" /></svg>
             <span>กำลัง Route...</span>
           </>
         ) : (
           <>
-            <Map size={16} />
+            <MapIcon size={16} />
             <span>KML</span>
           </>
         )}
@@ -451,13 +604,12 @@ ${edgesKML}
     return (
       <Link
         to={to}
-        className={`flex items-center space-x-2 px-4 py-2 rounded-md transition-all ${
-          isActive
-            ? 'bg-blue-600 text-white shadow-md'
-            : isDark
-              ? 'text-slate-400 hover:bg-slate-800 hover:text-white'
-              : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
-        }`}
+        className={`flex items-center space-x-2 px-4 py-2 rounded-md transition-all ${isActive
+          ? 'bg-blue-600 text-white shadow-md'
+          : isDark
+            ? 'text-slate-400 hover:bg-slate-800 hover:text-white'
+            : 'text-slate-600 hover:bg-slate-200 hover:text-slate-900'
+          }`}
       >
         <Icon size={18} />
         <span className="font-medium">{label}</span>
@@ -493,11 +645,9 @@ ${edgesKML}
                 {savedProjects.map(p => (
                   <div key={p.id} className={`flex items-center justify-between px-3 py-2.5 cursor-pointer transition-all ${p.id === activeProjectId ? 'bg-blue-600 text-white' : isDark ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'}`}>
                     <span className="text-sm font-medium truncate flex-1" onClick={() => handleSwitchProject(p.id)}>{p.name}</span>
-                    {savedProjects.length > 1 && (
-                      <button onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }} className={`ml-2 p-1 rounded opacity-50 hover:opacity-100 ${p.id === activeProjectId ? 'hover:bg-blue-500' : 'hover:bg-red-500 hover:text-white'}`}>
-                        <Trash2 size={12} />
-                      </button>
-                    )}
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }} className={`ml-2 p-1 rounded opacity-50 hover:opacity-100 ${p.id === activeProjectId ? 'hover:bg-blue-500' : 'hover:bg-red-500 hover:text-white'}`}>
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 ))}
                 <div className={`border-t px-3 py-2 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
@@ -519,35 +669,35 @@ ${edgesKML}
         </nav>
 
         <div className="flex items-center space-x-3">
-           {/* Admin Toggle */}
-           <button
-             onClick={() => setIsAdmin(!isAdmin)}
-             className={`flex items-center space-x-2 px-3 py-1.5 rounded-full transition-all text-xs font-black uppercase tracking-tighter border ${isAdmin ? 'bg-amber-900/30 border-amber-700/50 text-amber-400' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-300 text-slate-500'}`}
-           >
-             {isAdmin ? <ShieldCheck size={14} /> : <User size={14} />}
-             <span>{isAdmin ? 'Admin Mode' : 'User Mode'}</span>
-           </button>
+          {/* Admin Toggle */}
+          <button
+            onClick={() => setIsAdmin(!isAdmin)}
+            className={`flex items-center space-x-2 px-3 py-1.5 rounded-full transition-all text-xs font-black uppercase tracking-tighter border ${isAdmin ? 'bg-amber-900/30 border-amber-700/50 text-amber-400' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-300 text-slate-500'}`}
+          >
+            {isAdmin ? <ShieldCheck size={14} /> : <User size={14} />}
+            <span>{isAdmin ? 'Admin Mode' : 'User Mode'}</span>
+          </button>
 
-           {/* Theme Toggle */}
-           <button
-             onClick={toggleTheme}
-             className={`p-2 rounded-md transition-all ${isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-             aria-label="Toggle light/dark mode"
-           >
-             {isDark ? <Sun size={18} /> : <Moon size={18} />}
-           </button>
+          {/* Theme Toggle */}
+          <button
+            onClick={toggleTheme}
+            className={`p-2 rounded-md transition-all ${isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            aria-label="Toggle light/dark mode"
+          >
+            {isDark ? <Sun size={18} /> : <Moon size={18} />}
+          </button>
 
-           <input ref={importProjectRef} type="file" accept=".json" className="hidden" onChange={handleImportProject} />
-           <button onClick={() => importProjectRef.current?.click()} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="นำเข้าโปรเจกต์จากไฟล์ .json">
+          <input ref={importProjectRef} type="file" accept=".json" className="hidden" onChange={handleImportProject} />
+          <button onClick={() => importProjectRef.current?.click()} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="นำเข้าโปรเจกต์จากไฟล์ .json">
             <Upload size={16} />
             <span>Import</span>
           </button>
-           <button onClick={handleSave} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="บันทึกโปรเจกต์นี้เป็นไฟล์ .json">
+          <button onClick={handleSave} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="บันทึกโปรเจกต์นี้เป็นไฟล์ .json">
             <Save size={16} />
             <span>Save</span>
           </button>
-           <ExportKMLButton />
-           <PrintButton />
+          <ExportKMLButton />
+          <PrintButton />
         </div>
       </header>
 
@@ -638,7 +788,7 @@ ${edgesKML}
                     className={`w-full px-4 py-3 rounded-xl border text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
                   />
                   <datalist id="province-list">
-                    {['กรุงเทพมหานคร','กระบี่','กาญจนบุรี','กาฬสินธุ์','กำแพงเพชร','ขอนแก่น','จันทบุรี','ฉะเชิงเทรา','ชลบุรี','ชัยนาท','ชัยภูมิ','ชุมพร','เชียงราย','เชียงใหม่','ตรัง','ตราด','ตาก','นครนายก','นครปฐม','นครพนม','นครราชสีมา','นครศรีธรรมราช','นครสวรรค์','นนทบุรี','นราธิวาส','น่าน','บึงกาฬ','บุรีรัมย์','ปทุมธานี','ประจวบคีรีขันธ์','ปราจีนบุรี','ปัตตานี','พระนครศรีอยุธยา','พะเยา','พังงา','พัทลุง','พิจิตร','พิษณุโลก','เพชรบุรี','เพชรบูรณ์','แพร่','ภูเก็ต','มหาสารคาม','มุกดาหาร','แม่ฮ่องสอน','ยโสธร','ยะลา','ร้อยเอ็ด','ระนอง','ระยอง','ราชบุรี','ลพบุรี','ลำปาง','ลำพูน','เลย','ศรีสะเกษ','สกลนคร','สงขลา','สตูล','สมุทรปราการ','สมุทรสงคราม','สมุทรสาคร','สระแก้ว','สระบุรี','สิงห์บุรี','สุโขทัย','สุพรรณบุรี','สุราษฎร์ธานี','สุรินทร์','หนองคาย','หนองบัวลำภู','อ่างทอง','อำนาจเจริญ','อุดรธานี','อุตรดิตถ์','อุทัยธานี','อุบลราชธานี'].map(p => (
+                    {['กรุงเทพมหานคร', 'กระบี่', 'กาญจนบุรี', 'กาฬสินธุ์', 'กำแพงเพชร', 'ขอนแก่น', 'จันทบุรี', 'ฉะเชิงเทรา', 'ชลบุรี', 'ชัยนาท', 'ชัยภูมิ', 'ชุมพร', 'เชียงราย', 'เชียงใหม่', 'ตรัง', 'ตราด', 'ตาก', 'นครนายก', 'นครปฐม', 'นครพนม', 'นครราชสีมา', 'นครศรีธรรมราช', 'นครสวรรค์', 'นนทบุรี', 'นราธิวาส', 'น่าน', 'บึงกาฬ', 'บุรีรัมย์', 'ปทุมธานี', 'ประจวบคีรีขันธ์', 'ปราจีนบุรี', 'ปัตตานี', 'พระนครศรีอยุธยา', 'พะเยา', 'พังงา', 'พัทลุง', 'พิจิตร', 'พิษณุโลก', 'เพชรบุรี', 'เพชรบูรณ์', 'แพร่', 'ภูเก็ต', 'มหาสารคาม', 'มุกดาหาร', 'แม่ฮ่องสอน', 'ยโสธร', 'ยะลา', 'ร้อยเอ็ด', 'ระนอง', 'ระยอง', 'ราชบุรี', 'ลพบุรี', 'ลำปาง', 'ลำพูน', 'เลย', 'ศรีสะเกษ', 'สกลนคร', 'สงขลา', 'สตูล', 'สมุทรปราการ', 'สมุทรสงคราม', 'สมุทรสาคร', 'สระแก้ว', 'สระบุรี', 'สิงห์บุรี', 'สุโขทัย', 'สุพรรณบุรี', 'สุราษฎร์ธานี', 'สุรินทร์', 'หนองคาย', 'หนองบัวลำภู', 'อ่างทอง', 'อำนาจเจริญ', 'อุดรธานี', 'อุตรดิตถ์', 'อุทัยธานี', 'อุบลราชธานี'].map(p => (
                       <option key={p} value={p} />
                     ))}
                   </datalist>
@@ -678,7 +828,7 @@ ${edgesKML}
                       className={`py-3 px-4 rounded-xl border-2 text-sm font-bold transition-all ${newProjectWorkType === opt
                         ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/25'
                         : isDark ? 'border-slate-700 text-slate-300 hover:border-slate-500 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50'
-                      }`}
+                        }`}
                     >
                       {opt}
                     </button>
@@ -691,6 +841,37 @@ ${edgesKML}
                 <button type="submit" className="flex-1 py-3 rounded-xl font-bold text-sm bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-500/25">สร้าง</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+      {isDeleteModalOpen && projectToDelete && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className={`rounded-xl w-full max-w-sm shadow-2xl border overflow-hidden ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+            <div className="p-6 text-center">
+              <div className="w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <Trash2 className="text-red-600" size={24} />
+              </div>
+              <h3 className={`text-lg font-bold mb-2 ${isDark ? 'text-white' : 'text-slate-900'}`}>ยืนยันการลบโปรเจกต์?</h3>
+              <p className={`text-sm mb-6 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                คุณกำลังจะลบโปรเจกต์ <span className={`font-bold ${isDark ? 'text-slate-300' : 'text-slate-700'}`}>"{projectToDelete.name}"</span>
+                <br />การกระทำนี้ไม่สามารถเรียกคืนได้
+              </p>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIsDeleteModalOpen(false)}
+                  className={`flex-1 py-2.5 rounded-lg border font-bold text-sm ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  onClick={confirmDeleteProject}
+                  className="flex-1 py-2.5 rounded-lg font-bold text-sm bg-red-600 text-white hover:bg-red-700 shadow-lg shadow-red-600/20"
+                >
+                  ลบโปรเจกต์
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

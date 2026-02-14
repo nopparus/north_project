@@ -1,7 +1,7 @@
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Material, CustomIcon, SavedProject } from '../types';
-import { Search, Plus, ChevronDown, Tag, Trash2, X, Check, Link as LinkIcon, Image as ImageIcon, Download, Upload } from 'lucide-react';
+import { Search, Plus, ChevronDown, Tag, Trash2, X, Check, Link as LinkIcon, Image as ImageIcon, Download, Upload, Edit3 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface DatabasePageProps {
@@ -14,25 +14,70 @@ interface DatabasePageProps {
   setSavedProjects?: React.Dispatch<React.SetStateAction<SavedProject[]>>;
 }
 
+interface GroupEditorProps {
+  initialValue: string;
+  materialId: number;
+  options: string[];
+  isAdmin: boolean;
+  onSave: (id: number, newGroup: string) => void;
+  isDark: boolean;
+}
+
+const GroupEditor: React.FC<GroupEditorProps> = ({ initialValue, materialId, options, isAdmin, onSave, isDark }) => {
+  const [value, setValue] = useState(initialValue);
+
+  useEffect(() => {
+    setValue(initialValue);
+  }, [initialValue]);
+
+  const handleCommit = () => {
+    if (value !== initialValue) {
+      if (confirm(`ยืนยันการเปลี่ยนกลุ่มวัสดุเป็น "${value || 'ไม่ระบุ'}" ?`)) {
+        onSave(materialId, value);
+      } else {
+        setValue(initialValue); // Revert
+      }
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      (e.target as HTMLInputElement).blur(); // Triggers onBlur
+    }
+  };
+
+  return (
+    <div className="relative flex-1 min-w-0">
+      <input
+        type="text"
+        list="existing-symbol-groups"
+        className={`w-full text-[11px] font-bold border rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500 transition-all ${value ? (isDark ? 'bg-purple-900/30 border-purple-700 text-purple-200' : 'bg-purple-50 border-purple-300 text-purple-800') : (isDark ? 'bg-slate-800 border-slate-700 text-slate-400 placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-400 placeholder:text-slate-300')}`}
+        placeholder="ระบุกลุ่ม..."
+        value={value}
+        disabled={!isAdmin}
+        onChange={e => setValue(e.target.value)}
+        onBlur={handleCommit}
+        onKeyDown={handleKeyDown}
+      />
+    </div>
+  );
+};
+
 const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, icons, setIcons, isAdmin, savedProjects, setSavedProjects }) => {
   const { isDark } = useTheme();
+  // ... existing state ...
   const [searchTerm, setSearchTerm] = useState('');
   const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [editingMaterial, setEditingMaterial] = useState<Material | null>(null);
 
-  const [newMaterial, setNewMaterial] = useState<Partial<Material>>({
-    category: '',
-    material_code: '',
-    material_name: '',
-    unit: 'Each',
-    unit_price: 0,
-    cable_unit_price: 0,
-    labor_unit_price: 0,
-    action_type: 'ซื้อ',
-    spec_brand: '',
-    remark: '',
-    symbol_group: ''
-  });
+  // ... form state ...
+  const initialMaterialFormState: Partial<Material> = {
+    category: '', material_code: '', material_name: '', unit: 'Each',
+    unit_price: 0, cable_unit_price: 0, labor_unit_price: 0,
+    action_type: 'ซื้อ', spec_brand: '', remark: '', symbol_group: ''
+  };
+  const [newMaterial, setNewMaterial] = useState<Partial<Material>>(initialMaterialFormState);
 
   const cls = isDark ? {
     page: '',
@@ -150,47 +195,141 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
     });
   }, [materials, searchTerm]);
 
-  const handleAssociateIcon = (category: string, iconId: string) => {
+  const handleAssociateIcon = async (category: string, iconId: string) => {
+    // 1. Find the icon currently linked to this category (if any) and unlink it
+    const oldIcon = icons.find(i => i.associatedCategory === category);
+    if (oldIcon && oldIcon.id !== iconId) {
+      try {
+        await fetch(`api/icons/${oldIcon.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...oldIcon, associatedCategory: undefined }) // Unlink
+        });
+      } catch (e) {
+        console.error("Failed to unlink old icon", e);
+      }
+    }
+
+    // 2. Link the new icon (if iconId is provided)
+    if (iconId) {
+      const newIcon = icons.find(i => i.id === iconId);
+      if (newIcon) {
+        try {
+          await fetch(`api/icons/${newIcon.id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...newIcon, associatedCategory: category })
+          });
+        } catch (e) {
+          console.error("Failed to link new icon", e);
+          alert("Failed to update icon association");
+          return;
+        }
+      }
+    }
+
+    // 3. Update local state
     setIcons(prev => prev.map(icon => {
-      // 1. If this is the specific icon we want to link to this category
-      if (icon.id === iconId) {
-        return { ...icon, associatedCategory: category };
-      }
-      // 2. If this icon was previously linked to THIS category, unlink it
-      if (icon.associatedCategory === category) {
-        return { ...icon, associatedCategory: undefined };
-      }
+      if (icon.id === iconId) return { ...icon, associatedCategory: category };
+      if (icon.associatedCategory === category) return { ...icon, associatedCategory: undefined };
       return icon;
     }));
   };
 
-  const handleAddMaterial = () => {
+  const handleUpdateGroup = async (id: number, newGroup: string) => {
+    const material = materials.find(m => m.id === id);
+    if (!material) return;
+
+    try {
+      const res = await fetch(`api/materials/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...material, symbol_group: newGroup })
+      });
+      if (!res.ok) throw new Error("Failed to update");
+
+      setMaterials(prev => prev.map(m => m.id === id ? { ...m, symbol_group: newGroup } : m));
+    } catch (e) {
+      alert("Failed to save group: " + e);
+      // Force refresh to revert UI? 
+      // GroupEditor handles revert on simple cancel, but on API fail we might need to force update.
+      // Actually, GroupEditor will keep 'newGroup' if we don't revert it. 
+      // But since we don't update 'materials', GroupEditor prop 'initialValue' remains old.
+      // But GroupEditor internal state 'value' remains new.
+      // We should probably key the GroupEditor to force reset, or just alert.
+      window.location.reload(); // Nuclear option for sync error, or fetch again.
+    }
+  };
+
+  // ... handleUpdate, handleAdd, handleDelete ... (assume existing)
+
+  const handleUpdate = () => {
+    if (!editingMaterial) return;
+
+    // API Call to update material
+    fetch(`api/materials/${editingMaterial.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(editingMaterial)
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Update failed');
+        return res.json();
+      })
+      .then(updatedMaterial => {
+        const formatted = {
+          ...updatedMaterial,
+          id: Number(updatedMaterial.id),
+          unit_price: Number(updatedMaterial.unit_price),
+          cable_unit_price: Number(updatedMaterial.cable_unit_price),
+          labor_unit_price: Number(updatedMaterial.labor_unit_price),
+        };
+        setMaterials(materials.map(m => m.id === formatted.id ? formatted : m));
+        setEditingMaterial(null);
+      })
+      .catch(err => alert('Failed to update material: ' + err.message));
+  };
+
+  const handleAdd = () => {
     if (!newMaterial.material_name || !newMaterial.category) {
       alert('Please fill in material name and category.');
       return;
     }
-    // Auto-detect material_type from unit
-    const unit = newMaterial.unit || 'Each';
-    const matType = (unit === 'm' || unit === 'F') ? 'T02' : 'T01';
-    const id = Math.max(0, ...materials.map(m => m.id)) + 1;
-    setMaterials([...materials, { ...newMaterial as Material, id, material_type: matType, cable_unit_price: newMaterial.cable_unit_price ?? 0 }]);
-    setShowAddModal(false);
-    setNewMaterial({
-      category: '',
-      material_code: '',
-      material_name: '',
-      unit: 'Each',
-      unit_price: 0,
-      labor_unit_price: 0,
-      action_type: 'ซื้อ',
-      spec_brand: '',
-      remark: ''
-    });
+    // API Call to create material
+    fetch('api/materials', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newMaterial)
+    })
+      .then(res => res.json())
+      .then(savedMaterial => {
+        // Convert numeric fields from string (if DB returns decimal as string) to number
+        const formatted = {
+          ...savedMaterial,
+          id: Number(savedMaterial.id),
+          unit_price: Number(savedMaterial.unit_price),
+          cable_unit_price: Number(savedMaterial.cable_unit_price),
+          labor_unit_price: Number(savedMaterial.labor_unit_price),
+        };
+        setMaterials(prev => [...prev, formatted]);
+        setNewMaterial(initialMaterialFormState);
+        setShowAddModal(false); // Replaced setIsAdding(false) with setShowAddModal(false)
+      })
+      .catch(err => alert('Failed to add material: ' + err.message));
   };
 
-  const deleteMaterial = (id: number) => {
-    if (confirm('Are you sure you want to delete this material?')) {
-      setMaterials(materials.filter(m => m.id !== id));
+  const handleDelete = (id: number) => {
+    if (confirm('Are you sure you want to delete this item?')) {
+      // API Call to delete
+      fetch(`api/materials/${id}`, { method: 'DELETE' })
+        .then(res => {
+          if (res.ok) {
+            setMaterials(materials.filter(m => m.id !== id));
+          } else {
+            alert('Failed to delete');
+          }
+        })
+        .catch(err => alert('Error deleting: ' + err.message));
     }
   };
 
@@ -209,7 +348,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fiberflow_config_${new Date().toISOString().slice(0,10)}.json`;
+    a.download = `fiberflow_config_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -284,13 +423,15 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
               </button>
             </>
           )}
-          <button
-            onClick={() => setShowAddModal(true)}
-            className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-500/20"
-          >
-            <Plus size={20} />
-            <span className="font-bold uppercase tracking-widest text-xs">Add New Material</span>
-          </button>
+          {isAdmin && (
+            <button
+              onClick={() => setShowAddModal(true)}
+              className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-500/20"
+            >
+              <Plus size={20} />
+              <span className="font-bold uppercase tracking-widest text-xs">Add New Material</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -369,6 +510,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                                   className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
                                   style={{ colorScheme: 'light' }}
                                   value={groupIcon?.id || ''}
+                                  disabled={!isAdmin}
                                   onChange={e => handleAssociateIcon(symbolGroup, e.target.value)}
                                 >
                                   <option value="">— ไม่ระบุ icon —</option>
@@ -409,86 +551,97 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                     {!isCollapsed && items.map(m => {
                       const sgIcon = icons.find(i => i.associatedCategory === m.symbol_group && m.symbol_group);
                       return (
-                      <tr key={m.id} className={`transition-colors group border-t ${cls.itemRow}`}>
-                        {/* รหัส */}
-                        <td className={`px-6 py-4 text-[11px] font-mono font-bold ${cls.codeText}`}>{m.material_code}</td>
-                        {/* รายการ */}
-                        <td className="px-6 py-4">
-                          <div className={`text-sm font-black leading-tight ${cls.itemName}`}>{m.material_name}</div>
-                          <div className={`text-[10px] font-bold uppercase tracking-widest mt-1 flex items-center ${cls.itemSpec}`}>
-                            <Tag size={10} className="mr-1 opacity-60" />
-                            {m.spec_brand || 'Standard Spec'}
-                          </div>
-                        </td>
-                        {/* หน่วย */}
-                        <td className={`px-6 py-4 text-xs text-center font-black uppercase ${cls.unitText}`}>{m.unit}</td>
-                        {/* ราคาวัสดุ */}
-                        <td className={`px-6 py-4 text-sm font-black text-right ${cls.priceText}`}>
-                          ฿{m.unit_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </td>
-                        {/* ค่าแรง */}
-                        <td className={`px-6 py-4 text-sm font-black text-right ${m.labor_unit_price > 0 ? 'text-amber-500' : cls.priceText}`}>
-                          {m.labor_unit_price > 0
-                            ? `฿${m.labor_unit_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
-                            : <span className={`text-xs ${isDark ? 'text-slate-600' : 'text-slate-300'}`}>—</span>
-                          }
-                        </td>
-                        {/* กลุ่มสัญลักษณ์ — icon thumbnail + editable badge */}
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            {/* Mini icon picker */}
-                            <div className="relative shrink-0" title={sgIcon ? sgIcon.name : 'เลือก icon สำหรับกลุ่มนี้'}>
-                              <div className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center overflow-hidden transition-all ${sgIcon ? (isDark ? 'border-purple-500 bg-slate-800' : 'border-purple-400 bg-purple-50') : (isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-slate-50')}`}>
-                                {sgIcon?.dataUrl
-                                  ? <img src={sgIcon.dataUrl} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} alt={sgIcon.name} />
-                                  : <ImageIcon size={14} className={isDark ? 'text-slate-500' : 'text-slate-300'} />
-                                }
-                              </div>
-                              <select
-                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                                style={{ colorScheme: 'light' }}
-                                value={sgIcon?.id || ''}
-                                disabled={!m.symbol_group}
-                                title={!m.symbol_group ? 'กรอกชื่อกลุ่มก่อน' : 'เลือก icon'}
-                                onChange={e => handleAssociateIcon(m.symbol_group || '', e.target.value)}
-                              >
-                                <option value="">— ไม่ระบุ icon —</option>
-                                <optgroup label="── Standard Symbols ──">
-                                  {icons.filter(i => i.isSystem).map(icon => (
-                                    <option key={icon.id} value={icon.id}>{icon.name}</option>
-                                  ))}
-                                </optgroup>
-                                <optgroup label="── Custom Icons ──">
-                                  {icons.filter(i => !i.isSystem).map(icon => (
-                                    <option key={icon.id} value={icon.id}>{icon.name}</option>
-                                  ))}
-                                </optgroup>
-                              </select>
+                        <tr key={m.id} className={`transition-colors group border-t ${cls.itemRow}`}>
+                          {/* รหัส */}
+                          <td className={`px-6 py-4 text-[11px] font-mono font-bold ${cls.codeText}`}>{m.material_code}</td>
+                          {/* รายการ */}
+                          <td className="px-6 py-4">
+                            <div className={`text-sm font-black leading-tight ${cls.itemName}`}>{m.material_name}</div>
+                            <div className={`text-[10px] font-bold uppercase tracking-widest mt-1 flex items-center ${cls.itemSpec}`}>
+                              <Tag size={10} className="mr-1 opacity-60" />
+                              {m.spec_brand || 'Standard Spec'}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => setEditingMaterial(m)}
+                                  className="ml-2 hover:text-blue-500 transition-colors"
+                                  title="Edit Details"
+                                >
+                                  <Edit3 size={12} />
+                                </button>
+                              )}
                             </div>
-                            {/* Editable group name */}
-                            <input
-                              type="text"
-                              list="existing-symbol-groups"
-                              className={`flex-1 min-w-0 text-[11px] font-bold border rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500 transition-all ${m.symbol_group ? (isDark ? 'bg-purple-900/30 border-purple-700 text-purple-200' : 'bg-purple-50 border-purple-300 text-purple-800') : (isDark ? 'bg-slate-800 border-slate-700 text-slate-400 placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-400 placeholder:text-slate-300')}`}
-                              placeholder="ระบุกลุ่ม..."
-                              value={m.symbol_group || ''}
-                              onChange={e => setMaterials(prev => prev.map(x => x.id === m.id ? { ...x, symbol_group: e.target.value } : x))}
-                            />
-                          </div>
-                        </td>
-                        {/* ประเภท ซื้อ/เบิก */}
-                        <td className="px-4 py-4 text-center">
-                          <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-lg ${m.action_type === 'ซื้อ' ? cls.actionBuy : cls.actionWithdraw}`}>
-                            {m.action_type}
-                          </span>
-                        </td>
-                        {/* Delete */}
-                        <td className="px-4 py-4 text-right">
-                          <button onClick={() => deleteMaterial(m.id)} className={`p-2 transition-colors opacity-0 group-hover:opacity-100 ${cls.deleteBtn}`}>
-                            <Trash2 size={16} />
-                          </button>
-                        </td>
-                      </tr>
+                          </td>
+                          {/* หน่วย */}
+                          <td className={`px-6 py-4 text-xs text-center font-black uppercase ${cls.unitText}`}>{m.unit}</td>
+                          {/* ราคาวัสดุ */}
+                          <td className={`px-6 py-4 text-sm font-black text-right ${cls.priceText}`}>
+                            ฿{m.unit_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                          </td>
+                          {/* ค่าแรง */}
+                          <td className={`px-6 py-4 text-sm font-black text-right ${m.labor_unit_price > 0 ? 'text-amber-500' : cls.priceText}`}>
+                            {m.labor_unit_price > 0
+                              ? `฿${m.labor_unit_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                              : <span className={`text-xs ${isDark ? 'text-slate-600' : 'text-slate-300'}`}>—</span>
+                            }
+                          </td>
+                          {/* กลุ่มสัญลักษณ์ — icon thumbnail + editable badge */}
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2">
+                              {/* Mini icon picker */}
+                              <div className="relative shrink-0" title={sgIcon ? sgIcon.name : 'เลือก icon สำหรับกลุ่มนี้'}>
+                                <div className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center overflow-hidden transition-all ${sgIcon ? (isDark ? 'border-purple-500 bg-slate-800' : 'border-purple-400 bg-purple-50') : (isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-slate-50')}`}>
+                                  {sgIcon?.dataUrl
+                                    ? <img src={sgIcon.dataUrl} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} alt={sgIcon.name} />
+                                    : <ImageIcon size={14} className={isDark ? 'text-slate-500' : 'text-slate-300'} />
+                                  }
+                                </div>
+                                <select
+                                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                  style={{ colorScheme: 'light' }}
+                                  value={sgIcon?.id || ''}
+                                  disabled={!isAdmin || !m.symbol_group}
+                                  title={!isAdmin ? 'Admin Only' : (!m.symbol_group ? 'กรอกชื่อกลุ่มก่อน' : 'เลือก icon')}
+                                  onChange={e => handleAssociateIcon(m.symbol_group || '', e.target.value)}
+                                >
+                                  <option value="">— ไม่ระบุ icon —</option>
+                                  <optgroup label="── Standard Symbols ──">
+                                    {icons.filter(i => i.isSystem).map(icon => (
+                                      <option key={icon.id} value={icon.id}>{icon.name}</option>
+                                    ))}
+                                  </optgroup>
+                                  <optgroup label="── Custom Icons ──">
+                                    {icons.filter(i => !i.isSystem).map(icon => (
+                                      <option key={icon.id} value={icon.id}>{icon.name}</option>
+                                    ))}
+                                  </optgroup>
+                                </select>
+                              </div>
+                              {/* Editable group name */}
+                              <GroupEditor
+                                initialValue={m.symbol_group || ''}
+                                materialId={m.id}
+                                options={Array.from(new Set(materials.map(m => m.symbol_group).filter(Boolean))) as string[]}
+                                isAdmin={isAdmin || false}
+                                onSave={handleUpdateGroup}
+                                isDark={isDark}
+                              />
+                            </div>
+                          </td>
+                          {/* ประเภท ซื้อ/เบิก */}
+                          <td className="px-4 py-4 text-center">
+                            <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-lg ${m.action_type === 'ซื้อ' ? cls.actionBuy : cls.actionWithdraw}`}>
+                              {m.action_type}
+                            </span>
+                          </td>
+                          {/* Delete */}
+                          <td className="px-4 py-4 text-right">
+                            {isAdmin && (
+                              <button onClick={() => handleDelete(m.id)} className={`p-2 transition-colors opacity-0 group-hover:opacity-100 ${cls.deleteBtn}`}>
+                                <Trash2 size={16} />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
                       );
                     })}
                   </tbody>
@@ -499,7 +652,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
           {groupedMaterials.length === 0 && (
             <div className="p-32 text-center flex flex-col items-center">
               <div className={`w-20 h-20 rounded-full flex items-center justify-center mb-6 ${cls.emptyBg}`}>
-                 <Search size={40} className={cls.emptyIcon} />
+                <Search size={40} className={cls.emptyIcon} />
               </div>
               <h3 className={`text-xl font-black uppercase tracking-tighter ${cls.emptyTitle}`}>No materials found</h3>
               <p className={`text-sm font-medium ${cls.emptyText}`}>Try adjusting your search or category filters</p>
@@ -507,6 +660,102 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
           )}
         </div>
       </div>
+
+      {/* Edit Material Modal */}
+      {editingMaterial && (
+        <div className={`fixed inset-0 z-[100] flex items-center justify-center p-6 backdrop-blur-md animate-in fade-in ${cls.modalOverlay}`}>
+          <div className={`w-full max-w-2xl rounded-[40px] shadow-2xl border overflow-hidden animate-in zoom-in-95 ${cls.modalCard}`}>
+            <div className={`px-10 py-8 border-b flex items-center justify-between ${cls.modalHeader}`}>
+              <div className="flex items-center space-x-4">
+                <div className="p-3 bg-amber-500 text-white rounded-2xl shadow-lg shadow-amber-500/20">
+                  <Edit3 size={24} />
+                </div>
+                <div>
+                  <h3 className={`text-2xl font-black tracking-tight ${cls.modalTitle}`}>Edit Material</h3>
+                  <p className={`text-[10px] font-bold uppercase tracking-[0.2em] mt-1 ${cls.modalSubtitle}`}>ID: {editingMaterial.id}</p>
+                </div>
+              </div>
+              <button onClick={() => setEditingMaterial(null)} className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${cls.modalCloseBtn}`}>
+                <X size={28} />
+              </button>
+            </div>
+
+            <div className="p-10 space-y-8">
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Group / Category</label>
+                  <input
+                    list="existing-categories"
+                    className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/20 transition-all ${cls.inputBg}`}
+                    value={editingMaterial.category}
+                    onChange={e => setEditingMaterial({ ...editingMaterial, category: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Code</label>
+                  <input
+                    className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/20 transition-all ${cls.inputBg}`}
+                    value={editingMaterial.material_code}
+                    onChange={e => setEditingMaterial({ ...editingMaterial, material_code: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Name</label>
+                <input
+                  className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/20 transition-all ${cls.inputBg}`}
+                  value={editingMaterial.material_name}
+                  onChange={e => setEditingMaterial({ ...editingMaterial, material_name: e.target.value })}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Price / Unit</label>
+                  <div className="relative">
+                    <span className={`absolute left-5 top-1/2 -translate-y-1/2 font-bold ${cls.pricePrefix}`}>฿</span>
+                    <input
+                      type="number"
+                      className={`w-full border rounded-2xl pl-10 pr-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/20 transition-all ${cls.inputBg}`}
+                      value={editingMaterial.unit_price}
+                      onChange={e => setEditingMaterial({ ...editingMaterial, unit_price: parseFloat(e.target.value) || 0 })}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Labor / Unit</label>
+                  <div className="relative">
+                    <span className={`absolute left-5 top-1/2 -translate-y-1/2 font-bold ${cls.pricePrefix}`}>฿</span>
+                    <input
+                      type="number"
+                      className={`w-full border rounded-2xl pl-10 pr-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-amber-500/20 transition-all ${cls.inputBg}`}
+                      value={editingMaterial.labor_unit_price}
+                      onChange={e => setEditingMaterial({ ...editingMaterial, labor_unit_price: parseFloat(e.target.value) || 0 })}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className={`px-10 py-8 border-t flex items-center justify-end space-x-6 ${cls.modalFooter}`}>
+              <button
+                onClick={() => setEditingMaterial(null)}
+                className={`text-sm font-black uppercase tracking-widest transition-colors ${cls.cancelBtn}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdate}
+                className="flex items-center space-x-3 px-10 py-4 bg-amber-500 text-white rounded-[24px] font-black uppercase tracking-widest text-xs hover:bg-amber-600 shadow-2xl shadow-amber-500/30 transition-all"
+              >
+                <Check size={20} />
+                <span>Save Changes</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Material Modal */}
       {showAddModal && (
@@ -537,7 +786,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                       className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/20 transition-all ${cls.inputBg}`}
                       placeholder="e.g. Splitter, ODP"
                       value={newMaterial.category}
-                      onChange={e => setNewMaterial({...newMaterial, category: e.target.value})}
+                      onChange={e => setNewMaterial({ ...newMaterial, category: e.target.value })}
                     />
                     <datalist id="existing-categories">
                       {categories.map(c => <option key={c} value={c} />)}
@@ -550,7 +799,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                     className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/20 transition-all ${cls.inputBg}`}
                     placeholder="1A100XXXXX"
                     value={newMaterial.material_code}
-                    onChange={e => setNewMaterial({...newMaterial, material_code: e.target.value})}
+                    onChange={e => setNewMaterial({ ...newMaterial, material_code: e.target.value })}
                   />
                 </div>
               </div>
@@ -561,7 +810,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                   className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/20 transition-all ${cls.inputBg}`}
                   placeholder="Official description of the item..."
                   value={newMaterial.material_name}
-                  onChange={e => setNewMaterial({...newMaterial, material_name: e.target.value})}
+                  onChange={e => setNewMaterial({ ...newMaterial, material_name: e.target.value })}
                 />
               </div>
 
@@ -571,7 +820,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                   <select
                     className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none ${cls.selectBg}`}
                     value={newMaterial.unit}
-                    onChange={e => setNewMaterial({...newMaterial, unit: e.target.value})}
+                    onChange={e => setNewMaterial({ ...newMaterial, unit: e.target.value })}
                   >
                     <option value="ST">ST (Set)</option>
                     <option value="M">M (Meter)</option>
@@ -589,7 +838,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                   <select
                     className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none ${cls.selectBg}`}
                     value={newMaterial.action_type}
-                    onChange={e => setNewMaterial({...newMaterial, action_type: e.target.value})}
+                    onChange={e => setNewMaterial({ ...newMaterial, action_type: e.target.value })}
                   >
                     <option value="ซื้อ">ซื้อ (Purchase)</option>
                     <option value="เบิก">เบิก (Withdraw)</option>
@@ -604,7 +853,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                   className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-purple-500/20 transition-all ${cls.inputBg}`}
                   placeholder="เช่น FDF, ODP, Pole, SDP ..."
                   value={newMaterial.symbol_group || ''}
-                  onChange={e => setNewMaterial({...newMaterial, symbol_group: e.target.value})}
+                  onChange={e => setNewMaterial({ ...newMaterial, symbol_group: e.target.value })}
                 />
                 <p className={`text-[10px] mt-1.5 ml-1 font-medium ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
                   ใช้กำหนดว่า icon สัญลักษณ์ใดสามารถเลือกวัสดุนี้ได้ในหน้าออกแบบ
@@ -626,7 +875,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                       className={`w-full border rounded-2xl pl-10 pr-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-blue-500/20 transition-all ${cls.inputBg}`}
                       placeholder="0.00"
                       value={newMaterial.unit_price}
-                      onChange={e => setNewMaterial({...newMaterial, unit_price: parseFloat(e.target.value) || 0})}
+                      onChange={e => setNewMaterial({ ...newMaterial, unit_price: parseFloat(e.target.value) || 0 })}
                     />
                   </div>
                 </div>
@@ -639,7 +888,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                       className={`w-full border rounded-2xl pl-10 pr-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-amber-500/20 transition-all ${cls.inputBg}`}
                       placeholder="0.00"
                       value={newMaterial.labor_unit_price}
-                      onChange={e => setNewMaterial({...newMaterial, labor_unit_price: parseFloat(e.target.value) || 0})}
+                      onChange={e => setNewMaterial({ ...newMaterial, labor_unit_price: parseFloat(e.target.value) || 0 })}
                     />
                   </div>
                 </div>
@@ -654,7 +903,13 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                 Cancel
               </button>
               <button
-                onClick={handleAddMaterial}
+                onClick={() => setShowAddModal(false)}
+                className={`text-sm font-black uppercase tracking-widest transition-colors ${cls.cancelBtn}`}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAdd}
                 className="flex items-center space-x-3 px-10 py-4 bg-blue-600 text-white rounded-[24px] font-black uppercase tracking-widest text-xs hover:bg-blue-700 shadow-2xl shadow-blue-500/30 transition-all"
               >
                 <Check size={20} />
