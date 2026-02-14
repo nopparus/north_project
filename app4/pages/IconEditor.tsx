@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { CustomIcon, IconDot, Material } from '../types';
-import { Plus, Trash2, Save, Palette, Info, Upload, Download, Eraser, Pipette, Tag } from 'lucide-react';
+import { Plus, Trash2, Save, Palette, Info, Upload, Download, Eraser, Pipette, Tag, Lock, Shield } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface IconEditorProps {
@@ -26,6 +26,7 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
 
   // Fix: Explicitly cast categories as string array to prevent 'unknown' inference
   const categories = Array.from(new Set(materials.map(m => m.category))).sort() as string[];
+  const symbolGroups = Array.from(new Set(materials.map(m => m.symbol_group).filter(Boolean))).sort() as string[];
 
   const cls = isDark ? {
     root: 'bg-slate-950',
@@ -273,7 +274,7 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
   return (
     <div className={`flex h-full overflow-hidden ${cls.root}`}>
       <div className={`w-80 border-r p-6 overflow-y-auto flex flex-col ${cls.sidebar}`}>
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <h2 className={`text-lg font-black uppercase tracking-tight ${cls.sidebarTitle}`}>Icon Library</h2>
           <button
             onClick={createNew}
@@ -284,8 +285,50 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
           </button>
         </div>
 
+        {/* System icons section */}
+        {icons.some(i => i.isSystem) && (
+          <div className="mb-6">
+            <div className={`flex items-center gap-1.5 mb-3 ${isDark ? 'text-amber-400' : 'text-amber-600'}`}>
+              <Shield size={12} />
+              <span className="text-[10px] font-black uppercase tracking-widest">Standard Symbols</span>
+            </div>
+            <div className="grid grid-cols-3 gap-2" role="list">
+              {icons.filter(i => i.isSystem).map(icon => (
+                <div
+                  key={icon.id}
+                  onClick={() => setActiveIcon(icon)}
+                  role="listitem"
+                  tabIndex={0}
+                  onKeyDown={(e) => e.key === 'Enter' && setActiveIcon(icon)}
+                  className={`p-2 rounded-xl border cursor-pointer transition-all outline-none focus:ring-2 focus:ring-amber-500 flex flex-col items-center gap-1 ${activeIcon?.id === icon.id ? (isDark ? 'bg-amber-900/30 border-amber-600 ring-2 ring-amber-800' : 'bg-amber-50 border-amber-400 ring-2 ring-amber-200') : cls.iconItem}`}
+                  aria-label={`View symbol ${icon.name}`}
+                  title={icon.name}
+                >
+                  <div className={`w-10 h-10 border rounded-lg p-1 overflow-hidden ${cls.iconImgBg}`}>
+                    {icon.dataUrl ? (
+                      <img src={icon.dataUrl} className="w-full h-full object-contain" alt={icon.name} />
+                    ) : (
+                      <div className={`w-full h-full rounded flex items-center justify-center text-[8px] ${cls.iconNoImg}`}>SYS</div>
+                    )}
+                  </div>
+                  <div className={`text-[8px] font-bold text-center leading-tight truncate w-full ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>{icon.name}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Divider */}
+        {icons.some(i => i.isSystem) && icons.some(i => !i.isSystem) && (
+          <div className={`border-t mb-4 ${isDark ? 'border-slate-700' : 'border-slate-200'}`} />
+        )}
+
+        {/* User icons section */}
+        {icons.some(i => !i.isSystem) && (
+          <div className={`text-[10px] font-black uppercase tracking-widest mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Custom Icons</div>
+        )}
         <div className="space-y-3" role="list">
-          {icons.map(icon => (
+          {icons.filter(i => !i.isSystem).map(icon => (
             <div
               key={icon.id}
               onClick={() => setActiveIcon(icon)}
@@ -323,7 +366,64 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
       </div>
 
       <div className="flex-grow p-8 overflow-y-auto">
-        {activeIcon ? (
+        {activeIcon?.isSystem ? (
+          /* ── System icon — read-only view ─────────────────────────────── */
+          <div className="max-w-md mx-auto">
+            <div className={`p-8 rounded-[40px] shadow-2xl border ${cls.editorCard}`}>
+              <div className="flex items-center gap-4 mb-8">
+                <div className={`p-3 rounded-2xl ${isDark ? 'bg-amber-900/40 text-amber-400' : 'bg-amber-50 text-amber-600'}`}>
+                  <Lock size={24} />
+                </div>
+                <div>
+                  <h3 className={`text-xl font-black tracking-tight ${cls.editorTitle}`}>Standard Symbol</h3>
+                  <p className={`text-[10px] font-bold uppercase tracking-widest ${cls.editorSubtitle}`}>Built-in — ไม่สามารถแก้ไขได้</p>
+                </div>
+              </div>
+
+              {/* Large preview */}
+              <div className="flex flex-col items-center mb-8">
+                <div className={`w-40 h-40 rounded-3xl p-6 flex items-center justify-center border shadow-inner mb-4 ${cls.previewImgBg}`}>
+                  {activeIcon.dataUrl && (
+                    <img src={activeIcon.dataUrl} className="w-full h-full object-contain" alt={activeIcon.name} />
+                  )}
+                </div>
+                <div className={`text-xl font-black ${cls.editorTitle}`}>{activeIcon.name}</div>
+                <div className={`text-sm mt-1 ${cls.editorSubtitle}`}>{activeIcon.description}</div>
+              </div>
+
+              {/* Associated group — still editable */}
+              <div>
+                <label htmlFor="sys-icon-group" className={`block text-[10px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>กลุ่มสัญลักษณ์ / Associated Group</label>
+                <div className="relative">
+                  <Tag size={16} className={`absolute left-4 top-1/2 -translate-y-1/2 ${cls.selectIcon}`} />
+                  <select
+                    id="sys-icon-group"
+                    className={`w-full border rounded-xl pl-12 pr-4 py-3 text-sm font-bold outline-none ${cls.selectBg}`}
+                    value={activeIcon.associatedCategory || ''}
+                    onChange={e => {
+                      const updated = { ...activeIcon, associatedCategory: e.target.value };
+                      setActiveIcon(updated);
+                      setIcons(prev => prev.map(i => i.id === updated.id ? updated : i));
+                    }}
+                  >
+                    <option value="">— ไม่ระบุ (แสดงทั้งหมด) —</option>
+                    <optgroup label="── กลุ่มสัญลักษณ์ (Symbol Groups) ──">
+                      {symbolGroups.map(sg => (
+                        <option key={`sg-${sg}`} value={sg}>{sg}</option>
+                      ))}
+                    </optgroup>
+                    <optgroup label="── หมวดหมู่ Material (Categories) ──">
+                      {categories.map(cat => (
+                        <option key={cat} value={cat}>{cat}</option>
+                      ))}
+                    </optgroup>
+                  </select>
+                </div>
+                <p className={`text-[9px] mt-2 font-medium px-1 ${cls.metaHint}`}>เชื่อมสัญลักษณ์นี้กับกลุ่มวัสดุ เพื่อกรองรายการวัสดุในหน้าออกแบบ</p>
+              </div>
+            </div>
+          </div>
+        ) : activeIcon ? (
           <div className="max-w-5xl mx-auto flex gap-10">
             <div className="flex-grow">
               <div className={`p-8 rounded-[40px] shadow-2xl border ${cls.editorCard}`}>
@@ -424,7 +524,7 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
                     />
                   </div>
                   <div>
-                    <label htmlFor="material-group" className={`block text-[10px] font-black uppercase tracking-widest mb-1.5 ml-1 ${cls.labelText}`}>Associated Category</label>
+                    <label htmlFor="material-group" className={`block text-[10px] font-black uppercase tracking-widest mb-1.5 ml-1 ${cls.labelText}`}>กลุ่มสัญลักษณ์ / Associated Group</label>
                     <div className="relative">
                        <Tag size={16} className={`absolute left-4 top-1/2 -translate-y-1/2 ${cls.selectIcon}`} />
                        <select
@@ -433,13 +533,20 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
                         value={activeIcon.associatedCategory}
                         onChange={e => setActiveIcon({ ...activeIcon, associatedCategory: e.target.value })}
                       >
-                        <option value="">Any Category</option>
-                        {categories.map(cat => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
+                        <option value="">— ไม่ระบุ (แสดงทั้งหมด) —</option>
+                        <optgroup label="── กลุ่มสัญลักษณ์ (Symbol Groups) ──">
+                          {symbolGroups.map(sg => (
+                            <option key={`sg-${sg}`} value={sg}>{sg}</option>
+                          ))}
+                        </optgroup>
+                        <optgroup label="── หมวดหมู่ Material (Categories) ──">
+                          {categories.map(cat => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </optgroup>
                       </select>
                     </div>
-                    <p className={`text-[9px] mt-2 font-medium px-1 ${cls.metaHint}`}>Limits material selection for this icon to specific categories in Design view.</p>
+                    <p className={`text-[9px] mt-2 font-medium px-1 ${cls.metaHint}`}>จำกัดรายการวัสดุที่เลือกได้ในหน้าออกแบบ — เลือก Symbol Group หรือ Category</p>
                   </div>
                 </div>
 

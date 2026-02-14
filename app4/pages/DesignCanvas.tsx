@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { NodeType, ProjectState, Material, NetworkNode, NetworkEdge, CustomIcon } from '../types';
 import { NODE_SYMBOL_MAP, PIN_PATH } from '../constants';
-import { Trash2, Link as LinkIcon, Edit3, MousePointer2, ChevronDown, Package, Ruler, Square, Tag, HardDrive, Zap, Info, Grid3X3 } from 'lucide-react';
+import { Trash2, Link as LinkIcon, Edit3, MousePointer2, ChevronDown, Package, Ruler, Tag, Zap, Grid3X3, Cable, Check, X, MapPin } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface DesignCanvasProps {
@@ -14,15 +14,22 @@ interface DesignCanvasProps {
 
 const GRID_SIZE = 20;
 
+interface ContextMenu { x: number; y: number; type: 'node' | 'edge'; id: string }
+interface DraftNode extends Partial<NetworkNode> { id: string }
+interface DraftEdge extends Partial<NetworkEdge> { id: string }
+
 const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materials, customIcons }) => {
   const { isDark } = useTheme();
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState<string | null>(null);
-  const [editingItem, setEditingItem] = useState<{ type: 'node' | 'edge'; id: string } | null>(null);
   const [mode, setMode] = useState<'select' | 'connect'>('select');
   const [snapToGrid, setSnapToGrid] = useState<boolean>(true);
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null);
+  const [editingItem, setEditingItem] = useState<{ type: 'node' | 'edge'; id: string } | null>(null);
+  const [draftNode, setDraftNode] = useState<DraftNode | null>(null);
+  const [draftEdge, setDraftEdge] = useState<DraftEdge | null>(null);
 
   const canvasRef = useRef<HTMLDivElement>(null);
 
@@ -50,23 +57,16 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
     deleteDisabled: 'text-slate-500 bg-slate-800',
     deleteEnabled: 'bg-red-900/30 text-red-400 border-red-800 hover:bg-red-900/50',
     canvas: 'bg-slate-900',
-    panel: 'bg-slate-900 border-slate-700',
-    panelTitle: 'text-white',
-    panelClose: 'text-slate-400 hover:text-white',
     inputBg: 'bg-slate-800 border-slate-700 text-white',
+    selectBg: 'bg-slate-800 border-slate-700 text-white',
     labelText: 'text-slate-400',
-    materialListBg: 'border-slate-700 bg-slate-800/30',
-    materialCatLabel: 'text-slate-400',
-    materialItemInactive: 'hover:bg-slate-700 text-slate-300 bg-slate-800 border-slate-700',
-    materialItemSubtext: 'text-slate-400',
-    quantityBox: 'bg-blue-50 border-blue-100',
-    quantityLabel: 'text-blue-700',
-    quantityInput: 'bg-slate-800 border-blue-700 text-blue-300',
-    quantityUnit: 'text-blue-700',
-    edgeInput: 'bg-slate-800 border-slate-700 text-white',
-    cableInactive: 'hover:bg-slate-700 text-slate-300 border-slate-700',
-    cableInactivePrice: 'text-slate-400',
     nodeLabel: 'bg-slate-800 text-white',
+    ctxMenu: 'bg-slate-800 border-slate-600 shadow-2xl',
+    ctxItem: 'hover:bg-slate-700 text-slate-200',
+    ctxDanger: 'hover:bg-red-900/40 text-red-400',
+    modalCard: 'bg-slate-900 border-slate-700',
+    modalTitle: 'text-white',
+    sectionLabel: 'text-slate-400',
   } : {
     root: 'bg-slate-50',
     sidebar: 'bg-white border-slate-200 text-slate-900',
@@ -91,29 +91,138 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
     deleteDisabled: 'text-slate-400 bg-slate-100',
     deleteEnabled: 'bg-red-50 text-red-500 border-red-200 hover:bg-red-100',
     canvas: 'bg-white',
-    panel: 'bg-white border-slate-200',
-    panelTitle: 'text-slate-900',
-    panelClose: 'text-slate-500 hover:text-slate-900',
     inputBg: 'bg-white border-slate-300 text-slate-900',
+    selectBg: 'bg-white border-slate-300 text-slate-900',
     labelText: 'text-slate-500',
-    materialListBg: 'border-slate-200 bg-slate-50',
-    materialCatLabel: 'text-slate-500',
-    materialItemInactive: 'hover:bg-slate-100 text-slate-700 bg-white border-slate-200',
-    materialItemSubtext: 'text-slate-500',
-    quantityBox: 'bg-blue-50 border-blue-100',
-    quantityLabel: 'text-blue-700',
-    quantityInput: 'bg-white border-blue-300 text-blue-700',
-    quantityUnit: 'text-blue-600',
-    edgeInput: 'bg-white border-slate-300 text-slate-900',
-    cableInactive: 'hover:bg-slate-100 text-slate-700 border-slate-200',
-    cableInactivePrice: 'text-slate-500',
     nodeLabel: 'bg-slate-100 text-slate-800',
+    ctxMenu: 'bg-white border-slate-200 shadow-2xl',
+    ctxItem: 'hover:bg-slate-100 text-slate-700',
+    ctxDanger: 'hover:bg-red-50 text-red-500',
+    modalCard: 'bg-white border-slate-200',
+    modalTitle: 'text-slate-900',
+    sectionLabel: 'text-slate-500',
   };
 
-  const snapValue = (val: number) => {
-    return snapToGrid ? Math.round(val / GRID_SIZE) * GRID_SIZE : val;
+  const snapValue = (val: number) => snapToGrid ? Math.round(val / GRID_SIZE) * GRID_SIZE : val;
+
+  // ── TER materials ──────────────────────────────────────────────────────────
+  const terMaterials = useMemo(() =>
+    materials.filter(m => m.symbol_group?.trim().toUpperCase().startsWith('TER')),
+  [materials]);
+
+  const terGroups = useMemo(() => {
+    const groups: Record<string, Material[]> = {};
+    terMaterials.forEach(m => {
+      const key = m.symbol_group?.trim() || 'TER';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(m);
+    });
+    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b, 'th'));
+  }, [terMaterials]);
+
+  // ── Cable materials (T02) grouped by symbol_group ─────────────────────────
+  const cableGroups = useMemo(() => {
+    const groups: Record<string, Material[]> = {};
+    materials.filter(m => m.material_type === 'T02').forEach(m => {
+      const key = m.symbol_group?.trim() || '— ไม่ระบุกลุ่ม —';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(m);
+    });
+    return Object.entries(groups).sort(([a], [b]) => {
+      if (a === '— ไม่ระบุกลุ่ม —') return 1;
+      if (b === '— ไม่ระบุกลุ่ม —') return -1;
+      return a.localeCompare(b, 'th');
+    });
+  }, [materials]);
+
+  // ── Node materials grouped by symbol_group (T01 units) ────────────────────
+  const materialsBySymbolGroup = useMemo(() => {
+    const groups: Record<string, Material[]> = {};
+    materials.forEach(m => {
+      const key = m.symbol_group?.trim() || '— ไม่ระบุกลุ่ม —';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(m);
+    });
+    return Object.entries(groups).sort(([a], [b]) => {
+      if (a === '— ไม่ระบุกลุ่ม —') return 1;
+      if (b === '— ไม่ระบุกลุ่ม —') return -1;
+      return a.localeCompare(b, 'th');
+    });
+  }, [materials]);
+
+  const customIconsGrouped = useMemo(() => {
+    const groups: Record<string, CustomIcon[]> = {};
+    customIcons.forEach(icon => {
+      const cat = icon.associatedCategory || 'Other Icons';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(icon);
+    });
+    return Object.entries(groups).sort(([a], [b]) => a === 'Other Icons' ? 1 : b === 'Other Icons' ? -1 : a.localeCompare(b));
+  }, [customIcons]);
+
+  // ── Open modal ─────────────────────────────────────────────────────────────
+  const openNodeModal = (id: string) => {
+    const node = project.nodes.find(n => n.id === id);
+    if (!node) return;
+    setDraftNode({ ...node });
+    setDraftEdge(null);
+    setEditingItem({ type: 'node', id });
+    setContextMenu(null);
   };
 
+  const openEdgeModal = (id: string) => {
+    const edge = project.edges.find(e => e.id === id);
+    if (!edge) return;
+    setDraftEdge({ ...edge });
+    setDraftNode(null);
+    setEditingItem({ type: 'edge', id });
+    setContextMenu(null);
+  };
+
+  const confirmEdit = () => {
+    if (editingItem?.type === 'node' && draftNode) {
+      setProject(prev => ({
+        ...prev,
+        nodes: prev.nodes.map(n => n.id === draftNode.id ? { ...n, ...draftNode } as NetworkNode : n),
+      }));
+    } else if (editingItem?.type === 'edge' && draftEdge) {
+      setProject(prev => ({
+        ...prev,
+        edges: prev.edges.map(e => e.id === draftEdge.id ? { ...e, ...draftEdge } as NetworkEdge : e),
+      }));
+    }
+    setEditingItem(null);
+    setDraftNode(null);
+    setDraftEdge(null);
+  };
+
+  const cancelEdit = () => {
+    setEditingItem(null);
+    setDraftNode(null);
+    setDraftEdge(null);
+  };
+
+  // ── Delete ─────────────────────────────────────────────────────────────────
+  const deleteItem = (type: 'node' | 'edge', id: string) => {
+    if (type === 'node') {
+      setProject(prev => ({
+        nodes: prev.nodes.filter(n => n.id !== id),
+        edges: prev.edges.filter(e => e.source !== id && e.target !== id),
+      }));
+      if (selectedNodeId === id) setSelectedNodeId(null);
+    } else {
+      setProject(prev => ({ ...prev, edges: prev.edges.filter(e => e.id !== id) }));
+      if (selectedEdgeId === id) setSelectedEdgeId(null);
+    }
+    setContextMenu(null);
+  };
+
+  const deleteSelected = () => {
+    if (selectedNodeId) deleteItem('node', selectedNodeId);
+    else if (selectedEdgeId) deleteItem('edge', selectedEdgeId);
+  };
+
+  // ── Drag & drop ────────────────────────────────────────────────────────────
   const onDragStart = (e: React.DragEvent, type: NodeType, iconId?: string) => {
     e.dataTransfer.setData('nodeType', type);
     if (iconId) e.dataTransfer.setData('iconId', iconId);
@@ -125,20 +234,15 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
     const iconId = e.dataTransfer.getData('iconId');
     const canvas = canvasRef.current;
     if (!canvas || !type) return;
-
     const rect = canvas.getBoundingClientRect();
-    const rawX = e.clientX - rect.left;
-    const rawY = e.clientY - rect.top;
+    const x = snapValue(e.clientX - rect.left);
+    const y = snapValue(e.clientY - rect.top);
 
-    const x = snapValue(rawX);
-    const y = snapValue(rawY);
-
-    // Logic: If icon has an associated category, find the first material in that category
-    let defaultMaterialId = materials.find(m => m.material_type === 'T01')?.id;
+    let defaultMaterialId = materials.find(m => m.unit !== 'm' && m.unit !== 'F')?.id;
     if (iconId) {
       const icon = customIcons.find(i => i.id === iconId);
       if (icon?.associatedCategory) {
-        const catMat = materials.find(m => m.category === icon.associatedCategory && m.material_type === 'T01');
+        const catMat = materials.find(m => m.category === icon.associatedCategory && m.unit !== 'm' && m.unit !== 'F');
         if (catMat) defaultMaterialId = catMat.id;
       }
     }
@@ -147,19 +251,18 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
       id: `n-${Date.now()}`,
       type,
       iconId: iconId || undefined,
-      x,
-      y,
+      x, y,
       label: iconId ? customIcons.find(i => i.id === iconId)?.name || 'Custom' : NODE_SYMBOL_MAP[type].label,
       materialId: defaultMaterialId,
-      quantity: 1
+      quantity: 1,
     };
-
     setProject(prev => ({ ...prev, nodes: [...prev.nodes, newNode] }));
     setSelectedNodeId(newNode.id);
   };
 
   const handleNodeClick = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setContextMenu(null);
     if (mode === 'connect' || isConnecting) {
       if (isConnecting && isConnecting !== id) {
         const newEdge: NetworkEdge = {
@@ -167,7 +270,7 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
           source: isConnecting,
           target: id,
           materialId: materials.find(m => m.material_type === 'T02')?.id || 0,
-          distance: 100
+          distance: 100,
         };
         setProject(prev => ({ ...prev, edges: [...prev.edges, newEdge] }));
         setIsConnecting(null);
@@ -181,34 +284,32 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
     }
   };
 
-  const deleteSelected = () => {
-    if (selectedNodeId) {
-      setProject(prev => ({
-        nodes: prev.nodes.filter(n => n.id !== selectedNodeId),
-        edges: prev.edges.filter(e => e.source !== selectedNodeId && e.target !== selectedNodeId)
-      }));
-      setSelectedNodeId(null);
-      setEditingItem(null);
-    } else if (selectedEdgeId) {
-      setProject(prev => ({ ...prev, edges: prev.edges.filter(e => e.id !== selectedEdgeId) }));
-      setSelectedEdgeId(null);
-      setEditingItem(null);
-    }
+  const handleNodeContextMenu = (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedNodeId(id);
+    setSelectedEdgeId(null);
+    setContextMenu({ x: e.clientX, y: e.clientY, type: 'node', id });
+  };
+
+  const handleEdgeContextMenu = (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSelectedEdgeId(id);
+    setSelectedNodeId(null);
+    setContextMenu({ x: e.clientX, y: e.clientY, type: 'edge', id });
   };
 
   const handleNodeDrag = (id: string, e: React.MouseEvent) => {
     if (!isDragging || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
-    const rawX = e.clientX - rect.left;
-    const rawY = e.clientY - rect.top;
-
     setProject(prev => ({
       ...prev,
       nodes: prev.nodes.map(n => n.id === id ? {
         ...n,
-        x: snapValue(rawX),
-        y: snapValue(rawY)
-      } : n)
+        x: snapValue(e.clientX - rect.left),
+        y: snapValue(e.clientY - rect.top),
+      } : n),
     }));
   };
 
@@ -219,71 +320,33 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
     return { x1: s.x, y1: s.y, x2: t.x, y2: t.y };
   };
 
+  // ── Render symbols ─────────────────────────────────────────────────────────
   const renderTechnicalSymbol = (type: NodeType, isSelected: boolean) => {
     const color = isSelected ? '#3b82f6' : '#1e293b';
-    const fill = 'white';
-
     switch (type) {
       case NodeType.CABINET:
-        return (
-          <svg width="32" height="32" viewBox="0 0 32 32">
-            <path d="M8 26 L8 12 A8 8 0 0 1 24 12 L24 26 Z" fill={fill} stroke={color} strokeWidth="2" />
-            <line x1="8" y1="26" x2="24" y2="26" stroke={color} strokeWidth="2" />
-          </svg>
-        );
+        return <svg width="32" height="32" viewBox="0 0 32 32"><path d="M8 26 L8 12 A8 8 0 0 1 24 12 L24 26 Z" fill="white" stroke={color} strokeWidth="2" /><line x1="8" y1="26" x2="24" y2="26" stroke={color} strokeWidth="2" /></svg>;
       case NodeType.EXCHANGE:
-        return (
-          <svg width="32" height="32" viewBox="0 0 32 32">
-            <rect x="6" y="6" width="20" height="20" fill={fill} stroke={color} strokeWidth="2" />
-            <path d="M6 6 L26 26 M6 26 L26 6" stroke={color} strokeWidth="1" />
-            <path d="M6 6 L16 16 L6 26 Z" fill={color} />
-            <path d="M26 6 L16 16 L26 26 Z" fill={color} />
-          </svg>
-        );
+        return <svg width="32" height="32" viewBox="0 0 32 32"><rect x="6" y="6" width="20" height="20" fill="white" stroke={color} strokeWidth="2" /><path d="M6 6 L26 26 M6 26 L26 6" stroke={color} strokeWidth="1" /><path d="M6 6 L16 16 L6 26 Z" fill={color} /><path d="M26 6 L16 16 L26 26 Z" fill={color} /></svg>;
       case NodeType.STRAIGHT_JOINT:
-        return (
-          <svg width="24" height="24" viewBox="0 0 24 24">
-            <line x1="0" y1="12" x2="24" y2="12" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" />
-            <circle cx="12" cy="12" r="4" fill={color} />
-          </svg>
-        );
+        return <svg width="24" height="24" viewBox="0 0 24 24"><line x1="0" y1="12" x2="24" y2="12" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" /><circle cx="12" cy="12" r="4" fill={color} /></svg>;
       case NodeType.BRANCH_JOINT:
-        return (
-          <svg width="24" height="24" viewBox="0 0 24 24">
-            <line x1="0" y1="16" x2="24" y2="16" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" />
-            <line x1="12" y1="4" x2="12" y2="15" stroke={color} strokeWidth="1.5" />
-            <path d="M8 12 L12 16 L16 12" fill="none" stroke={color} strokeWidth="1.5" />
-            <text x="13" y="10" fontSize="7" fontWeight="bold" fill={color}>BJ</text>
-          </svg>
-        );
+        return <svg width="24" height="24" viewBox="0 0 24 24"><line x1="0" y1="16" x2="24" y2="16" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" /><line x1="12" y1="4" x2="12" y2="15" stroke={color} strokeWidth="1.5" /><path d="M8 12 L12 16 L16 12" fill="none" stroke={color} strokeWidth="1.5" /><text x="13" y="10" fontSize="7" fontWeight="bold" fill={color}>BJ</text></svg>;
       case NodeType.ODP:
-        return (
-          <svg width="32" height="32" viewBox="0 0 32 32">
-            <line x1="0" y1="16" x2="16" y2="16" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" />
-            <path d="M12 8 A10 10 0 0 1 12 24" fill="none" stroke={color} strokeWidth="1.5" />
-            <path d="M20 8 A10 10 0 0 0 20 24" fill="none" stroke={color} strokeWidth="1.5" />
-            <line x1="10" y1="16" x2="22" y2="16" stroke={color} strokeWidth="1" />
-            <line x1="6" y1="16" x2="10" y2="16" stroke={color} strokeWidth="2" />
-            <path d="M6 14 L2 16 L6 18 Z" fill={color} />
-          </svg>
-        );
-      default:
-        return null;
+        return <svg width="32" height="32" viewBox="0 0 32 32"><line x1="0" y1="16" x2="16" y2="16" stroke={color} strokeWidth="1.5" strokeDasharray="4,2" /><path d="M12 8 A10 10 0 0 1 12 24" fill="none" stroke={color} strokeWidth="1.5" /><path d="M20 8 A10 10 0 0 0 20 24" fill="none" stroke={color} strokeWidth="1.5" /><line x1="10" y1="16" x2="22" y2="16" stroke={color} strokeWidth="1" /><line x1="6" y1="16" x2="10" y2="16" stroke={color} strokeWidth="2" /><path d="M6 14 L2 16 L6 18 Z" fill={color} /></svg>;
+      default: return null;
     }
   };
 
   const renderPin = (type: NodeType, isSelected: boolean) => {
-    const techSymbol = renderTechnicalSymbol(type, isSelected);
-    if (techSymbol) return techSymbol;
-
+    const tech = renderTechnicalSymbol(type, isSelected);
+    if (tech) return tech;
     const config = NODE_SYMBOL_MAP[type];
     return (
       <svg width="32" height="32" viewBox="0 0 24 24" className="drop-shadow-sm">
         <path d={PIN_PATH} fill={isSelected ? '#3b82f6' : config.color} stroke="white" strokeWidth="1" />
         <circle cx="12" cy="9" r="5" fill="white" fillOpacity="0.2" />
-        <text x="12" y="11" textAnchor="middle" fontSize="6" fontWeight="bold" fill="white" style={{ pointerEvents: 'none' }}>
-          {config.short}
-        </text>
+        <text x="12" y="11" textAnchor="middle" fontSize="6" fontWeight="bold" fill="white" style={{ pointerEvents: 'none' }}>{config.short}</text>
       </svg>
     );
   };
@@ -291,32 +354,12 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
   const renderIcon = (node: NetworkNode) => {
     if (node.iconId) {
       const icon = customIcons.find(i => i.id === node.iconId);
-      if (icon?.dataUrl) {
-        return <img src={icon.dataUrl} className="w-10 h-10 object-contain image-pixelated" alt={icon.name} />;
-      }
+      if (icon?.dataUrl) return <img src={icon.dataUrl} className="w-10 h-10 object-contain image-pixelated" alt={icon.name} />;
     }
     return renderPin(node.type, selectedNodeId === node.id);
   };
 
-  const materialsByCategory = useMemo(() => {
-    const groups: Record<string, Material[]> = {};
-    materials.forEach(m => {
-      if (!groups[m.category]) groups[m.category] = [];
-      groups[m.category].push(m);
-    });
-    return groups;
-  }, [materials]);
-
-  const customIconsGrouped = useMemo(() => {
-    const groups: Record<string, CustomIcon[]> = {};
-    customIcons.forEach(icon => {
-      const cat = icon.associatedCategory || 'Other Icons';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(icon);
-    });
-    return Object.entries(groups).sort(([a], [b]) => a === 'Other Icons' ? 1 : b === 'Other Icons' ? -1 : a.localeCompare(b));
-  }, [customIcons]);
-
+  // ── Catalog section component ──────────────────────────────────────────────
   const CatalogSection = ({ title, types, description }: { title: string; types: NodeType[]; description?: string }) => (
     <div className="mb-6">
       <div className={`flex flex-col mb-3 px-1 border-l-2 ${cls.catalogSectionBorder} pl-3`}>
@@ -325,26 +368,231 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
       </div>
       <div className="grid grid-cols-2 gap-x-1 gap-y-1">
         {types.map(type => (
-          <div
-            key={type}
-            draggable
-            onDragStart={(e) => onDragStart(e, type)}
-            className={`flex items-center space-x-2 p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border ${cls.catalogItem}`}
-          >
-            <div className="flex-shrink-0 scale-75">
-              {renderPin(type, false)}
-            </div>
-            <span className={`text-[10px] font-bold truncate leading-none ${cls.catalogItemText}`}>
-              {NODE_SYMBOL_MAP[type].label}
-            </span>
+          <div key={type} draggable onDragStart={(e) => onDragStart(e, type)} className={`flex items-center space-x-2 p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border ${cls.catalogItem}`}>
+            <div className="flex-shrink-0 scale-75">{renderPin(type, false)}</div>
+            <span className={`text-[10px] font-bold truncate leading-none ${cls.catalogItemText}`}>{NODE_SYMBOL_MAP[type].label}</span>
           </div>
         ))}
       </div>
     </div>
   );
 
+  // ── Modal content (node) ───────────────────────────────────────────────────
+  const renderNodeModal = () => {
+    if (!draftNode) return null;
+    const icon = draftNode.iconId ? customIcons.find(i => i.id === draftNode.iconId) : null;
+    const ag = icon?.associatedCategory;
+    const selectedMat = materials.find(m => m.id === draftNode.materialId);
+    const isMeterUnit = selectedMat?.unit.toLowerCase() === 'm' || selectedMat?.unit === 'เมตร';
+
+    // Build node material options filtered by icon's associated category
+    const nodeMatGroups = materialsBySymbolGroup
+      .map(([sg, items]) => {
+        const relevant = items.filter(m =>
+          m.unit !== 'm' && m.unit !== 'F' &&
+          (!ag || m.symbol_group === ag || sg === ag)
+        );
+        return [sg, relevant] as [string, Material[]];
+      })
+      .filter(([, items]) => items.length > 0);
+
+    // Connected edges for TER
+    const connectedEdges = project.edges.filter(e => e.source === draftNode.id || e.target === draftNode.id);
+    const terIds: (number | null)[] = connectedEdges.map((_, i) => draftNode.terMaterialIds?.[i] ?? null);
+
+    const updateTer = (edgeIdx: number, matId: number | null) => {
+      const next = connectedEdges.map((_, i) => i === edgeIdx ? matId : (draftNode.terMaterialIds?.[i] ?? null));
+      setDraftNode(d => d ? { ...d, terMaterialIds: next } : d);
+    };
+
+    return (
+      <div className="space-y-4">
+        {/* Label */}
+        <div>
+          <label className={`block text-[10px] font-black uppercase tracking-widest mb-1 ${cls.sectionLabel}`}>Label Tag</label>
+          <input
+            type="text"
+            className={`w-full border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 ${cls.inputBg}`}
+            value={draftNode.label || ''}
+            onChange={e => setDraftNode(d => d ? { ...d, label: e.target.value } : d)}
+          />
+        </div>
+
+        {/* Material */}
+        <div>
+          <label className={`block text-[10px] font-black uppercase tracking-widest mb-1 ${cls.sectionLabel}`}>วัสดุ / อุปกรณ์</label>
+          <select
+            className={`w-full border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 ${cls.selectBg}`}
+            style={{ colorScheme: isDark ? 'dark' : 'light' }}
+            value={draftNode.materialId ?? ''}
+            onChange={e => setDraftNode(d => d ? { ...d, materialId: Number(e.target.value) || undefined } : d)}
+          >
+            <option value="">— ไม่ระบุวัสดุ —</option>
+            {nodeMatGroups.map(([sg, items]) => (
+              <optgroup key={sg} label={sg}>
+                {items.map(m => (
+                  <option key={m.id} value={m.id}>{m.material_name} — ฿{m.unit_price}/{m.unit}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+
+        {/* Quantity */}
+        {selectedMat && (
+          <div>
+            <label className={`block text-[10px] font-black uppercase tracking-widest mb-1 flex items-center gap-1 ${cls.sectionLabel}`}>
+              {isMeterUnit ? <Ruler size={11} /> : <Package size={11} />}
+              {isMeterUnit ? 'ระยะทาง (เมตร)' : `จำนวน (${selectedMat.unit})`}
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                step={isMeterUnit ? '0.01' : '1'}
+                className={`flex-grow border rounded-lg px-3 py-2 text-sm font-black outline-none focus:ring-2 focus:ring-blue-500 ${cls.inputBg}`}
+                value={draftNode.quantity ?? 0}
+                onChange={e => setDraftNode(d => d ? { ...d, quantity: parseFloat(e.target.value) || 0 } : d)}
+              />
+              <span className={`text-xs font-black uppercase ${cls.sectionLabel}`}>{selectedMat.unit}</span>
+            </div>
+          </div>
+        )}
+
+        {/* TER — one dropdown per connected edge */}
+        {connectedEdges.length > 0 && terGroups.length > 0 && (
+          <div className={`rounded-xl border p-3 space-y-2 ${isDark ? 'border-amber-800/40 bg-amber-900/10' : 'border-amber-200 bg-amber-50'}`}>
+            <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
+              <Cable size={11} />
+              จุดต่อสาย (Terminal) — {connectedEdges.length} เส้น
+            </div>
+            {connectedEdges.map((edge, idx) => {
+              const cableMat = materials.find(m => m.id === edge.materialId);
+              return (
+                <div key={edge.id}>
+                  <label className={`block text-[9px] font-bold mb-0.5 truncate ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>
+                    สาย {idx + 1}: {cableMat?.material_name || 'ไม่ระบุสาย'}
+                  </label>
+                  <select
+                    className={`w-full border rounded-lg px-2 py-1.5 text-[11px] font-bold outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 ${cls.selectBg}`}
+                    style={{ colorScheme: isDark ? 'dark' : 'light' }}
+                    value={terIds[idx] ?? ''}
+                    onChange={e => updateTer(idx, Number(e.target.value) || null)}
+                  >
+                    <option value="">— ไม่ระบุ TER —</option>
+                    {terGroups.map(([groupName, items]) => (
+                      <optgroup key={groupName} label={groupName}>
+                        {items.map(m => (
+                          <option key={m.id} value={m.id}>{m.material_name} — ฿{m.unit_price}/{m.unit}</option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* GPS Coordinates */}
+        <div className={`rounded-xl border p-3 space-y-2 ${isDark ? 'border-emerald-800/40 bg-emerald-900/10' : 'border-emerald-200 bg-emerald-50'}`}>
+          <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-emerald-400' : 'text-emerald-700'}`}>
+            <MapPin size={11} />
+            พิกัด GPS (สำหรับ Google Map)
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className={`block text-[9px] font-bold mb-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Latitude</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="เช่น 13.756331"
+                className={`w-full border rounded-lg px-2 py-1.5 text-[11px] font-bold outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 ${cls.inputBg}`}
+                value={draftNode.metadata?.lat ?? ''}
+                onChange={e => setDraftNode(d => d ? {
+                  ...d,
+                  metadata: { ...d.metadata, lat: e.target.value, lng: d.metadata?.lng ?? '' }
+                } : d)}
+              />
+            </div>
+            <div>
+              <label className={`block text-[9px] font-bold mb-0.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>Longitude</label>
+              <input
+                type="text"
+                inputMode="decimal"
+                placeholder="เช่น 100.501765"
+                className={`w-full border rounded-lg px-2 py-1.5 text-[11px] font-bold outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 ${cls.inputBg}`}
+                value={draftNode.metadata?.lng ?? ''}
+                onChange={e => setDraftNode(d => d ? {
+                  ...d,
+                  metadata: { ...d.metadata, lng: e.target.value, lat: d.metadata?.lat ?? '' }
+                } : d)}
+              />
+            </div>
+          </div>
+          {(draftNode.metadata?.lat && draftNode.metadata?.lng) && (
+            <a
+              href={`https://www.google.com/maps?q=${draftNode.metadata.lat},${draftNode.metadata.lng}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`flex items-center gap-1 text-[9px] font-bold underline ${isDark ? 'text-emerald-400' : 'text-emerald-600'}`}
+            >
+              <MapPin size={9} />
+              เปิดใน Google Maps
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Modal content (edge) ───────────────────────────────────────────────────
+  const renderEdgeModal = () => {
+    if (!draftEdge) return null;
+    return (
+      <div className="space-y-4">
+        {/* Distance */}
+        <div>
+          <label className={`block text-[10px] font-black uppercase tracking-widest mb-1 ${cls.sectionLabel}`}>ระยะทาง (เมตร)</label>
+          <input
+            type="number"
+            className={`w-full border rounded-lg px-3 py-2 text-sm font-bold outline-none ${cls.inputBg}`}
+            value={draftEdge.distance ?? 0}
+            onChange={e => setDraftEdge(d => d ? { ...d, distance: Number(e.target.value) } : d)}
+          />
+        </div>
+
+        {/* Cable type */}
+        <div>
+          <label className={`block text-[10px] font-black uppercase tracking-widest mb-1 flex items-center gap-1 ${cls.sectionLabel}`}>
+            <Zap size={11} />
+            ชนิดสาย (Cable Type)
+          </label>
+          <select
+            className={`w-full border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-emerald-500/30 focus:border-emerald-500 ${cls.selectBg}`}
+            style={{ colorScheme: isDark ? 'dark' : 'light' }}
+            value={draftEdge.materialId ?? ''}
+            onChange={e => setDraftEdge(d => d ? { ...d, materialId: Number(e.target.value) || 0 } : d)}
+          >
+            <option value="">— ไม่ระบุสาย —</option>
+            {cableGroups.map(([sg, items]) => (
+              <optgroup key={sg} label={sg}>
+                {items.map(m => (
+                  <option key={m.id} value={m.id}>{m.material_name} — ฿{m.unit_price}/{m.unit}</option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className={`flex h-full overflow-hidden select-none ${cls.root}`}>
+    <div
+      className={`flex h-full overflow-hidden select-none ${cls.root}`}
+      onClick={() => { setContextMenu(null); }}
+    >
+      {/* ── Left sidebar ───────────────────────────────────────────────────── */}
       <div className={`w-[300px] border-r flex flex-col shadow-sm ${cls.sidebar}`}>
         <div className={`p-4 border-b flex items-center justify-between ${cls.sidebarHeader}`}>
           <h3 className={`text-xs font-black uppercase tracking-widest flex items-center ${cls.sidebarHeaderText}`}>
@@ -371,209 +619,185 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
 
         <div className={`flex-grow overflow-y-auto ${cls.catalogBg}`}>
           <div className="p-3">
-             <CatalogSection
-               title="Professional Symbols"
-               description="General Plan Standard"
-               types={[NodeType.EXCHANGE, NodeType.CABINET, NodeType.ODP, NodeType.STRAIGHT_JOINT, NodeType.BRANCH_JOINT]}
-             />
+            <CatalogSection title="Professional Symbols" description="General Plan Standard" types={[NodeType.EXCHANGE, NodeType.CABINET, NodeType.ODP, NodeType.STRAIGHT_JOINT, NodeType.BRANCH_JOINT]} />
+            <CatalogSection title="Classic Markers" types={[NodeType.TOT_POLE, NodeType.MANHOLE, NodeType.DP, NodeType.SDP, NodeType.RISER, NodeType.AIS]} />
 
-             <CatalogSection
-               title="Classic Markers"
-               types={[NodeType.TOT_POLE, NodeType.MANHOLE, NodeType.DP, NodeType.SDP, NodeType.RISER, NodeType.AIS]}
-             />
-
-             {customIconsGrouped.map(([category, groupIcons]) => (
-               <div key={category} className="mt-6">
-                 <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.15em] mb-3 px-1 border-l-2 border-blue-500 pl-3">{category}</h4>
-                 <div className="space-y-1">
-                   {groupIcons.map(icon => (
-                     <div key={icon.id} draggable onDragStart={(e) => onDragStart(e, NodeType.CUSTOM, icon.id)} className={`flex items-center space-x-3 p-2 rounded-xl cursor-grab active:cursor-grabbing transition-all border shadow-sm ${cls.customIconBg}`}>
-                        <div className={`w-8 h-8 border rounded overflow-hidden flex items-center justify-center shadow-inner ${cls.customIconImgBg}`}>
-                          {icon.dataUrl ? (
-                            <img src={icon.dataUrl} className="w-full h-full object-contain image-pixelated p-0.5" alt={icon.name} />
-                          ) : (
-                            <div className={`text-[8px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>BMP</div>
-                          )}
-                        </div>
-                        <div className="flex-grow min-w-0">
-                          <div className={`text-[10px] font-bold truncate ${cls.customIconName}`}>{icon.name}</div>
-                          <div className={`text-[8px] uppercase font-black tracking-tight ${cls.customIconCat}`}>{category}</div>
-                        </div>
-                     </div>
-                   ))}
-                 </div>
-               </div>
-             ))}
-
-             <div className="mt-6">
-                <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 px-1 border-l-2 pl-3 ${cls.otherNodesText} ${cls.otherNodesBorder}`}>Other Nodes</h4>
-                <div className="grid grid-cols-2 gap-x-1 gap-y-0.5">
-                   {Object.entries(NodeType)
-                    .filter(([k]) => ![NodeType.EXCHANGE, NodeType.CABINET, NodeType.STRAIGHT_JOINT, NodeType.BRANCH_JOINT, NodeType.ODP, NodeType.SDP, NodeType.TOT_POLE, NodeType.MANHOLE, NodeType.DP, NodeType.RISER, NodeType.AIS, NodeType.CUSTOM].includes(k as NodeType))
-                    .map(([key, type]) => (
-                      <div
-                        key={key}
-                        draggable
-                        onDragStart={(e) => onDragStart(e, type as NodeType)}
-                        className={`flex items-center space-x-2 p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent ${isDark ? 'hover:bg-slate-800 hover:border-slate-700' : 'hover:bg-slate-100 hover:border-slate-200'}`}
-                      >
-                        <div className="flex-shrink-0 scale-75">
-                          {renderPin(type as NodeType, false)}
-                        </div>
-                        <span className={`text-[9px] font-bold truncate ${cls.otherNodesItemText}`}>
-                          {NODE_SYMBOL_MAP[type as NodeType].label}
-                        </span>
+            {customIconsGrouped.map(([category, groupIcons]) => (
+              <div key={category} className="mt-6">
+                <h4 className="text-[10px] font-black text-blue-400 uppercase tracking-[0.15em] mb-3 px-1 border-l-2 border-blue-500 pl-3">{category}</h4>
+                <div className="space-y-1">
+                  {groupIcons.map(icon => (
+                    <div key={icon.id} draggable onDragStart={(e) => onDragStart(e, NodeType.CUSTOM, icon.id)} className={`flex items-center space-x-3 p-2 rounded-xl cursor-grab active:cursor-grabbing transition-all border shadow-sm ${cls.customIconBg}`}>
+                      <div className={`w-8 h-8 border rounded overflow-hidden flex items-center justify-center shadow-inner ${cls.customIconImgBg}`}>
+                        {icon.dataUrl
+                          ? <img src={icon.dataUrl} className="w-full h-full object-contain image-pixelated p-0.5" alt={icon.name} />
+                          : <div className={`text-[8px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>BMP</div>
+                        }
                       </div>
-                    ))
-                   }
+                      <div className="flex-grow min-w-0">
+                        <div className={`text-[10px] font-bold truncate ${cls.customIconName}`}>{icon.name}</div>
+                        <div className={`text-[8px] uppercase font-black tracking-tight ${cls.customIconCat}`}>{category}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-             </div>
+              </div>
+            ))}
+
+            <div className="mt-6">
+              <h4 className={`text-[10px] font-black uppercase tracking-widest mb-3 px-1 border-l-2 pl-3 ${cls.otherNodesText} ${cls.otherNodesBorder}`}>Other Nodes</h4>
+              <div className="grid grid-cols-2 gap-x-1 gap-y-0.5">
+                {Object.entries(NodeType)
+                  .filter(([k]) => ![NodeType.EXCHANGE, NodeType.CABINET, NodeType.STRAIGHT_JOINT, NodeType.BRANCH_JOINT, NodeType.ODP, NodeType.SDP, NodeType.TOT_POLE, NodeType.MANHOLE, NodeType.DP, NodeType.RISER, NodeType.AIS, NodeType.CUSTOM].includes(k as NodeType))
+                  .map(([key, type]) => (
+                    <div key={key} draggable onDragStart={(e) => onDragStart(e, type as NodeType)} className={`flex items-center space-x-2 p-1.5 rounded-lg cursor-grab active:cursor-grabbing transition-colors group border border-transparent ${isDark ? 'hover:bg-slate-800 hover:border-slate-700' : 'hover:bg-slate-100 hover:border-slate-200'}`}>
+                      <div className="flex-shrink-0 scale-75">{renderPin(type as NodeType, false)}</div>
+                      <span className={`text-[9px] font-bold truncate ${cls.otherNodesItemText}`}>{NODE_SYMBOL_MAP[type as NodeType].label}</span>
+                    </div>
+                  ))
+                }
+              </div>
+            </div>
           </div>
         </div>
 
         <div className={`p-4 border-t ${cls.sidebarFooter}`}>
-           <button disabled={!selectedNodeId && !selectedEdgeId} onClick={deleteSelected} className={`w-full flex items-center justify-center space-x-2 p-2.5 rounded-lg transition-all text-xs font-bold ${selectedNodeId || selectedEdgeId ? `${cls.deleteEnabled} border` : `${cls.deleteDisabled} cursor-not-allowed`}`}>
-              <Trash2 size={14} />
-              <span>ลบรายการที่เลือก</span>
-            </button>
+          <button
+            disabled={!selectedNodeId && !selectedEdgeId}
+            onClick={deleteSelected}
+            className={`w-full flex items-center justify-center space-x-2 p-2.5 rounded-lg transition-all text-xs font-bold ${selectedNodeId || selectedEdgeId ? `${cls.deleteEnabled} border` : `${cls.deleteDisabled} cursor-not-allowed`}`}
+          >
+            <Trash2 size={14} />
+            <span>ลบรายการที่เลือก</span>
+          </button>
         </div>
       </div>
 
-      <div ref={canvasRef} className={`flex-grow relative canvas-grid overflow-hidden ${cls.canvas} ${mode === 'connect' ? 'cursor-crosshair' : 'cursor-default'}`} onClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); setEditingItem(null); }} onDragOver={(e) => e.preventDefault()} onDrop={onDrop} onMouseMove={(e) => isDragging && handleNodeDrag(isDragging, e)} onMouseUp={() => setIsDragging(null)}>
+      {/* ── Canvas area ────────────────────────────────────────────────────── */}
+      <div
+        ref={canvasRef}
+        className={`flex-grow relative canvas-grid overflow-hidden ${cls.canvas} ${mode === 'connect' ? 'cursor-crosshair' : 'cursor-default'}`}
+        onClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); setContextMenu(null); }}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={onDrop}
+        onMouseMove={(e) => isDragging && handleNodeDrag(isDragging, e)}
+        onMouseUp={() => setIsDragging(null)}
+      >
+        {/* Edges SVG */}
         <svg className="absolute inset-0 w-full h-full pointer-events-none">
           {project.edges.map(edge => {
             const coords = getEdgeCoords(edge);
             if (!coords) return null;
             const isSelected = selectedEdgeId === edge.id;
             return (
-              <g key={edge.id} className="group pointer-events-auto cursor-pointer" onClick={(e) => { e.stopPropagation(); setSelectedEdgeId(edge.id); setSelectedNodeId(null); }} onDoubleClick={(e) => { e.stopPropagation(); setEditingItem({ type: 'edge', id: edge.id }); }}>
+              <g
+                key={edge.id}
+                className="group pointer-events-auto cursor-pointer"
+                onClick={(e) => { e.stopPropagation(); setSelectedEdgeId(edge.id); setSelectedNodeId(null); setContextMenu(null); }}
+                onDoubleClick={(e) => { e.stopPropagation(); openEdgeModal(edge.id); }}
+                onContextMenu={(e) => handleEdgeContextMenu(edge.id, e as unknown as React.MouseEvent)}
+              >
                 <line x1={coords.x1} y1={coords.y1} x2={coords.x2} y2={coords.y2} stroke="transparent" strokeWidth="20" />
-                <line x1={coords.x1} y1={coords.y1} x2={coords.x2} y2={coords.y2} stroke={isSelected ? '#3b82f6' : '#94a3b8'} strokeWidth={isSelected ? "3" : "1.5"} strokeDasharray={isSelected ? "none" : "8,4"} />
+                <line x1={coords.x1} y1={coords.y1} x2={coords.x2} y2={coords.y2} stroke={isSelected ? '#3b82f6' : '#94a3b8'} strokeWidth={isSelected ? '3' : '1.5'} strokeDasharray={isSelected ? 'none' : '8,4'} />
                 <g transform={`translate(${(coords.x1 + coords.x2) / 2}, ${(coords.y1 + coords.y2) / 2})`}>
-                  <rect x="-25" y="-10" width="50" height="20" rx="6" fill="white" stroke={isSelected ? '#3b82f6' : '#e2e8f0'} strokeWidth="1.5" className="filter drop-shadow-sm" />
-                  <text className={`text-[9px] font-black ${isSelected ? 'fill-blue-600' : 'fill-slate-700'}`} textAnchor="middle" dominantBaseline="middle">{edge.distance}M</text>
+                  <rect x="-25" y="-10" width="50" height="20" rx="6" fill="white" stroke={isSelected ? '#3b82f6' : '#e2e8f0'} strokeWidth="1.5" />
+                  <text className={`text-[9px] font-black`} fill={isSelected ? '#2563eb' : '#334155'} textAnchor="middle" dominantBaseline="middle">{edge.distance}M</text>
                 </g>
               </g>
             );
           })}
         </svg>
 
+        {/* Nodes */}
         {project.nodes.map(node => (
-          <div key={node.id} onMouseDown={(e) => { e.stopPropagation(); if(mode === 'select') setIsDragging(node.id); }} onClick={(e) => handleNodeClick(node.id, e)} onDoubleClick={(e) => { e.stopPropagation(); setEditingItem({ type: 'node', id: node.id }); }} className={`absolute -translate-x-1/2 -translate-y-1/2 group transition-all ${selectedNodeId === node.id ? 'z-20' : 'z-10'}`} style={{ left: node.x, top: node.y }}>
+          <div
+            key={node.id}
+            onMouseDown={(e) => { e.stopPropagation(); if (mode === 'select') setIsDragging(node.id); }}
+            onClick={(e) => handleNodeClick(node.id, e)}
+            onDoubleClick={(e) => { e.stopPropagation(); openNodeModal(node.id); }}
+            onContextMenu={(e) => handleNodeContextMenu(node.id, e)}
+            className={`absolute -translate-x-1/2 -translate-y-1/2 group transition-all ${selectedNodeId === node.id ? 'z-20' : 'z-10'}`}
+            style={{ left: node.x, top: node.y }}
+          >
             <div className={`relative flex flex-col items-center transition-all ${selectedNodeId === node.id ? 'scale-125' : 'hover:scale-110'}`}>
               {renderIcon(node)}
-              {/* Always visible label with high contrast */}
-              <div className={`absolute top-full mt-2 text-[8px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none transition-all shadow-md z-30 ${cls.nodeLabel} ${selectedNodeId === node.id ? 'ring-2 ring-blue-400 scale-110' : 'opacity-90'}`}>
+              <div className={`absolute top-full mt-2 text-[8px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded whitespace-nowrap pointer-events-none shadow-md z-30 ${cls.nodeLabel} ${selectedNodeId === node.id ? 'ring-2 ring-blue-400 scale-110' : 'opacity-90'}`}>
                 {node.label}
               </div>
             </div>
           </div>
         ))}
 
-        {editingItem && (
-          <div className={`absolute top-6 right-6 w-[400px] rounded-2xl shadow-2xl border p-6 z-50 animate-in fade-in slide-in-from-right-8 ${cls.panel}`} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h3 className={`text-sm font-black uppercase tracking-tight flex items-center space-x-2 ${cls.panelTitle}`}>
-                <Edit3 size={16} className="text-blue-400" />
-                <span>คุณสมบัติ (Properties)</span>
-              </h3>
-              <button onClick={() => setEditingItem(null)} className={`transition-colors ${cls.panelClose}`}>×</button>
-            </div>
-
-            <div className="space-y-5">
-              {editingItem.type === 'node' ? (() => {
-                const node = project.nodes.find(n => n.id === editingItem.id);
-                const icon = node?.iconId ? customIcons.find(i => i.id === node.iconId) : null;
-                const selectedMat = materials.find(m => m.id === node?.materialId);
-                const isMeterUnit = selectedMat?.unit.toLowerCase() === 'm' || selectedMat?.unit === 'เมตร';
-
-                return (
-                  <>
-                    <div>
-                      <label className={`block text-[10px] font-black uppercase tracking-widest mb-1.5 ml-1 ${cls.labelText}`}>Label Tag</label>
-                      <input type="text" className={`w-full border rounded-lg px-3 py-2 text-sm font-bold outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500 ${cls.inputBg}`} value={node?.label || ''} onChange={e => setProject(prev => ({ ...prev, nodes: prev.nodes.map(n => n.id === editingItem.id ? { ...n, label: e.target.value } : n) }))} />
-                    </div>
-                    <div>
-                      <label className={`block text-[10px] font-black uppercase tracking-widest mb-1.5 ml-1 ${cls.labelText}`}>
-                        Stationary Equipment (T1)
-                      </label>
-                      <div className={`max-h-64 overflow-y-auto space-y-4 border rounded-lg p-2 ${cls.materialListBg}`}>
-                        {(Object.entries(materialsByCategory) as [string, Material[]][])
-                          .filter(([cat]) => !icon?.associatedCategory || cat === icon.associatedCategory)
-                          .map(([category, items]) => {
-                            const relevantItems = items.filter(m => m.material_type === 'T01');
-                            if (relevantItems.length === 0) return null;
-                            return (
-                              <div key={category}>
-                                <div className="flex items-center space-x-1 mb-1 px-1">
-                                  <Tag size={10} className={isDark ? 'text-slate-400' : 'text-slate-500'} />
-                                  <span className={`text-[9px] font-black uppercase tracking-widest ${cls.materialCatLabel}`}>{category}</span>
-                                </div>
-                                <div className="space-y-1">
-                                  {relevantItems.map(m => (
-                                    <button key={m.id} onClick={() => { setProject(prev => ({ ...prev, nodes: prev.nodes.map(n => n.id === editingItem.id ? { ...n, materialId: m.id } : n) })); }} className={`w-full text-left px-3 py-2 rounded text-[11px] font-bold flex flex-col transition-colors ${node?.materialId === m.id ? 'bg-blue-600 text-white shadow-sm' : `${cls.materialItemInactive} border`}`}>
-                                      <div className="flex items-center justify-between">
-                                        <span className="truncate">{m.material_name}</span>
-                                        <HardDrive size={10} className="opacity-40" />
-                                      </div>
-                                      <span className={`text-[9px] opacity-70 ${node?.materialId === m.id ? 'text-blue-100' : cls.materialItemSubtext}`}>฿{m.unit_price} / {m.unit}</span>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })}
-                      </div>
-                    </div>
-
-                    {selectedMat && (
-                      <div className={`p-3 rounded-xl border ${cls.quantityBox}`}>
-                        <label className={`block text-[10px] font-black uppercase tracking-widest mb-2 flex items-center ${cls.quantityLabel}`}>
-                          {isMeterUnit ? <Ruler size={12} className="mr-1.5" /> : <Package size={12} className="mr-1.5" />}
-                          {isMeterUnit ? 'Length (Meter)' : 'Quantity (Units)'}
-                        </label>
-                        <div className="flex items-center space-x-2">
-                          <input
-                            type="number"
-                            step={isMeterUnit ? "0.01" : "1"}
-                            className={`flex-grow border rounded-lg px-3 py-2 text-sm font-black outline-none focus:ring-2 focus:ring-blue-500 ${cls.quantityInput}`}
-                            value={node?.quantity || 0}
-                            onChange={e => setProject(prev => ({ ...prev, nodes: prev.nodes.map(n => n.id === editingItem.id ? { ...n, quantity: parseFloat(e.target.value) || 0 } : n) }))}
-                          />
-                          <span className={`text-xs font-black uppercase ${cls.quantityUnit}`}>{selectedMat.unit}</span>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                );
-              })() : (
-                <>
-                  <div>
-                    <label className={`block text-[10px] font-black uppercase tracking-widest mb-1.5 ml-1 ${cls.labelText}`}>Segment Distance (M)</label>
-                    <input type="number" className={`w-full border rounded-lg px-3 py-2 text-sm font-bold outline-none ${cls.edgeInput}`} value={project.edges.find(e => e.id === editingItem.id)?.distance || 0} onChange={e => setProject(prev => ({ ...prev, edges: prev.edges.map(ed => ed.id === editingItem.id ? { ...ed, distance: Number(e.target.value) } : ed) }))} />
-                  </div>
-                  <div>
-                    <label className={`block text-[10px] font-black uppercase tracking-widest mb-1.5 ml-1 ${cls.labelText}`}>Cable Type (T2)</label>
-                    <div className="space-y-1">
-                      {materials.filter(m => m.material_type === 'T02').map(m => (
-                        <button key={m.id} onClick={() => setProject(prev => ({ ...prev, edges: prev.edges.map(ed => ed.id === editingItem.id ? { ...ed, materialId: m.id } : ed) }))} className={`w-full text-left px-3 py-2 rounded text-[11px] font-bold flex items-center justify-between transition-colors ${project.edges.find(e => e.id === editingItem.id)?.materialId === m.id ? 'bg-emerald-600 text-white shadow-md shadow-emerald-900/30' : `${cls.cableInactive} border`}`}>
-                          <div className="flex items-center space-x-2">
-                            <Zap size={10} className={project.edges.find(e => e.id === editingItem.id)?.materialId === m.id ? 'text-white' : 'text-emerald-400'} />
-                            <span>{m.material_name}</span>
-                          </div>
-                          <span className={`text-[9px] ${project.edges.find(e => e.id === editingItem.id)?.materialId === m.id ? 'text-white' : cls.cableInactivePrice}`}>฿{m.unit_price}</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
+        {/* ── Right-click context menu ──────────────────────────────────────── */}
+        {contextMenu && (
+          <div
+            className={`fixed z-[100] rounded-xl border shadow-2xl overflow-hidden min-w-[140px] ${cls.ctxMenu}`}
+            style={{ left: contextMenu.x, top: contextMenu.y }}
+            onClick={e => e.stopPropagation()}
+          >
+            <button
+              className={`w-full flex items-center gap-2 px-4 py-2.5 text-[12px] font-bold transition-colors ${cls.ctxItem}`}
+              onClick={() => contextMenu.type === 'node' ? openNodeModal(contextMenu.id) : openEdgeModal(contextMenu.id)}
+            >
+              <Edit3 size={13} />
+              ตั้งค่า / Properties
+            </button>
+            <div className={`h-px mx-2 ${isDark ? 'bg-slate-700' : 'bg-slate-200'}`} />
+            <button
+              className={`w-full flex items-center gap-2 px-4 py-2.5 text-[12px] font-bold transition-colors ${cls.ctxDanger}`}
+              onClick={() => deleteItem(contextMenu.type, contextMenu.id)}
+            >
+              <Trash2 size={13} />
+              ลบ
+            </button>
           </div>
         )}
       </div>
+
+      {/* ── Centered blocking modal ─────────────────────────────────────────── */}
+      {editingItem && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div
+            className={`w-full max-w-md rounded-2xl shadow-2xl border flex flex-col ${cls.modalCard}`}
+            style={{ maxHeight: '90vh' }}
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center gap-2 px-6 pt-5 pb-4 shrink-0">
+              <Edit3 size={16} className="text-blue-400" />
+              <h3 className={`text-sm font-black uppercase tracking-tight ${cls.modalTitle}`}>
+                {editingItem.type === 'node' ? 'คุณสมบัติอุปกรณ์' : 'คุณสมบัติเส้นสาย'}
+              </h3>
+            </div>
+
+            {/* Modal body — scrollable */}
+            <div className="flex-1 overflow-y-auto px-6 pb-2 min-h-0">
+              {editingItem.type === 'node' ? renderNodeModal() : renderEdgeModal()}
+            </div>
+
+            {/* Confirm / Cancel */}
+            <div className="flex gap-3 px-6 py-4 shrink-0 border-t border-slate-200/50 mt-2">
+              <button
+                onClick={cancelEdit}
+                className={`flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl border text-sm font-bold transition-all ${isDark ? 'border-slate-600 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-50'}`}
+              >
+                <X size={14} />
+                ยกเลิก
+              </button>
+              <button
+                onClick={confirmEdit}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 rounded-xl bg-blue-600 text-white text-sm font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-900/30"
+              >
+                <Check size={14} />
+                ยืนยัน
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
 
 export default DesignCanvas;

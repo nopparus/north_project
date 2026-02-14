@@ -1,14 +1,16 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Layout, Database, FileText, PenTool, Printer, Save, Palette, Shield, User, ShieldCheck, Sun, Moon } from 'lucide-react';
+import { Layout, Database, FileText, PenTool, Printer, Save, Palette, Shield, User, ShieldCheck, Sun, Moon, ChevronDown, FolderOpen, Plus, Trash2, Map, Upload } from 'lucide-react';
 import DesignCanvas from './pages/DesignCanvas';
 import DatabasePage from './pages/Database';
 import BOQSummary from './pages/BOQSummary';
 import IconEditor from './pages/IconEditor';
-import { INITIAL_MATERIALS } from './constants';
-import { ProjectState, Material, CustomIcon, IconDot } from './types';
+import NetworkPrintModal from './pages/NetworkPrintModal';
+import { INITIAL_MATERIALS, SYSTEM_ICONS, NODE_SYMBOL_MAP } from './constants';
+import { ProjectState, Material, CustomIcon, IconDot, SavedProject } from './types';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { SAMPLE_PROJECTS } from './materials-db';
 
 const generateBox = (xStart: number, yStart: number, width: number, height: number, color: string): IconDot[] => {
   const dots: IconDot[] = [];
@@ -39,144 +41,109 @@ const AppContent: React.FC = () => {
   });
 
   const [materials, setMaterials] = useState<Material[]>(() => {
+    const MATERIALS_VERSION = '3.2'; // bumped: added symbol_group to source data
+    const savedVersion = localStorage.getItem('fiber_materials_version');
+    if (savedVersion !== MATERIALS_VERSION) {
+      localStorage.setItem('fiber_materials_version', MATERIALS_VERSION);
+      localStorage.removeItem('fiber_materials');
+      return INITIAL_MATERIALS;
+    }
     const saved = localStorage.getItem('fiber_materials');
-    return saved ? JSON.parse(saved) : INITIAL_MATERIALS;
+    if (!saved) return INITIAL_MATERIALS;
+    // Merge symbol_group from source into saved materials (preserves user edits)
+    const parsed: Material[] = JSON.parse(saved);
+    const srcMap = new Map(INITIAL_MATERIALS.map(m => [m.id, m]));
+    return parsed.map(m => ({
+      ...m,
+      symbol_group: m.symbol_group ?? srcMap.get(m.id)?.symbol_group ?? '',
+    }));
   });
 
   const [icons, setIcons] = useState<CustomIcon[]>(() => {
     const saved = localStorage.getItem('fiber_icons');
-    if (saved) return JSON.parse(saved);
-
-    // Default library based on professional symbols
-    return [
-      {
-        id: 'exch-1',
-        name: 'Telephone Exchange',
-        description: 'Main Hub',
-        dots: [
-          ...generateBox(10, 10, 30, 30, '#1e293b'),
-          ...generateBox(15, 15, 20, 20, '#ffffff'),
-          { x: 15, y: 15, color: '#1e293b' }, { x: 34, y: 34, color: '#1e293b' },
-          { x: 34, y: 15, color: '#1e293b' }, { x: 15, y: 34, color: '#1e293b' },
-          ...generateBox(20, 20, 10, 10, '#3b82f6')
-        ],
-        associatedCategory: 'Exchange'
-      },
-      {
-        id: 'cab-1',
-        name: 'Cabinet (OFCCC)',
-        description: 'Cross Connect Cabinet',
-        dots: [
-          ...generateBox(12, 18, 26, 20, '#475569'),
-          ...generateCircle(25, 18, 12, '#475569'),
-          ...generateBox(20, 24, 10, 8, '#ffffff')
-        ],
-        associatedCategory: 'Cabinet'
-      },
-      {
-        id: 'odp-1',
-        name: 'Proposed ODP',
-        description: 'Distribution Point',
-        dots: [
-          ...generateCircle(25, 25, 15, '#1e293b'),
-          ...generateBox(15, 24, 20, 2, '#ffffff'),
-          ...generateBox(24, 15, 2, 20, '#ffffff')
-        ],
-        associatedCategory: 'ODP'
-      },
-      {
-        id: 'sj-1',
-        name: 'Straight Joint',
-        description: 'Fiber Closure',
-        dots: [
-          ...generateCircle(25, 25, 8, '#000000'),
-          ...generateBox(5, 24, 40, 2, '#000000')
-        ],
-        associatedCategory: 'Closure'
-      },
-      {
-        id: 'bj-1',
-        name: 'Branch Joint',
-        description: 'Splice Enclosure',
-        dots: [
-          ...generateBox(10, 24, 30, 2, '#000000'),
-          ...generateBox(24, 10, 2, 14, '#000000'),
-          ...generateBox(20, 10, 10, 2, '#000000')
-        ],
-        associatedCategory: 'Closure'
-      },
-      {
-        id: 'split-1',
-        name: 'Primary Splitter',
-        description: 'Splitter Box 1:8',
-        dots: [
-          ...generateBox(10, 15, 30, 20, '#3b82f6'),
-          ...generateBox(15, 20, 5, 2, '#ffffff'),
-          ...generateBox(15, 25, 5, 2, '#ffffff'),
-          ...generateBox(30, 22, 5, 6, '#ffffff')
-        ],
-        associatedCategory: 'Splitter'
-      },
-      {
-        id: 'tp-1',
-        name: 'TOT Pole',
-        description: 'Utility Pole',
-        dots: [
-          ...generateCircle(25, 20, 15, '#0ea5e9'),
-          ...generateBox(24, 35, 2, 10, '#0ea5e9'),
-          { x: 22, y: 18, color: '#ffffff' }, { x: 23, y: 18, color: '#ffffff' }, { x: 24, y: 18, color: '#ffffff' },
-          { x: 23, y: 19, color: '#ffffff' }, { x: 23, y: 20, color: '#ffffff' }, { x: 23, y: 21, color: '#ffffff' }
-        ],
-        associatedCategory: 'Accessories'
-      },
-      {
-        id: 'sdp-1',
-        name: 'SDP',
-        description: 'Service Delivery Point',
-        dots: [
-          ...generateBox(15, 15, 20, 20, '#0d9488'),
-          ...generateBox(20, 20, 10, 10, '#ffffff'),
-          ...generateBox(23, 23, 4, 4, '#0d9488')
-        ],
-        associatedCategory: 'SDP'
-      },
-      {
-        id: 'mh-1',
-        name: 'Manhole',
-        description: 'Underground Vault',
-        dots: [
-          ...generateCircle(25, 25, 18, '#334155'),
-          ...generateCircle(25, 25, 14, '#475569'),
-          ...generateBox(20, 20, 10, 10, '#1e293b')
-        ],
-        associatedCategory: 'Accessories'
-      }
-    ];
+    // Load user-created icons (filter out old sys-* or isSystem entries from storage)
+    const userIcons: CustomIcon[] = saved
+      ? (JSON.parse(saved) as CustomIcon[]).filter(i => !i.isSystem && !i.id.startsWith('sys-'))
+      : [];
+    // Always prepend the built-in system icons
+    return [...SYSTEM_ICONS, ...userIcons];
   });
+
+  const [savedProjects, setSavedProjects] = useState<SavedProject[]>(() => {
+    const saved = localStorage.getItem('fiber_saved_projects');
+    if (saved) {
+      try { return JSON.parse(saved); } catch { return SAMPLE_PROJECTS; }
+    }
+    return SAMPLE_PROJECTS;
+  });
+
+  const [activeProjectId, setActiveProjectId] = useState<string>(() =>
+    localStorage.getItem('fiber_active_project_id') || SAMPLE_PROJECTS[0].id
+  );
+
+  const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+  const [showNetworkPrint, setShowNetworkPrint] = useState(false);
+  const [kmlExporting, setKmlExporting] = useState(false);
+  const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
+  const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
+  const [saveFileName, setSaveFileName] = useState('');
+  const [newProjectName, setNewProjectName] = useState('');
+  const [newProjectProvince, setNewProjectProvince] = useState('');
+  const [newProjectBudgetYear, setNewProjectBudgetYear] = useState(() => String(new Date().getFullYear() + 544));
+  const [newProjectArea, setNewProjectArea] = useState('');
+  const [newProjectWorkType, setNewProjectWorkType] = useState<'ทดแทนของเดิม' | 'ขอพาดสายสื่อสารใหม่'>('ทดแทนของเดิม');
 
   const [project, setProject] = useState<ProjectState>(() => {
-    const saved = localStorage.getItem('fiber_project');
-    return saved ? JSON.parse(saved) : {
-      nodes: [
-        { id: '1', type: 'EXCHANGE', x: 100, y: 100, label: 'EXC_CENTRAL', materialId: 1 },
-        { id: '2', type: 'CABINET', x: 400, y: 200, label: 'OFCCC#001', materialId: 64 }
-      ],
-      edges: [
-        { id: 'e1', source: '1', target: '2', materialId: 147, distance: 150 }
-      ]
-    };
+    const saved = localStorage.getItem('fiber_saved_projects');
+    if (saved) {
+      try {
+        const projects: SavedProject[] = JSON.parse(saved);
+        const activeId = localStorage.getItem('fiber_active_project_id') || SAMPLE_PROJECTS[0].id;
+        const active = projects.find(p => p.id === activeId);
+        if (active) return active.state;
+      } catch {}
+    }
+    return SAMPLE_PROJECTS[0].state;
   });
 
+  const isLoadingProject = useRef(false);
+  const importProjectRef = useRef<HTMLInputElement>(null);
+
+  // Sync project state when active project changes
   useEffect(() => {
-    localStorage.setItem('fiber_project', JSON.stringify(project));
+    const active = savedProjects.find(p => p.id === activeProjectId);
+    if (active) {
+      isLoadingProject.current = true;
+      setProject(active.state);
+    }
+  }, [activeProjectId]);
+
+  // Auto-save project state back to savedProjects when project changes
+  useEffect(() => {
+    if (isLoadingProject.current) {
+      isLoadingProject.current = false;
+      return;
+    }
+    setSavedProjects(prev => prev.map(p =>
+      p.id === activeProjectId ? { ...p, state: project } : p
+    ));
   }, [project]);
+
+  useEffect(() => {
+    localStorage.setItem('fiber_saved_projects', JSON.stringify(savedProjects));
+  }, [savedProjects]);
+
+  useEffect(() => {
+    localStorage.setItem('fiber_active_project_id', activeProjectId);
+  }, [activeProjectId]);
 
   useEffect(() => {
     localStorage.setItem('fiber_materials', JSON.stringify(materials));
   }, [materials]);
 
   useEffect(() => {
-    localStorage.setItem('fiber_icons', JSON.stringify(icons));
+    // Only persist user-created icons; system icons are always regenerated from SYSTEM_ICONS constant
+    localStorage.setItem('fiber_icons', JSON.stringify(icons.filter(i => !i.isSystem)));
   }, [icons]);
 
   useEffect(() => {
@@ -208,10 +175,273 @@ const AppContent: React.FC = () => {
   }, [icons]);
 
   const handleSave = () => {
-    localStorage.setItem('fiber_project', JSON.stringify(project));
-    localStorage.setItem('fiber_materials', JSON.stringify(materials));
-    localStorage.setItem('fiber_icons', JSON.stringify(icons));
-    alert('Project and settings saved.');
+    // sync latest state first
+    setSavedProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, state: project } : p));
+    // open save-as modal
+    const activeProj = savedProjects.find(p => p.id === activeProjectId);
+    setSaveFileName(activeProj?.name || 'project');
+    setIsSaveModalOpen(true);
+  };
+
+  const handleDownloadProject = (e: React.FormEvent) => {
+    e.preventDefault();
+    const activeProj = savedProjects.find(p => p.id === activeProjectId);
+    if (!activeProj) return;
+    const data = { ...activeProj, state: project };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${saveFileName.replace(/[\\/]/g, '_') || 'project'}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    setIsSaveModalOpen(false);
+  };
+
+  const handleImportProject = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const data = JSON.parse(ev.target?.result as string) as SavedProject;
+        if (!data.state || !Array.isArray(data.state.nodes)) throw new Error('ไฟล์ไม่ถูกต้อง');
+        const newId = `proj-${Date.now()}`;
+        const imported: SavedProject = { ...data, id: newId, name: data.name || file.name.replace('.json', '') };
+        setSavedProjects(prev => [...prev, imported]);
+        setActiveProjectId(newId);
+      } catch (err: any) {
+        alert(`นำเข้าไม่สำเร็จ: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleSwitchProject = (id: string) => {
+    setSavedProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, state: project } : p));
+    setActiveProjectId(id);
+    setIsProjectDropdownOpen(false);
+  };
+
+  const handleCreateProject = (e: React.FormEvent) => {
+    e.preventDefault();
+    const id = `proj-${Date.now()}`;
+    const newProj: SavedProject = {
+      id,
+      name: newProjectName,
+      description: '',
+      createdAt: new Date().toISOString(),
+      state: { nodes: [], edges: [] },
+      province: newProjectProvince,
+      budgetYear: newProjectBudgetYear,
+      area: newProjectArea,
+      workType: newProjectWorkType,
+    };
+    setSavedProjects(prev => [...prev, newProj]);
+    setActiveProjectId(id);
+    setIsNewProjectModalOpen(false);
+    setNewProjectName('');
+    setNewProjectProvince('');
+    setNewProjectBudgetYear(String(new Date().getFullYear() + 544));
+    setNewProjectArea('');
+    setNewProjectWorkType('ทดแทนของเดิม');
+  };
+
+  const handleDeleteProject = (id: string) => {
+    if (savedProjects.length <= 1) return;
+    const remaining = savedProjects.filter(p => p.id !== id);
+    setSavedProjects(remaining);
+    if (activeProjectId === id) setActiveProjectId(remaining[0].id);
+  };
+
+  // ── KML Export ────────────────────────────────────────────────────────────
+  const escapeXml = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+  const handleExportKML = async () => {
+    const projectName = savedProjects.find(p => p.id === activeProjectId)?.name || 'FiberFlow Network';
+
+    // Build map: nodeId → {lat, lng} for nodes that have valid coordinates
+    const nodeCoords: Record<string, { lat: number; lng: number }> = {};
+    project.nodes.forEach(node => {
+      const lat = parseFloat(node.metadata?.lat || '');
+      const lng = parseFloat(node.metadata?.lng || '');
+      if (!isNaN(lat) && !isNaN(lng) && lat !== 0 && lng !== 0) {
+        nodeCoords[node.id] = { lat, lng };
+      }
+    });
+
+    const nodesWithCoords = project.nodes.filter(n => nodeCoords[n.id]);
+    const edgesWithCoords = project.edges.filter(e => nodeCoords[e.source] && nodeCoords[e.target]);
+
+    if (nodesWithCoords.length === 0) {
+      alert('ยังไม่มีอุปกรณ์ที่ระบุพิกัด GPS\nกรุณาดับเบิลคลิกที่อุปกรณ์แต่ละตัวเพื่อใส่ Latitude / Longitude ก่อน');
+      return;
+    }
+
+    setKmlExporting(true);
+
+    // ── OSRM routing helper ────────────────────────────────────────────────────
+    const fetchOSRMCoords = async (
+      s: { lat: number; lng: number },
+      t: { lat: number; lng: number }
+    ): Promise<string> => {
+      try {
+        const url = `https://router.project-osrm.org/route/v1/foot/${s.lng},${s.lat};${t.lng},${t.lat}?overview=full&geometries=geojson`;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(url, { signal: controller.signal });
+        clearTimeout(timer);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+        const coords: [number, number][] = data.routes?.[0]?.geometry?.coordinates;
+        if (!coords || coords.length === 0) throw new Error('no route');
+        return coords.map(c => `${c[0]},${c[1]},0`).join(' ');
+      } catch {
+        // Fallback: straight line
+        return `${s.lng},${s.lat},0 ${t.lng},${t.lat},0`;
+      }
+    };
+
+    // Node styles by type
+    const typeColor: Record<string, string> = {
+      EXCHANGE: 'ff0000ff', CABINET: 'ff004080', ODP: 'ff008080',
+      SDP: 'ff209020', TOT_POLE: 'ff60b0ff', MANHOLE: 'ff404040',
+      DP: 'ff0040c0', BRANCH_JOINT: 'ff606060', STRAIGHT_JOINT: 'ff808080',
+    };
+
+    const nodeStyles = [...new Set(nodesWithCoords.map(n => n.type))].map(type => {
+      const color = typeColor[type] || 'ff0000ff';
+      return `    <Style id="s-${type}">
+      <IconStyle>
+        <color>${color}</color>
+        <scale>1.0</scale>
+        <Icon><href>http://maps.google.com/mapfiles/kml/paddle/wht-blank.png</href></Icon>
+        <hotSpot x="0.5" y="0" xunits="fraction" yunits="fraction"/>
+      </IconStyle>
+      <LabelStyle><scale>0.8</scale></LabelStyle>
+    </Style>`;
+    }).join('\n');
+
+    const lineStyle = `    <Style id="s-fiber">
+      <LineStyle><color>ff0080ff</color><width>3</width></LineStyle>
+    </Style>`;
+
+    const nodesKML = nodesWithCoords.map(node => {
+      const { lat, lng } = nodeCoords[node.id];
+      const mat = materials.find(m => m.id === node.materialId);
+      const desc = [
+        mat ? `วัสดุ: ${mat.material_name}` : '',
+        node.quantity ? `จำนวน: ${node.quantity} ${mat?.unit || ''}` : '',
+        `พิกัด: ${lat}, ${lng}`,
+      ].filter(Boolean).join('&#10;');
+      return `    <Placemark>
+      <name>${escapeXml(node.label)}</name>
+      <description>${escapeXml(desc)}</description>
+      <styleUrl>#s-${node.type}</styleUrl>
+      <Point><coordinates>${lng},${lat},0</coordinates></Point>
+    </Placemark>`;
+    }).join('\n');
+
+    // Fetch OSRM routes for all edges in parallel
+    const edgeRoutedCoords = await Promise.all(
+      edgesWithCoords.map(edge => fetchOSRMCoords(nodeCoords[edge.source], nodeCoords[edge.target]))
+    );
+
+    const edgesKML = edgesWithCoords.map((edge, i) => {
+      const srcNode = project.nodes.find(n => n.id === edge.source);
+      const tgtNode = project.nodes.find(n => n.id === edge.target);
+      const mat = materials.find(m => m.id === edge.materialId);
+      const name = `${srcNode?.label || ''} → ${tgtNode?.label || ''} (${edge.distance}M)`;
+      const desc = mat ? `${mat.material_name} — ${edge.distance} เมตร` : `${edge.distance} เมตร`;
+      return `    <Placemark>
+      <name>${escapeXml(name)}</name>
+      <description>${escapeXml(desc)}</description>
+      <styleUrl>#s-fiber</styleUrl>
+      <LineString>
+        <tessellate>1</tessellate>
+        <coordinates>${edgeRoutedCoords[i]}</coordinates>
+      </LineString>
+    </Placemark>`;
+    }).join('\n');
+
+    const skippedNodes = project.nodes.length - nodesWithCoords.length;
+    const skippedEdges = project.edges.length - edgesWithCoords.length;
+    const noteLines = [];
+    if (skippedNodes > 0) noteLines.push(`• อุปกรณ์ไม่มีพิกัด: ${skippedNodes} รายการ (ไม่ถูก export)`);
+    if (skippedEdges > 0) noteLines.push(`• เส้นสายไม่ครบพิกัด: ${skippedEdges} เส้น (ไม่ถูก export)`);
+
+    const kml = `<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <name>${escapeXml(projectName)}</name>
+    <description>สร้างโดย FiberFlow BOQ Planner (เส้นทางตามถนน OSRM)&#10;${noteLines.join('&#10;')}</description>
+${nodeStyles}
+${lineStyle}
+    <Folder>
+      <name>อุปกรณ์ (Nodes)</name>
+${nodesKML}
+    </Folder>
+    <Folder>
+      <name>เส้นสาย (Cables)</name>
+${edgesKML}
+    </Folder>
+  </Document>
+</kml>`;
+
+    setKmlExporting(false);
+
+    const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${projectName.replace(/[\s/\\]/g, '_')}_network.kml`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const ExportKMLButton = () => {
+    const location = useLocation();
+    if (location.pathname !== '/') return null;
+    return (
+      <button
+        onClick={handleExportKML}
+        disabled={kmlExporting}
+        title={kmlExporting ? 'กำลังคำนวณเส้นทางตามถนน (OSRM)...' : 'Export เส้นทางตามถนนเป็น KML สำหรับ Google Earth'}
+        className="flex items-center space-x-2 px-4 py-2 bg-emerald-600 text-white rounded-md hover:bg-emerald-500 disabled:opacity-60 disabled:cursor-wait transition-all text-sm font-medium shadow-lg shadow-emerald-600/20"
+      >
+        {kmlExporting ? (
+          <>
+            <svg className="animate-spin" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
+            <span>กำลัง Route...</span>
+          </>
+        ) : (
+          <>
+            <Map size={16} />
+            <span>KML</span>
+          </>
+        )}
+      </button>
+    );
+  };
+
+  const PrintButton = () => {
+    const location = useLocation();
+    const isDesign = location.pathname === '/';
+    return (
+      <button
+        onClick={() => isDesign ? setShowNetworkPrint(true) : window.print()}
+        className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-500 transition-all text-sm font-medium shadow-lg shadow-indigo-600/20"
+      >
+        <Printer size={16} />
+        <span>Print</span>
+      </button>
+    );
   };
 
   const NavItem = ({ to, icon: Icon, label, hidden }: { to: string; icon: any; label: string; hidden?: boolean }) => {
@@ -246,6 +476,39 @@ const AppContent: React.FC = () => {
             <h1 className={`text-xl font-bold tracking-tight leading-none ${isDark ? 'text-white' : 'text-slate-900'}`}>FiberFlow BOQ</h1>
             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Enterprise Planner</p>
           </div>
+
+          {/* Project Selector */}
+          <div className="relative">
+            <button
+              onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
+              className={`flex items-center space-x-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all max-w-[200px] ${isDark ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
+            >
+              <FolderOpen size={15} className="shrink-0 text-blue-500" />
+              <span className="truncate">{savedProjects.find(p => p.id === activeProjectId)?.name || 'No Project'}</span>
+              <ChevronDown size={14} className="shrink-0" />
+            </button>
+            {isProjectDropdownOpen && (
+              <div className={`absolute top-full left-0 mt-1 w-72 rounded-xl border shadow-2xl z-[200] overflow-hidden ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+                <div className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-slate-500 border-b border-slate-800' : 'text-slate-400 border-b border-slate-100'}`}>โปรเจกต์ทั้งหมด</div>
+                {savedProjects.map(p => (
+                  <div key={p.id} className={`flex items-center justify-between px-3 py-2.5 cursor-pointer transition-all ${p.id === activeProjectId ? 'bg-blue-600 text-white' : isDark ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'}`}>
+                    <span className="text-sm font-medium truncate flex-1" onClick={() => handleSwitchProject(p.id)}>{p.name}</span>
+                    {savedProjects.length > 1 && (
+                      <button onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }} className={`ml-2 p-1 rounded opacity-50 hover:opacity-100 ${p.id === activeProjectId ? 'hover:bg-blue-500' : 'hover:bg-red-500 hover:text-white'}`}>
+                        <Trash2 size={12} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <div className={`border-t px-3 py-2 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+                  <button onClick={() => { setIsNewProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="flex items-center space-x-2 text-sm text-blue-500 hover:text-blue-400 font-medium w-full">
+                    <Plus size={14} />
+                    <span>สร้างโปรเจกต์ใหม่</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         <nav className="flex space-x-2">
@@ -274,14 +537,17 @@ const AppContent: React.FC = () => {
              {isDark ? <Sun size={18} /> : <Moon size={18} />}
            </button>
 
-           <button onClick={handleSave} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`}>
+           <input ref={importProjectRef} type="file" accept=".json" className="hidden" onChange={handleImportProject} />
+           <button onClick={() => importProjectRef.current?.click()} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="นำเข้าโปรเจกต์จากไฟล์ .json">
+            <Upload size={16} />
+            <span>Import</span>
+          </button>
+           <button onClick={handleSave} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="บันทึกโปรเจกต์นี้เป็นไฟล์ .json">
             <Save size={16} />
             <span>Save</span>
           </button>
-           <button onClick={() => window.print()} className="flex items-center space-x-2 px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-500 transition-all text-sm font-medium shadow-lg shadow-indigo-600/20">
-            <Printer size={16} />
-            <span>Print</span>
-          </button>
+           <ExportKMLButton />
+           <PrintButton />
         </div>
       </header>
 
@@ -289,10 +555,145 @@ const AppContent: React.FC = () => {
         <Routes>
           <Route path="/" element={<DesignCanvas project={project} setProject={setProject} materials={materials} customIcons={icons} />} />
           <Route path="/icons" element={<IconEditor icons={icons} setIcons={setIcons} materials={materials} />} />
-          <Route path="/database" element={<DatabasePage materials={materials} setMaterials={setMaterials} icons={icons} setIcons={setIcons} />} />
-          <Route path="/boq" element={<BOQSummary project={project} materials={materials} />} />
+          <Route path="/database" element={<DatabasePage materials={materials} setMaterials={setMaterials} icons={icons} setIcons={setIcons} isAdmin={isAdmin} savedProjects={savedProjects} setSavedProjects={setSavedProjects} />} />
+          <Route path="/boq" element={<BOQSummary project={project} materials={materials} savedProject={savedProjects.find(p => p.id === activeProjectId)} />} />
         </Routes>
       </main>
+
+      {/* Network Print Modal — rendered at root level to escape header's backdrop-blur stacking context */}
+      {showNetworkPrint && (
+        <NetworkPrintModal
+          project={project}
+          materials={materials}
+          savedProject={savedProjects.find(p => p.id === activeProjectId)}
+          customIcons={icons}
+          onClose={() => setShowNetworkPrint(false)}
+        />
+      )}
+
+      {/* ── Save-as modal ──────────────────────────────────────────────────── */}
+      {isSaveModalOpen && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className={`rounded-2xl w-full max-w-sm shadow-2xl border ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+            <div className={`px-6 py-5 border-b ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+              <h3 className={`font-black text-base ${isDark ? 'text-white' : 'text-slate-900'}`}>บันทึกโปรเจกต์เป็นไฟล์</h3>
+              <p className={`text-xs mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>ไฟล์ .json สามารถ Import กลับมาใช้ได้ทุกเครื่อง</p>
+            </div>
+            <form onSubmit={handleDownloadProject} className="p-6 space-y-4">
+              <div>
+                <label className={`block text-[11px] font-bold uppercase tracking-widest mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>ชื่อไฟล์</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    autoFocus
+                    type="text"
+                    required
+                    value={saveFileName}
+                    onChange={e => setSaveFileName(e.target.value)}
+                    className={`flex-1 px-4 py-2.5 rounded-xl border text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-slate-800 border-slate-700 text-white' : 'bg-slate-50 border-slate-200 text-slate-900'}`}
+                  />
+                  <span className={`text-xs font-bold ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>.json</span>
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button type="button" onClick={() => setIsSaveModalOpen(false)} className={`flex-1 py-2.5 rounded-xl border font-bold text-sm ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>ยกเลิก</button>
+                <button type="submit" className="flex-1 py-2.5 rounded-xl font-bold text-sm bg-blue-600 text-white hover:bg-blue-500 flex items-center justify-center gap-1.5 shadow-lg shadow-blue-500/25">
+                  <Save size={14} />
+                  ดาวน์โหลด
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isNewProjectModalOpen && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className={`rounded-2xl w-full max-w-lg shadow-2xl border ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+            <div className={`px-6 py-5 border-b flex items-center justify-between ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+              <h3 className={`font-black text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>สร้างโปรเจกต์ใหม่</h3>
+            </div>
+            <form onSubmit={handleCreateProject} className="p-6 space-y-4">
+
+              {/* ชื่อโปรเจกต์ */}
+              <div>
+                <label className={`block text-[11px] font-bold uppercase tracking-widest mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>ชื่อโปรเจกต์ / สัญญา <span className="text-red-500">*</span></label>
+                <input
+                  type="text" required
+                  value={newProjectName}
+                  onChange={e => setNewProjectName(e.target.value)}
+                  placeholder="เช่น งานสร้างข่ายสายใยแก้วนำแสง OFC 48F..."
+                  className={`w-full px-4 py-3 rounded-xl border text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                />
+              </div>
+
+              {/* จังหวัด + งบประมาณปี */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`block text-[11px] font-bold uppercase tracking-widest mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>จังหวัด</label>
+                  <input
+                    list="province-list"
+                    value={newProjectProvince}
+                    onChange={e => setNewProjectProvince(e.target.value)}
+                    placeholder="เลือกหรือพิมพ์จังหวัด"
+                    className={`w-full px-4 py-3 rounded-xl border text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                  />
+                  <datalist id="province-list">
+                    {['กรุงเทพมหานคร','กระบี่','กาญจนบุรี','กาฬสินธุ์','กำแพงเพชร','ขอนแก่น','จันทบุรี','ฉะเชิงเทรา','ชลบุรี','ชัยนาท','ชัยภูมิ','ชุมพร','เชียงราย','เชียงใหม่','ตรัง','ตราด','ตาก','นครนายก','นครปฐม','นครพนม','นครราชสีมา','นครศรีธรรมราช','นครสวรรค์','นนทบุรี','นราธิวาส','น่าน','บึงกาฬ','บุรีรัมย์','ปทุมธานี','ประจวบคีรีขันธ์','ปราจีนบุรี','ปัตตานี','พระนครศรีอยุธยา','พะเยา','พังงา','พัทลุง','พิจิตร','พิษณุโลก','เพชรบุรี','เพชรบูรณ์','แพร่','ภูเก็ต','มหาสารคาม','มุกดาหาร','แม่ฮ่องสอน','ยโสธร','ยะลา','ร้อยเอ็ด','ระนอง','ระยอง','ราชบุรี','ลพบุรี','ลำปาง','ลำพูน','เลย','ศรีสะเกษ','สกลนคร','สงขลา','สตูล','สมุทรปราการ','สมุทรสงคราม','สมุทรสาคร','สระแก้ว','สระบุรี','สิงห์บุรี','สุโขทัย','สุพรรณบุรี','สุราษฎร์ธานี','สุรินทร์','หนองคาย','หนองบัวลำภู','อ่างทอง','อำนาจเจริญ','อุดรธานี','อุตรดิตถ์','อุทัยธานี','อุบลราชธานี'].map(p => (
+                      <option key={p} value={p} />
+                    ))}
+                  </datalist>
+                </div>
+                <div>
+                  <label className={`block text-[11px] font-bold uppercase tracking-widest mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>งบประมาณประจำปี พ.ศ.</label>
+                  <input
+                    type="text"
+                    value={newProjectBudgetYear}
+                    onChange={e => setNewProjectBudgetYear(e.target.value)}
+                    placeholder="2570"
+                    className={`w-full px-4 py-3 rounded-xl border text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                  />
+                </div>
+              </div>
+
+              {/* พื้นที่ */}
+              <div>
+                <label className={`block text-[11px] font-bold uppercase tracking-widest mb-1.5 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>พื้นที่ / หน่วยงาน</label>
+                <input
+                  type="text"
+                  value={newProjectArea}
+                  onChange={e => setNewProjectArea(e.target.value)}
+                  placeholder="เช่น ส่วนขายและบริการลูกค้า เชียงใหม่"
+                  className={`w-full px-4 py-3 rounded-xl border text-sm font-medium outline-none focus:ring-2 focus:ring-blue-500 ${isDark ? 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500' : 'bg-slate-50 border-slate-200 text-slate-900 placeholder:text-slate-400'}`}
+                />
+              </div>
+
+              {/* ประเภทงาน */}
+              <div>
+                <label className={`block text-[11px] font-bold uppercase tracking-widest mb-2 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>ประเภทงาน</label>
+                <div className="grid grid-cols-2 gap-3">
+                  {(['ทดแทนของเดิม', 'ขอพาดสายสื่อสารใหม่'] as const).map(opt => (
+                    <button
+                      key={opt} type="button"
+                      onClick={() => setNewProjectWorkType(opt)}
+                      className={`py-3 px-4 rounded-xl border-2 text-sm font-bold transition-all ${newProjectWorkType === opt
+                        ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/25'
+                        : isDark ? 'border-slate-700 text-slate-300 hover:border-slate-500 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:border-blue-300 hover:bg-blue-50'
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex space-x-3 pt-2">
+                <button type="button" onClick={() => setIsNewProjectModalOpen(false)} className={`flex-1 py-3 rounded-xl font-bold text-sm border ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>ยกเลิก</button>
+                <button type="submit" className="flex-1 py-3 rounded-xl font-bold text-sm bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-500/25">สร้าง</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

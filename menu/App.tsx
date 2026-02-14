@@ -3,24 +3,17 @@ import React, { useState } from 'react';
 import { Routes, Route, useLocation } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import AppGrid from './components/AppGrid';
-import LoginPage from './components/LoginPage';
 import SettingsApp from './apps/SettingsApp';
-import { useAuth } from './context/AuthContext';
 import { useApps } from './context/AppContext';
 
 const App: React.FC = () => {
-  const { isAuthenticated } = useAuth();
   const { apps } = useApps();
   const location = useLocation();
   const isSettings = location.pathname === '/system-settings';
   const currentApp = apps.find(app => location.pathname.startsWith(app.path));
-  
+
   // Sidebar visibility state controlled by mouse position
   const [isSidebarVisible, setIsSidebarVisible] = useState(false);
-
-  if (!isAuthenticated) {
-    return <LoginPage />;
-  }
 
   return (
     <div className="flex h-screen bg-[#020617] text-[#f8fafc] overflow-hidden relative">

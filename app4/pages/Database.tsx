@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo } from 'react';
-import { Material, CustomIcon } from '../types';
-import { Search, Plus, Filter, ChevronDown, Tag, Trash2, X, Check, Layers, HardDrive, Zap, Link as LinkIcon, Image as ImageIcon } from 'lucide-react';
+import { Material, CustomIcon, SavedProject } from '../types';
+import { Search, Plus, ChevronDown, Tag, Trash2, X, Check, Link as LinkIcon, Image as ImageIcon, Download, Upload } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface DatabasePageProps {
@@ -9,25 +9,29 @@ interface DatabasePageProps {
   setMaterials: React.Dispatch<React.SetStateAction<Material[]>>;
   icons: CustomIcon[];
   setIcons: React.Dispatch<React.SetStateAction<CustomIcon[]>>;
+  isAdmin?: boolean;
+  savedProjects?: SavedProject[];
+  setSavedProjects?: React.Dispatch<React.SetStateAction<SavedProject[]>>;
 }
 
-const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, icons, setIcons }) => {
+const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, icons, setIcons, isAdmin, savedProjects, setSavedProjects }) => {
   const { isDark } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
-  const [typeFilter, setTypeFilter] = useState<'ALL' | 'T01' | 'T02'>('ALL');
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [openGroup, setOpenGroup] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
 
   const [newMaterial, setNewMaterial] = useState<Partial<Material>>({
-    material_type: 'T01',
     category: '',
     material_code: '',
     material_name: '',
-    unit: 'ST',
+    unit: 'Each',
     unit_price: 0,
-    action_type: 'เบิก',
+    cable_unit_price: 0,
+    labor_unit_price: 0,
+    action_type: 'ซื้อ',
     spec_brand: '',
-    remark: ''
+    remark: '',
+    symbol_group: ''
   });
 
   const cls = isDark ? {
@@ -42,16 +46,10 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
     thead: 'bg-slate-950/50',
     theadText: 'text-white',
     groupRow: 'bg-slate-900 hover:bg-slate-800',
-    iconPickerBg: 'bg-slate-800 border-slate-700 hover:border-blue-600 hover:bg-slate-700',
-    iconPickerImgBg: 'bg-slate-700 border-slate-600 group-hover/picker:border-blue-500',
-    iconPickerLabel: 'text-slate-500 group-hover/picker:text-blue-400',
-    iconPickerName: 'text-white',
     groupName: 'text-white',
     groupCount: 'bg-slate-800 text-slate-400',
     groupManage: 'text-slate-400 group-hover:text-blue-500',
     itemRow: 'hover:bg-slate-800/50 border-slate-800',
-    badgeT01: 'bg-blue-900/40 border-blue-700 text-blue-400',
-    badgeT02: 'bg-emerald-900/40 border-emerald-700 text-emerald-400',
     codeText: 'text-slate-500',
     itemName: 'text-white',
     itemSpec: 'text-slate-500',
@@ -71,12 +69,6 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
     modalSubtitle: 'text-slate-500',
     modalCloseBtn: 'text-slate-400 hover:bg-slate-800 hover:text-white',
     labelText: 'text-slate-400',
-    typeInactive: 'bg-slate-800 border-slate-700 text-slate-500 hover:border-slate-600',
-    typeActiveT01: 'bg-blue-900/40 border-blue-500 text-blue-300 shadow-lg shadow-blue-500/10',
-    typeIconT01Active: 'bg-blue-600 text-white',
-    typeIconInactive: 'bg-slate-700',
-    typeActiveT02: 'bg-emerald-900/40 border-emerald-500 text-emerald-300 shadow-lg shadow-emerald-500/10',
-    typeIconT02Active: 'bg-emerald-600 text-white',
     inputBg: 'bg-slate-800 border-slate-700 text-white',
     selectBg: 'bg-slate-800 border-slate-700 text-white',
     pricePrefix: 'text-slate-400',
@@ -94,16 +86,10 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
     thead: 'bg-slate-50',
     theadText: 'text-slate-700',
     groupRow: 'bg-slate-50 hover:bg-slate-100',
-    iconPickerBg: 'bg-white border-slate-200 hover:border-blue-500 hover:bg-slate-50',
-    iconPickerImgBg: 'bg-slate-100 border-slate-200 group-hover/picker:border-blue-400',
-    iconPickerLabel: 'text-slate-400 group-hover/picker:text-blue-500',
-    iconPickerName: 'text-slate-800',
     groupName: 'text-slate-900',
     groupCount: 'bg-slate-100 text-slate-500',
     groupManage: 'text-slate-400 group-hover:text-blue-500',
     itemRow: 'hover:bg-slate-50 border-slate-100',
-    badgeT01: 'bg-blue-50 border-blue-200 text-blue-600',
-    badgeT02: 'bg-emerald-50 border-emerald-200 text-emerald-600',
     codeText: 'text-slate-400',
     itemName: 'text-slate-900',
     itemSpec: 'text-slate-400',
@@ -136,36 +122,33 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
     cancelBtn: 'text-slate-400 hover:text-slate-900',
   };
 
-  const toggleGroup = (category: string) => {
-    const newCollapsed = new Set(collapsedGroups);
-    if (newCollapsed.has(category)) {
-      newCollapsed.delete(category);
-    } else {
-      newCollapsed.add(category);
-    }
-    setCollapsedGroups(newCollapsed);
+  const toggleGroup = (key: string) => {
+    setOpenGroup(prev => prev === key ? null : key);
   };
 
   const groupedMaterials = useMemo(() => {
-    const filtered = materials.filter(m => {
-      const matchesSearch = m.material_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            m.material_code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                            m.category.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesType = typeFilter === 'ALL' || m.material_type === typeFilter;
-      return matchesSearch && matchesType;
-    });
+    const q = searchTerm.toLowerCase();
+    const filtered = materials.filter(m =>
+      m.material_name.toLowerCase().includes(q) ||
+      m.material_code.toLowerCase().includes(q) ||
+      m.category.toLowerCase().includes(q) ||
+      (m.symbol_group || '').toLowerCase().includes(q)
+    );
 
     const groups: Record<string, Material[]> = {};
     filtered.forEach(m => {
-      const cat = m.category || 'Uncategorized';
-      if (!groups[cat]) {
-        groups[cat] = [];
-      }
-      groups[cat].push(m);
+      const key = m.symbol_group?.trim() || '— ไม่ระบุกลุ่ม —';
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(m);
     });
 
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  }, [materials, searchTerm, typeFilter]);
+    // Named groups sorted alphabetically, unnamed group last
+    return Object.entries(groups).sort(([a], [b]) => {
+      if (a === '— ไม่ระบุกลุ่ม —') return 1;
+      if (b === '— ไม่ระบุกลุ่ม —') return -1;
+      return a.localeCompare(b, 'th');
+    });
+  }, [materials, searchTerm]);
 
   const handleAssociateIcon = (category: string, iconId: string) => {
     setIcons(prev => prev.map(icon => {
@@ -182,22 +165,24 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
   };
 
   const handleAddMaterial = () => {
-    if (!newMaterial.material_name || !newMaterial.category || !newMaterial.material_type) {
-      alert('Please fill in material name, category, and type (T01/T02).');
+    if (!newMaterial.material_name || !newMaterial.category) {
+      alert('Please fill in material name and category.');
       return;
     }
-
+    // Auto-detect material_type from unit
+    const unit = newMaterial.unit || 'Each';
+    const matType = (unit === 'm' || unit === 'F') ? 'T02' : 'T01';
     const id = Math.max(0, ...materials.map(m => m.id)) + 1;
-    setMaterials([...materials, { ...newMaterial as Material, id }]);
+    setMaterials([...materials, { ...newMaterial as Material, id, material_type: matType, cable_unit_price: newMaterial.cable_unit_price ?? 0 }]);
     setShowAddModal(false);
     setNewMaterial({
-      material_type: 'T01',
       category: '',
       material_code: '',
       material_name: '',
-      unit: 'ST',
+      unit: 'Each',
       unit_price: 0,
-      action_type: 'เบิก',
+      labor_unit_price: 0,
+      action_type: 'ซื้อ',
       spec_brand: '',
       remark: ''
     });
@@ -211,20 +196,102 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
 
   const categories = Array.from(new Set(materials.map(m => m.category))).sort();
 
+  // ── Export / Import config ─────────────────────────────────────────────────
+  const handleExportConfig = () => {
+    const config = {
+      version: '1.1',
+      exportedAt: new Date().toISOString(),
+      materials,
+      customIcons: icons.filter(i => !i.isSystem),
+      savedProjects: savedProjects ?? [],
+    };
+    const blob = new Blob([JSON.stringify(config, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `fiberflow_config_${new Date().toISOString().slice(0,10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const importInputRef = React.useRef<HTMLInputElement>(null);
+  const handleImportConfig = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const config = JSON.parse(ev.target?.result as string);
+        if (!Array.isArray(config.materials)) throw new Error('ไม่พบข้อมูล materials ในไฟล์');
+        setMaterials(config.materials);
+        if (Array.isArray(config.customIcons) && config.customIcons.length > 0) {
+          setIcons(prev => [
+            ...prev.filter(i => i.isSystem),
+            ...config.customIcons,
+          ]);
+        }
+        if (Array.isArray(config.savedProjects) && config.savedProjects.length > 0 && setSavedProjects) {
+          setSavedProjects(config.savedProjects);
+        }
+        const lines = [
+          `• วัสดุ ${config.materials.length} รายการ`,
+          config.customIcons?.length ? `• Custom icon ${config.customIcons.length} รายการ` : '',
+          config.savedProjects?.length ? `• โปรเจกต์ ${config.savedProjects.length} โปรเจกต์` : '',
+        ].filter(Boolean).join('\n');
+        alert(`นำเข้าสำเร็จ:\n${lines}\n\nระบบจะบันทึกอัตโนมัติ`);
+      } catch (err: any) {
+        alert(`เกิดข้อผิดพลาด: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h2 className={`text-2xl font-black ${cls.title}`}>Material Database</h2>
-          <p className={`font-medium ${cls.subtitle}`}>Manage T1 (Stationary) &amp; T2 (Cabling) equipment and organize them into custom groups.</p>
+          <p className={`font-medium ${cls.subtitle}`}>Manage equipment and organize them into custom groups.</p>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-500/20"
-        >
-          <Plus size={20} />
-          <span className="font-bold uppercase tracking-widest text-xs">Add New Material</span>
-        </button>
+        <div className="flex items-center gap-3">
+          {isAdmin && (
+            <>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".json"
+                className="hidden"
+                onChange={handleImportConfig}
+              />
+              <button
+                onClick={() => importInputRef.current?.click()}
+                title="นำเข้าการตั้งค่าจากไฟล์ JSON"
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl border font-bold text-xs uppercase tracking-widest transition-all ${isDark ? 'border-amber-700 text-amber-400 hover:bg-amber-900/20' : 'border-amber-400 text-amber-700 hover:bg-amber-50'}`}
+              >
+                <Upload size={16} />
+                Import Config
+              </button>
+              <button
+                onClick={handleExportConfig}
+                title="ส่งออกการตั้งค่าปัจจุบันเป็นไฟล์ JSON"
+                className={`flex items-center gap-2 px-4 py-3 rounded-xl border font-bold text-xs uppercase tracking-widest transition-all ${isDark ? 'border-emerald-700 text-emerald-400 hover:bg-emerald-900/20' : 'border-emerald-500 text-emerald-700 hover:bg-emerald-50'}`}
+              >
+                <Download size={16} />
+                Export Config
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="flex items-center space-x-2 px-6 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all shadow-xl shadow-blue-500/20"
+          >
+            <Plus size={20} />
+            <span className="font-bold uppercase tracking-widest text-xs">Add New Material</span>
+          </button>
+        </div>
       </div>
 
       <div className={`rounded-[32px] shadow-2xl border overflow-hidden ${cls.card}`}>
@@ -241,138 +308,189 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
             />
           </div>
 
-          <div className={`flex items-center border rounded-2xl p-1.5 space-x-1 shadow-sm ${cls.filterBg}`}>
-            <button
-              onClick={() => setTypeFilter('ALL')}
-              className={`px-4 py-2 text-[10px] font-black uppercase rounded-xl transition-all ${typeFilter === 'ALL' ? 'bg-white text-slate-900 shadow-lg' : cls.filterInactive}`}
-            >
-              All Types
-            </button>
-            <button
-              onClick={() => setTypeFilter('T01')}
-              className={`px-4 py-2 text-[10px] font-black uppercase rounded-xl transition-all flex items-center space-x-2 ${typeFilter === 'T01' ? 'bg-blue-600 text-white shadow-lg' : cls.filterInactive}`}
-            >
-              <HardDrive size={12} />
-              <span>T1: Stationary</span>
-            </button>
-            <button
-              onClick={() => setTypeFilter('T02')}
-              className={`px-4 py-2 text-[10px] font-black uppercase rounded-xl transition-all flex items-center space-x-2 ${typeFilter === 'T02' ? 'bg-emerald-600 text-white shadow-lg' : cls.filterInactive}`}
-            >
-              <Zap size={12} />
-              <span>T2: Cabling</span>
-            </button>
-          </div>
         </div>
+
+        {/* Global datalist for symbol_group autocomplete */}
+        <datalist id="existing-symbol-groups">
+          {Array.from(new Set(materials.map(m => m.symbol_group).filter(Boolean))).sort().map(g => (
+            <option key={g} value={g as string} />
+          ))}
+        </datalist>
 
         {/* Table Content */}
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">
             <thead className={cls.thead}>
               <tr className={`border-b ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
-                <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] w-24 ${cls.theadText}`}>Type</th>
-                <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] w-32 ${cls.theadText}`}>Code</th>
-                <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] ${cls.theadText}`}>Description</th>
-                <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] w-24 text-center ${cls.theadText}`}>Unit</th>
-                <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] w-36 text-right ${cls.theadText}`}>Price</th>
-                <th className={`px-8 py-5 text-[10px] font-black uppercase tracking-[0.2em] w-32 text-center ${cls.theadText}`}>Action</th>
-                <th className="px-8 py-5 w-12"></th>
+                <th className={`px-6 py-4 text-xs font-black uppercase tracking-widest w-28 ${cls.theadText}`}>รหัส</th>
+                <th className={`px-6 py-4 text-xs font-black uppercase tracking-widest ${cls.theadText}`}>รายการ</th>
+                <th className={`px-6 py-4 text-xs font-black uppercase tracking-widest w-20 text-center ${cls.theadText}`}>หน่วย</th>
+                <th className={`px-6 py-4 text-xs font-black uppercase tracking-widest w-32 text-right ${cls.theadText}`}>ราคาวัสดุ</th>
+                <th className={`px-6 py-4 text-xs font-black uppercase tracking-widest w-32 text-right ${cls.theadText}`}>ค่าแรง</th>
+                <th className={`px-6 py-4 text-xs font-black uppercase tracking-widest w-48 text-center ${cls.theadText}`}>กลุ่มสัญลักษณ์</th>
+                <th className={`px-6 py-4 text-xs font-black uppercase tracking-widest w-24 text-center ${cls.theadText}`}>ประเภท</th>
+                <th className="px-4 py-4 w-10"></th>
               </tr>
             </thead>
-            {groupedMaterials.map(([category, items]) => {
-              const isCollapsed = collapsedGroups.has(category);
-              const associatedIcon = icons.find(i => i.associatedCategory === category);
+            {groupedMaterials.map(([symbolGroup, items]) => {
+              const isCollapsed = openGroup !== symbolGroup;
+              const isUnnamed = symbolGroup === '— ไม่ระบุกลุ่ม —';
+              const groupIcon = !isUnnamed ? icons.find(i => i.associatedCategory === symbolGroup) : undefined;
 
               return (
-                <React.Fragment key={category}>
+                <React.Fragment key={symbolGroup}>
                   <tbody className={`border-b last:border-0 ${isDark ? 'border-slate-700' : 'border-slate-200'}`}>
                     <tr
                       className={`cursor-pointer transition-colors select-none group ${cls.groupRow}`}
-                      onClick={() => toggleGroup(category)}
+                      onClick={() => toggleGroup(symbolGroup)}
                     >
-                      <td colSpan={7} className="px-8 py-4">
+                      <td colSpan={8} className="px-6 py-3">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center space-x-4">
-                            <div className={`p-1.5 rounded-full transition-transform duration-300 ${isCollapsed ? '-rotate-90' : ''}`}>
-                              <ChevronDown size={18} className={isDark ? 'text-slate-400' : 'text-slate-500'} />
+                          <div className="flex items-center gap-3">
+                            {/* Chevron */}
+                            <div className={`shrink-0 transition-transform duration-200 ${isCollapsed ? '-rotate-90' : ''}`}>
+                              <ChevronDown size={16} className={isDark ? 'text-slate-400' : 'text-slate-500'} />
                             </div>
 
-                            {/* Icon Logic Container */}
-                            <div className={`flex items-center space-x-3 border rounded-2xl p-1.5 pr-4 transition-all group/picker ${cls.iconPickerBg}`} onClick={e => e.stopPropagation()}>
-                               <div className="relative">
-                                  <div className={`w-10 h-10 rounded-xl border flex items-center justify-center overflow-hidden shadow-sm ${cls.iconPickerImgBg} ${isDark ? 'text-slate-400' : 'text-slate-400'}`}>
-                                     {associatedIcon?.dataUrl ? (
-                                       <img src={associatedIcon.dataUrl} className="w-full h-full object-contain image-pixelated p-1" alt={category} />
-                                     ) : (
-                                       <ImageIcon size={20} />
-                                     )}
-                                  </div>
-                                  <select
-                                    className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                                    value={associatedIcon?.id || ''}
-                                    onChange={(e) => handleAssociateIcon(category, e.target.value)}
-                                    title={`Assign icon to ${category}`}
-                                  >
-                                    <option value="">-- No Icon --</option>
-                                    {icons.map(icon => (
+                            {/* Icon thumbnail with picker */}
+                            {!isUnnamed && (
+                              <div
+                                className="relative shrink-0"
+                                title="คลิกเพื่อเลือก icon สำหรับกลุ่มนี้"
+                                onClick={e => e.stopPropagation()}
+                              >
+                                <div className={`w-10 h-10 rounded-xl border-2 flex items-center justify-center overflow-hidden shadow-sm transition-all ${groupIcon ? (isDark ? 'border-purple-500 bg-slate-800' : 'border-purple-400 bg-purple-50') : (isDark ? 'border-slate-600 bg-slate-800' : 'border-slate-300 bg-white')}`}>
+                                  {groupIcon?.dataUrl
+                                    ? <img src={groupIcon.dataUrl} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} alt={groupIcon.name} />
+                                    : <ImageIcon size={18} className={isDark ? 'text-slate-500' : 'text-slate-300'} />
+                                  }
+                                </div>
+                                <select
+                                  className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                  style={{ colorScheme: 'light' }}
+                                  value={groupIcon?.id || ''}
+                                  onChange={e => handleAssociateIcon(symbolGroup, e.target.value)}
+                                >
+                                  <option value="">— ไม่ระบุ icon —</option>
+                                  <optgroup label="── Standard Symbols ──">
+                                    {icons.filter(i => i.isSystem).map(icon => (
                                       <option key={icon.id} value={icon.id}>{icon.name}</option>
                                     ))}
-                                  </select>
-                               </div>
-                               <div className="flex flex-col">
-                                  <span className={`text-[9px] font-black uppercase ${cls.iconPickerLabel}`}>Represented by</span>
-                                  <span className={`text-[11px] font-bold truncate max-w-[120px] ${cls.iconPickerName}`}>
-                                    {associatedIcon ? associatedIcon.name : 'Select Icon'}
-                                  </span>
-                               </div>
+                                  </optgroup>
+                                  <optgroup label="── Custom Icons ──">
+                                    {icons.filter(i => !i.isSystem).map(icon => (
+                                      <option key={icon.id} value={icon.id}>{icon.name}</option>
+                                    ))}
+                                  </optgroup>
+                                </select>
+                              </div>
+                            )}
+
+                            {/* Group name */}
+                            <div className="flex flex-col">
+                              <span className={`text-sm font-black tracking-tight ${isUnnamed ? (isDark ? 'text-slate-500 italic' : 'text-slate-400 italic') : cls.groupName}`}>
+                                {symbolGroup}
+                              </span>
+                              {!isUnnamed && groupIcon && (
+                                <span className={`text-[10px] font-medium ${isDark ? 'text-purple-400' : 'text-purple-500'}`}>{groupIcon.name}</span>
+                              )}
+                              {!isUnnamed && !groupIcon && (
+                                <span className={`text-[10px] font-medium ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>คลิกเลือก icon</span>
+                              )}
                             </div>
 
-                            <span className={`text-base font-black tracking-tight uppercase ml-2 ${cls.groupName}`}>
-                              {category}
+                            <span className={`text-[10px] font-black px-2.5 py-0.5 rounded-full ${cls.groupCount}`}>
+                              {items.length} รายการ
                             </span>
-                            <span className={`text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-tighter ${cls.groupCount}`}>
-                              {items.length} Items
-                            </span>
-                          </div>
-
-                          <div className={`flex items-center space-x-2 transition-colors opacity-0 group-hover:opacity-100 ${cls.groupManage}`}>
-                             <span className="text-[10px] font-black uppercase">Click to Manage</span>
-                             <LinkIcon size={14} />
                           </div>
                         </div>
                       </td>
                     </tr>
-                    {!isCollapsed && items.map(m => (
+                    {!isCollapsed && items.map(m => {
+                      const sgIcon = icons.find(i => i.associatedCategory === m.symbol_group && m.symbol_group);
+                      return (
                       <tr key={m.id} className={`transition-colors group border-t ${cls.itemRow}`}>
-                        <td className="px-8 py-5">
-                           <span className={`text-[10px] font-black px-3 py-1 rounded-full border ${m.material_type === 'T01' ? cls.badgeT01 : cls.badgeT02}`}>
-                             {m.material_type === 'T01' ? 'T1' : 'T2'}
-                           </span>
-                        </td>
-                        <td className={`px-8 py-5 text-[11px] font-mono font-bold ${cls.codeText}`}>{m.material_code}</td>
-                        <td className="px-8 py-5">
+                        {/* รหัส */}
+                        <td className={`px-6 py-4 text-[11px] font-mono font-bold ${cls.codeText}`}>{m.material_code}</td>
+                        {/* รายการ */}
+                        <td className="px-6 py-4">
                           <div className={`text-sm font-black leading-tight ${cls.itemName}`}>{m.material_name}</div>
-                          <div className={`text-[10px] font-bold uppercase tracking-widest mt-1.5 flex items-center ${cls.itemSpec}`}>
-                            <Tag size={10} className="mr-1.5 opacity-60" />
+                          <div className={`text-[10px] font-bold uppercase tracking-widest mt-1 flex items-center ${cls.itemSpec}`}>
+                            <Tag size={10} className="mr-1 opacity-60" />
                             {m.spec_brand || 'Standard Spec'}
                           </div>
                         </td>
-                        <td className={`px-8 py-5 text-xs text-center font-black uppercase ${cls.unitText}`}>{m.unit}</td>
-                        <td className={`px-8 py-5 text-sm font-black text-right ${cls.priceText}`}>
+                        {/* หน่วย */}
+                        <td className={`px-6 py-4 text-xs text-center font-black uppercase ${cls.unitText}`}>{m.unit}</td>
+                        {/* ราคาวัสดุ */}
+                        <td className={`px-6 py-4 text-sm font-black text-right ${cls.priceText}`}>
                           ฿{m.unit_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </td>
-                        <td className="px-8 py-5 text-center">
+                        {/* ค่าแรง */}
+                        <td className={`px-6 py-4 text-sm font-black text-right ${m.labor_unit_price > 0 ? 'text-amber-500' : cls.priceText}`}>
+                          {m.labor_unit_price > 0
+                            ? `฿${m.labor_unit_price.toLocaleString(undefined, { minimumFractionDigits: 2 })}`
+                            : <span className={`text-xs ${isDark ? 'text-slate-600' : 'text-slate-300'}`}>—</span>
+                          }
+                        </td>
+                        {/* กลุ่มสัญลักษณ์ — icon thumbnail + editable badge */}
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2">
+                            {/* Mini icon picker */}
+                            <div className="relative shrink-0" title={sgIcon ? sgIcon.name : 'เลือก icon สำหรับกลุ่มนี้'}>
+                              <div className={`w-8 h-8 rounded-lg border-2 flex items-center justify-center overflow-hidden transition-all ${sgIcon ? (isDark ? 'border-purple-500 bg-slate-800' : 'border-purple-400 bg-purple-50') : (isDark ? 'border-slate-700 bg-slate-800' : 'border-slate-200 bg-slate-50')}`}>
+                                {sgIcon?.dataUrl
+                                  ? <img src={sgIcon.dataUrl} className="w-full h-full object-contain" style={{ imageRendering: 'pixelated' }} alt={sgIcon.name} />
+                                  : <ImageIcon size={14} className={isDark ? 'text-slate-500' : 'text-slate-300'} />
+                                }
+                              </div>
+                              <select
+                                className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                                style={{ colorScheme: 'light' }}
+                                value={sgIcon?.id || ''}
+                                disabled={!m.symbol_group}
+                                title={!m.symbol_group ? 'กรอกชื่อกลุ่มก่อน' : 'เลือก icon'}
+                                onChange={e => handleAssociateIcon(m.symbol_group || '', e.target.value)}
+                              >
+                                <option value="">— ไม่ระบุ icon —</option>
+                                <optgroup label="── Standard Symbols ──">
+                                  {icons.filter(i => i.isSystem).map(icon => (
+                                    <option key={icon.id} value={icon.id}>{icon.name}</option>
+                                  ))}
+                                </optgroup>
+                                <optgroup label="── Custom Icons ──">
+                                  {icons.filter(i => !i.isSystem).map(icon => (
+                                    <option key={icon.id} value={icon.id}>{icon.name}</option>
+                                  ))}
+                                </optgroup>
+                              </select>
+                            </div>
+                            {/* Editable group name */}
+                            <input
+                              type="text"
+                              list="existing-symbol-groups"
+                              className={`flex-1 min-w-0 text-[11px] font-bold border rounded-lg px-2 py-1.5 outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500 transition-all ${m.symbol_group ? (isDark ? 'bg-purple-900/30 border-purple-700 text-purple-200' : 'bg-purple-50 border-purple-300 text-purple-800') : (isDark ? 'bg-slate-800 border-slate-700 text-slate-400 placeholder:text-slate-600' : 'bg-slate-50 border-slate-200 text-slate-400 placeholder:text-slate-300')}`}
+                              placeholder="ระบุกลุ่ม..."
+                              value={m.symbol_group || ''}
+                              onChange={e => setMaterials(prev => prev.map(x => x.id === m.id ? { ...x, symbol_group: e.target.value } : x))}
+                            />
+                          </div>
+                        </td>
+                        {/* ประเภท ซื้อ/เบิก */}
+                        <td className="px-4 py-4 text-center">
                           <span className={`text-[10px] font-black uppercase px-3 py-1 rounded-lg ${m.action_type === 'ซื้อ' ? cls.actionBuy : cls.actionWithdraw}`}>
                             {m.action_type}
                           </span>
                         </td>
-                        <td className="px-8 py-5 text-right">
+                        {/* Delete */}
+                        <td className="px-4 py-4 text-right">
                           <button onClick={() => deleteMaterial(m.id)} className={`p-2 transition-colors opacity-0 group-hover:opacity-100 ${cls.deleteBtn}`}>
-                            <Trash2 size={18} />
+                            <Trash2 size={16} />
                           </button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </React.Fragment>
               );
@@ -410,36 +528,6 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
             </div>
 
             <div className="p-10 space-y-8">
-              <div>
-                <label className={`block text-[11px] font-black uppercase tracking-widest mb-3 ml-1 ${cls.labelText}`}>Classification Type</label>
-                <div className="grid grid-cols-2 gap-4">
-                  <button
-                    onClick={() => setNewMaterial({...newMaterial, material_type: 'T01'})}
-                    className={`flex items-center space-x-4 p-6 rounded-3xl border-2 transition-all ${newMaterial.material_type === 'T01' ? cls.typeActiveT01 : cls.typeInactive}`}
-                  >
-                    <div className={`p-2 rounded-xl ${newMaterial.material_type === 'T01' ? cls.typeIconT01Active : cls.typeIconInactive}`}>
-                      <HardDrive size={24} />
-                    </div>
-                    <div className="text-left">
-                      <div className="text-[10px] font-black uppercase tracking-widest opacity-60">T1 Code</div>
-                      <div className="text-sm font-black uppercase">Stationary Equipment</div>
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => setNewMaterial({...newMaterial, material_type: 'T02'})}
-                    className={`flex items-center space-x-4 p-6 rounded-3xl border-2 transition-all ${newMaterial.material_type === 'T02' ? cls.typeActiveT02 : cls.typeInactive}`}
-                  >
-                    <div className={`p-2 rounded-xl ${newMaterial.material_type === 'T02' ? cls.typeIconT02Active : cls.typeIconInactive}`}>
-                      <Zap size={24} />
-                    </div>
-                    <div className="text-left">
-                      <div className="text-[10px] font-black uppercase tracking-widest opacity-60">T2 Code</div>
-                      <div className="text-sm font-black uppercase">Cabling &amp; Wiring</div>
-                    </div>
-                  </button>
-                </div>
-              </div>
-
               <div className="grid grid-cols-2 gap-6">
                 <div>
                   <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Group / Category</label>
@@ -477,7 +565,7 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                 />
               </div>
 
-              <div className="grid grid-cols-3 gap-6">
+              <div className="grid grid-cols-2 gap-6">
                 <div>
                   <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Unit</label>
                   <select
@@ -489,10 +577,48 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                     <option value="M">M (Meter)</option>
                     <option value="PC">PC (Piece)</option>
                     <option value="RO">RO (Roll)</option>
+                    <option value="ม.">ม. (เมตร)</option>
+                    <option value="ตัว">ตัว</option>
+                    <option value="ชุด">ชุด</option>
+                    <option value="เครื่อง">เครื่อง</option>
+                    <option value="Core">Core</option>
                   </select>
                 </div>
                 <div>
-                  <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Cost Per Unit</label>
+                  <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Procurement</label>
+                  <select
+                    className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none ${cls.selectBg}`}
+                    value={newMaterial.action_type}
+                    onChange={e => setNewMaterial({...newMaterial, action_type: e.target.value})}
+                  >
+                    <option value="ซื้อ">ซื้อ (Purchase)</option>
+                    <option value="เบิก">เบิก (Withdraw)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>กลุ่มสัญลักษณ์ (Symbol Group)</label>
+                <input
+                  list="existing-symbol-groups"
+                  className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-purple-500/20 transition-all ${cls.inputBg}`}
+                  placeholder="เช่น FDF, ODP, Pole, SDP ..."
+                  value={newMaterial.symbol_group || ''}
+                  onChange={e => setNewMaterial({...newMaterial, symbol_group: e.target.value})}
+                />
+                <p className={`text-[10px] mt-1.5 ml-1 font-medium ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  ใช้กำหนดว่า icon สัญลักษณ์ใดสามารถเลือกวัสดุนี้ได้ในหน้าออกแบบ
+                </p>
+                <datalist id="existing-symbol-groups">
+                  {Array.from(new Set(materials.map(m => m.symbol_group).filter(Boolean))).sort().map(g => (
+                    <option key={g} value={g as string} />
+                  ))}
+                </datalist>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6">
+                <div>
+                  <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>ราคาวัสดุ / Unit</label>
                   <div className="relative">
                     <span className={`absolute left-5 top-1/2 -translate-y-1/2 font-bold ${cls.pricePrefix}`}>฿</span>
                     <input
@@ -505,15 +631,17 @@ const DatabasePage: React.FC<DatabasePageProps> = ({ materials, setMaterials, ic
                   </div>
                 </div>
                 <div>
-                  <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>Procurement</label>
-                  <select
-                    className={`w-full border rounded-2xl px-5 py-4 text-sm font-black outline-none ${cls.selectBg}`}
-                    value={newMaterial.action_type}
-                    onChange={e => setNewMaterial({...newMaterial, action_type: e.target.value})}
-                  >
-                    <option value="ซื้อ">ซื้อ (Purchase)</option>
-                    <option value="เบิก">เบิก (Withdraw)</option>
-                  </select>
+                  <label className={`block text-[11px] font-black uppercase tracking-widest mb-2 ml-1 ${cls.labelText}`}>ค่าแรง / Unit</label>
+                  <div className="relative">
+                    <span className={`absolute left-5 top-1/2 -translate-y-1/2 font-bold ${cls.pricePrefix}`}>฿</span>
+                    <input
+                      type="number"
+                      className={`w-full border rounded-2xl pl-10 pr-5 py-4 text-sm font-black outline-none focus:ring-4 focus:ring-amber-500/20 transition-all ${cls.inputBg}`}
+                      placeholder="0.00"
+                      value={newMaterial.labor_unit_price}
+                      onChange={e => setNewMaterial({...newMaterial, labor_unit_price: parseFloat(e.target.value) || 0})}
+                    />
+                  </div>
                 </div>
               </div>
             </div>

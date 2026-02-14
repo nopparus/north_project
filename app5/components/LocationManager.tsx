@@ -1,22 +1,23 @@
 
 import React, { useState } from 'react';
-import { MOCK_LOCATIONS, PROVINCES, EQUIPMENT_CONFIG } from '../constants';
+import { PROVINCES, EQUIPMENT_CONFIG } from '../constants';
 import { LocationInfo, EquipmentType, Project } from '../types';
 import { Search, Filter, MapPin, LayoutGrid, List, Box } from 'lucide-react';
 
 interface LocationManagerProps {
   projectId: string;
   currentProject: Project;
+  locations: LocationInfo[];
   onSelectSite: (loc: LocationInfo) => void;
   onStartMaintenance: (loc: LocationInfo, eq: string) => void;
 }
 
-const LocationManager: React.FC<LocationManagerProps> = ({ currentProject, onSelectSite, onStartMaintenance }) => {
+const LocationManager: React.FC<LocationManagerProps> = ({ currentProject, locations, onSelectSite, onStartMaintenance }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProvince, setSelectedProvince] = useState('All');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
 
-  const filteredLocations = MOCK_LOCATIONS.filter(loc => {
+  const filteredLocations = locations.filter(loc => {
     const matchesSearch = loc.siteName.toLowerCase().includes(searchTerm.toLowerCase()) || loc.province.includes(searchTerm);
     const matchesProvince = selectedProvince === 'All' || loc.province === selectedProvince;
     return matchesSearch && matchesProvince;

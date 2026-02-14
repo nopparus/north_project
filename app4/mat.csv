@@ -1,0 +1,757 @@
+﻿no,Category,Type, Item,Unit,volume,Cable,Material,Labour
+1,General work,Pole Installation,Pole 8 m,Each, 1.00 , -   ," 1,510.00 "," 1,438.00 "
+2,General work,Pole Installation,Pole 9 m,Each, 1.00 , -   ," 2,260.00 "," 1,438.00 "
+3,General work,Pole Installation,Pole 10 m,Each, 1.00 , -   ," 4,700.00 "," 1,438.00 "
+4,General work,Pole Installation,Pole 12 m,Each, 1.00 , -   ," 5,100.00 "," 1,438.00 "
+5,General work,Pole Installation,Stub Pole (0.22 m x 0.22 m x 4 m),Each, 1.00 , -   ," 1,645.00 "," 2,143.00 "
+6,General work,Pole Installation,Stub Pole (0.22 m x 0.22 m x 6 m),Each, 1.00 , -   ," 3,145.00 "," 2,143.00 "
+7,General work,Pole Installation,Stub Pole (0.30 m x 0.30 m x 6 m),Each, 1.00 , -   ," 3,645.00 "," 2,143.00 "
+8,General work,Pole Installation,Stub Pole (0.30 m x 0.30 m x 7.5 m),Each, 1.00 , -   ," 4,545.00 "," 2,143.00 "
+9,General work,Guy and Anchor Installation,Down Guy,Lot, 1.00 , -   , 378.00 , 429.00 
+10,General work,Guy and Anchor Installation,Side-Walk Guy,Lot, 1.00 , -   , 692.00 , 643.00 
+11,General work,Guy and Anchor Installation,Guy Wire Protector,Lot, 1.00 , -   , 300.00 , 214.00 
+12,General work,Guy and Anchor Installation,Screw Anchor,Lot, 1.00 , -   , 594.00 , 643.00 
+13,General work,Guy and Anchor Installation,Swamp Screw Anchor,Lot, 1.00 , -   , 864.00 ," 1,415.00 "
+14,General work,Guy and Anchor Installation,RC-Log,Lot, 1.00 , -   , 395.00 , 943.00 
+15,General work,Grounding System,Strand Ground Wire,Each, 1.00 , -   , 282.00 , 429.00 
+16,General work,Grounding System,Shield Ground Wire,Each, 1.00 , -   , 309.00 , 429.00 
+17,General work,Grounding System,Strand to Strand Ground Wire,Each, 1.00 , -   , 130.00 , 257.00 
+18,General work,Grounding System,Building Ground Wire,Each, 1.00 , -   , 190.00 , 214.00 
+19,General work,Grounding System,"Ground Rod (Dia. 15 mm x 2,400 mm)",Each, 1.00 , -   , 700.00 , 643.00 
+20,General work,Crossarm and Cable Extension Arm Installation,Insulation Crossarm L-75 (0.25 x 0.75 m),Each, 1.00 , -   , 570.00 , 429.00 
+21,General work,Crossarm and Cable Extension Arm Installation,Insulation Crossarm C-135 (3 x 1.5 m),Each, 1.00 , -   , 930.50 , 643.00 
+22,General work,Crossarm and Cable Extension Arm Installation,Insulation Crossarm C-415 (4 x 1.5 m),Each, 1.00 , -   ," 1,178.00 ", 643.00 
+23,General work,Crossarm and Cable Extension Arm Installation,Insulation Crossarm C-420 (4 x 2.0 m),Each, 1.00 , -   ," 1,581.00 ", 643.00 
+24,General work,Crossarm and Cable Extension Arm Installation,Cable extension arm,Each, 1.00 , -   , 81.00 , 214.00 
+25,General work,Moisture Protection,Mouisture Dam,Each, 1.00 , -   , 500.00 , 214.00 
+26,Optical Fiber Cable Work,Aerial OFC Work,Aerial 12F-SM/ADSS-FR ,m, 100.00 ," 1,328.00 ", 253.00 ," 1,286.00 "
+27,Optical Fiber Cable Work,Aerial OFC Work,Aerial 24F-SM/ADSS-FR ,m, 100.00 ," 1,703.00 ", 253.00 ," 1,286.00 "
+28,Optical Fiber Cable Work,Aerial OFC Work,Aerial 48F-SM/ADSS-FR ,m, 100.00 ," 2,379.00 ", 253.00 ," 1,286.00 "
+29,Optical Fiber Cable Work,Aerial OFC Work,Aerial 60F-SM/ADSS-FR ,m, 100.00 ," 2,638.00 ", 253.00 ," 1,286.00 "
+30,Optical Fiber Cable Work,Aerial OFC Work,Aerial 120F-SM/ADSS-FR ,m, 100.00 ," 4,934.00 ", 277.00 ," 1,286.00 "
+31,Optical Fiber Cable Work,Aerial OFC Work,Aerial 216F-SM/ADSS-FR ,m, 100.00 ," 10,000.00 ", 283.00 ," 1,286.00 "
+32,Optical Fiber Cable Work,Aerial OFC Work,Aerial 12F-SM/ARSS-FR ,m, 100.00 ," 2,328.00 ", 253.00 ," 1,286.00 "
+33,Optical Fiber Cable Work,Aerial OFC Work,Aerial 24F-SM/ARSS-FR ,m, 100.00 ," 2,563.00 ", 253.00 ," 1,286.00 "
+34,Optical Fiber Cable Work,Aerial OFC Work,Aerial 48F-SM/ARSS-FR ,m, 100.00 ," 3,516.00 ", 257.00 ," 1,286.00 "
+35,Optical Fiber Cable Work,Aerial OFC Work,Aerial 60F-SM/ARSS-FR ,m, 100.00 ," 4,014.00 ", 257.00 ," 1,286.00 "
+36,Optical Fiber Cable Work,Aerial OFC Work,Aerial 120F-SM/ARSS-FR ,m, 100.00 ," 7,248.00 ", 277.00 ," 1,286.00 "
+37,Optical Fiber Cable Work,Aerial OFC Work,Aerial 12F-SM/ADSS FRP-FR ,m, 100.00 ," 2,096.00 ", 253.00 ," 1,286.00 "
+38,Optical Fiber Cable Work,Aerial OFC Work,Aerial 24F-SM/ADSS FRP-FR ,m, 100.00 ," 2,394.00 ", 253.00 ," 1,286.00 "
+39,Optical Fiber Cable Work,Aerial OFC Work,Aerial 48F-SM/ADSS FRP-FR ,m, 100.00 ," 3,436.00 ", 257.00 ," 1,286.00 "
+40,Optical Fiber Cable Work,Aerial OFC Work,Aerial 60F-SM/ADSS FRP-FR ,m, 100.00 ," 3,645.00 ", 257.00 ," 1,286.00 "
+41,Optical Fiber Cable Work,Aerial OFC Work,Aerial 120F-SM/ADSS FRP-FR ,m, 100.00 ," 8,250.00 ", 277.00 ," 1,286.00 "
+42,Optical Fiber Cable Work,Aerial OFC Work,Aerial 12F-SM/FRSS ,m, 100.00 ," 4,977.00 ", 270.00 ," 1,286.00 "
+43,Optical Fiber Cable Work,Aerial OFC Work,Aerial 24F-SM/FRSS ,m, 100.00 ," 5,477.00 ", 270.00 ," 1,286.00 "
+44,Optical Fiber Cable Work,Aerial OFC Work,Aerial 48F-SM/FRSS ,m, 100.00 ," 6,477.00 ", 270.00 ," 1,286.00 "
+45,Optical Fiber Cable Work,Aerial OFC Work,Aerial 60F-SM/FRSS ,m, 100.00 ," 6,977.00 ", 270.00 ," 1,286.00 "
+46,Optical Fiber Cable Work,Aerial OFC Work,Aerial 4F-SM/Mini ADSS ,m, 100.00 , 941.00 , 253.00 ," 1,286.00 "
+47,Optical Fiber Cable Work,Aerial OFC Work,Aerial 6F-SM/Mini ADSS ,m, 100.00 , 990.00 , 253.00 ," 1,286.00 "
+48,Optical Fiber Cable Work,Aerial OFC Work,Aerial 8F-SM/Mini ADSS ,m, 100.00 ," 1,039.00 ", 253.00 ," 1,286.00 "
+49,Optical Fiber Cable Work,Aerial OFC Work,Aerial 12F-SM/Mini ADSS ,m, 100.00 ," 1,059.00 ", 253.00 ," 1,286.00 "
+50,Optical Fiber Cable Work,Aerial OFC Work,Aerial 4F-SM/Mini ARSS ,m, 100.00 ," 1,668.00 ", 253.00 ," 1,286.00 "
+51,Optical Fiber Cable Work,Aerial OFC Work,Aerial 6F-SM/Mini ARSS ,m, 100.00 ," 1,733.00 ", 253.00 ," 1,286.00 "
+52,Optical Fiber Cable Work,Aerial OFC Work,Aerial 8F-SM/Mini ARSS ,m, 100.00 ," 1,739.00 ", 253.00 ," 1,286.00 "
+53,Optical Fiber Cable Work,Aerial OFC Work,Aerial 12F-SM/Mini ARSS ,m, 100.00 ," 1,773.00 ", 253.00 ," 1,286.00 "
+54,Optical Fiber Cable Work,Aerial OFC Work,Aerial 4F-SM/Mini ADSS FRP ,m, 100.00 ," 1,460.00 ", 253.00 ," 1,286.00 "
+55,Optical Fiber Cable Work,Aerial OFC Work,Aerial 6F-SM/Mini ADSS FRP ,m, 100.00 ," 1,485.00 ", 253.00 ," 1,286.00 "
+56,Optical Fiber Cable Work,Aerial OFC Work,Aerial 8F-SM/Mini ADSS FRP ,m, 100.00 ," 1,537.00 ", 253.00 ," 1,286.00 "
+57,Optical Fiber Cable Work,Aerial OFC Work,Aerial 12F-SM/Mini ADSS FRP ,m, 100.00 ," 1,566.00 ", 253.00 ," 1,286.00 "
+58,Optical Fiber Cable Work,Aerial OFC Work,Aerial 1F-SM/DW-R,m, 100.00 , 270.00 , 158.00 , 643.00 
+59,Optical Fiber Cable Work,Aerial OFC Work,Aerial 2F-SM/DW-R,m, 100.00 , 365.00 , 158.00 , 643.00 
+60,Optical Fiber Cable Work,Aerial OFC Work,Aerial 1F-SM/DW-R (Non-Metallic),m, 100.00 , 327.00 , 158.00 , 643.00 
+61,Optical Fiber Cable Work,Aerial OFC Work,Aerial 2F-SM/DW-R (Non-Metallic),m, 100.00 , 443.00 , 158.00 , 643.00 
+62,Optical Fiber Cable Work,Aerial OFC Work,Aerial 1F-SM/A.DW-R,m, 100.00 , 417.00 , 158.00 , 643.00 
+63,Optical Fiber Cable Work,Aerial OFC Work,Aerial 1F-SM/A.DW-R (Non-Metallic),m, 100.00 , 793.00 , 180.00 , 643.00 
+64,Optical Fiber Cable Work,Aerial OFC Work,Aerial 2F-SM/A.DW-R (Non-Metallic),m, 100.00 ," 1,000.00 ", 180.00 , 643.00 
+65,Optical Fiber Cable Work,Aerial OFC Work,Aerial 12F-SM/D ,m, 100.00 ," 1,287.00 ", 254.00 ," 1,286.00 "
+66,Optical Fiber Cable Work,Aerial OFC Work,Aerial 24F-SM/D ,m, 100.00 ," 1,534.00 ", 254.00 ," 1,286.00 "
+67,Optical Fiber Cable Work,Aerial OFC Work,Aerial 48F-SM/D ,m, 100.00 ," 2,290.00 ", 258.00 ," 1,286.00 "
+68,Optical Fiber Cable Work,Aerial OFC Work,Aerial 60F-SM/D ,m, 100.00 ," 2,625.00 ", 258.00 ," 1,286.00 "
+69,Optical Fiber Cable Work,Aerial OFC Work,Aerial 120F-SM/D ,m, 100.00 ," 6,550.00 ", 278.00 ," 1,286.00 "
+70,Optical Fiber Cable Work,Aerial OFC Work,Aerial 216F-SM/D ,m, 100.00 ," 10,722.00 ", 291.00 ," 1,286.00 "
+71,Optical Fiber Cable Work,Aerial OFC Work,Aerial 312F-SM/D ,m, 100.00 ," 17,248.00 ", 304.00 ," 1,286.00 "
+72,Optical Fiber Cable Work,Duct OFC Work,Duct 12F-SM/D ,m, 100.00 ," 1,287.00 ", 609.00 ," 2,057.00 "
+73,Optical Fiber Cable Work,Duct OFC Work,Duct 24F-SM/D ,m, 100.00 ," 1,534.00 ", 609.00 ," 2,057.00 "
+74,Optical Fiber Cable Work,Duct OFC Work,Duct 48F-SM/D ,m, 100.00 ," 2,290.00 ", 609.00 ," 2,057.00 "
+75,Optical Fiber Cable Work,Duct OFC Work,Duct 60F-SM/D ,m, 100.00 ," 2,625.00 ", 609.00 ," 2,057.00 "
+76,Optical Fiber Cable Work,Duct OFC Work,Duct 120F-SM/D ,m, 100.00 ," 6,550.00 ", 609.00 ," 2,057.00 "
+77,Optical Fiber Cable Work,Duct OFC Work,Duct 216F-SM/D ,m, 100.00 ," 10,722.00 ", 638.00 ," 2,057.00 "
+78,Optical Fiber Cable Work,Duct OFC Work,Duct 312F-SM/D ,m, 100.00 ," 17,248.00 ", 638.00 ," 2,057.00 "
+79,Optical Fiber Cable Work,Duct OFC Work,Duct 12F-SM/ADSS-FR ,m, 100.00 ," 1,328.00 ", 609.00 ," 2,057.00 "
+80,Optical Fiber Cable Work,Duct OFC Work,Duct 24F-SM/ADSS-FR ,m, 100.00 ," 1,703.00 ", 609.00 ," 2,057.00 "
+81,Optical Fiber Cable Work,Duct OFC Work,Duct 48F-SM/ADSS-FR ,m, 100.00 ," 2,379.00 ", 609.00 ," 2,057.00 "
+82,Optical Fiber Cable Work,Duct OFC Work,Duct 60F-SM/ADSS-FR ,m, 100.00 ," 2,638.00 ", 609.00 ," 2,057.00 "
+83,Optical Fiber Cable Work,Duct OFC Work,Duct 120F-SM/ADSS-FR ,m, 100.00 ," 4,934.00 ", 609.00 ," 2,057.00 "
+84,Optical Fiber Cable Work,Duct OFC Work,Duct 216F-SM/ADSS-FR ,m, 100.00 ," 10,000.00 ", 638.00 ," 2,057.00 "
+85,Optical Fiber Cable Work,Duct OFC Work,Duct 12F-SM/ARSS-FR ,m, 100.00 ," 2,328.00 ", 609.00 ," 2,057.00 "
+86,Optical Fiber Cable Work,Duct OFC Work,Duct 24F-SM/ARSS-FR ,m, 100.00 ," 2,563.00 ", 609.00 ," 2,057.00 "
+87,Optical Fiber Cable Work,Duct OFC Work,Duct 48F-SM/ARSS-FR ,m, 100.00 ," 3,516.00 ", 609.00 ," 2,057.00 "
+88,Optical Fiber Cable Work,Duct OFC Work,Duct 60F-SM/ARSS-FR ,m, 100.00 ," 4,014.00 ", 609.00 ," 2,057.00 "
+89,Optical Fiber Cable Work,Duct OFC Work,Duct 120F-SM/ARSS-FR ,m, 100.00 ," 7,248.00 ", 609.00 ," 2,057.00 "
+90,Optical Fiber Cable Work,Duct OFC Work,Duct 12F-SM/ADSS FRP-FR ,m, 100.00 ," 2,096.00 ", 609.00 ," 2,057.00 "
+91,Optical Fiber Cable Work,Duct OFC Work,Duct 24F-SM/ADSS FRP-FR ,m, 100.00 ," 2,394.00 ", 609.00 ," 2,057.00 "
+92,Optical Fiber Cable Work,Duct OFC Work,Duct 48F-SM/ADSS FRP-FR ,m, 100.00 ," 3,436.00 ", 609.00 ," 2,057.00 "
+93,Optical Fiber Cable Work,Duct OFC Work,Duct 60F-SM/ADSS FRP-FR ,m, 100.00 ," 3,645.00 ", 609.00 ," 2,057.00 "
+94,Optical Fiber Cable Work,Duct OFC Work,Duct 120F-SM/ADSS FRP-FR ,m, 100.00 ," 8,250.00 ", 609.00 ," 2,057.00 "
+95,Optical Fiber Cable Work,Duct OFC Work,Duct 12F-SM/FRSS ,m, 100.00 ," 4,977.00 ", 609.00 ," 2,057.00 "
+96,Optical Fiber Cable Work,Duct OFC Work,Duct 24F-SM/FRSS ,m, 100.00 ," 5,477.00 ", 609.00 ," 2,057.00 "
+97,Optical Fiber Cable Work,Duct OFC Work,Duct 48F-SM/FRSS ,m, 100.00 ," 6,477.00 ", 609.00 ," 2,057.00 "
+98,Optical Fiber Cable Work,Duct OFC Work,Duct 60F-SM/FRSS ,m, 100.00 ," 6,977.00 ", 609.00 ," 2,057.00 "
+99,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 12F-SM/ADSS-FR ,m, 100.00 ," 1,328.00 ", 45.00 ," 1,465.00 "
+100,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 24F-SM/ADSS-FR ,m, 100.00 ," 1,703.00 ", 45.00 ," 1,465.00 "
+101,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 48F-SM/ADSS-FR ,m, 100.00 ," 2,379.00 ", 45.00 ," 1,465.00 "
+102,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 60F-SM/ADSS-FR ,m, 100.00 ," 2,638.00 ", 45.00 ," 1,465.00 "
+103,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 120F-SM/ADSS-FR ,m, 100.00 ," 4,934.00 ", 45.00 ," 1,465.00 "
+104,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 216F-SM/ADSS-FR ,m, 100.00 ," 10,000.00 ", 45.00 ," 1,465.00 "
+105,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 12F-SM/ARSS-FR ,m, 100.00 ," 2,328.00 ", 45.00 ," 1,465.00 "
+106,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 24F-SM/ARSS-FR ,m, 100.00 ," 2,563.00 ", 45.00 ," 1,465.00 "
+107,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 48F-SM/ARSS-FR ,m, 100.00 ," 3,516.00 ", 45.00 ," 1,465.00 "
+108,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 60F-SM/ARSS-FR ,m, 100.00 ," 4,014.00 ", 45.00 ," 1,465.00 "
+109,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 120F-SM/ARSS-FR ,m, 100.00 ," 7,248.00 ", 45.00 ," 1,465.00 "
+110,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 12F-SM/ADSS FRP-FR ,m, 100.00 ," 2,096.00 ", 45.00 ," 1,465.00 "
+111,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 24F-SM/ADSS FRP-FR ,m, 100.00 ," 2,394.00 ", 45.00 ," 1,465.00 "
+112,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 48F-SM/ADSS FRP-FR ,m, 100.00 ," 3,436.00 ", 45.00 ," 1,465.00 "
+113,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 60F-SM/ADSS FRP-FR ,m, 100.00 ," 3,645.00 ", 45.00 ," 1,465.00 "
+114,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 120F-SM/ADSS FRP-FR ,m, 100.00 ," 8,250.00 ", 45.00 ," 1,465.00 "
+115,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 12F-SM/D ,m, 100.00 ," 1,287.00 ", 45.00 ," 1,465.00 "
+116,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 24F-SM/D ,m, 100.00 ," 1,534.00 ", 45.00 ," 1,465.00 "
+117,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 48F-SM/D ,m, 100.00 ," 2,290.00 ", 45.00 ," 1,465.00 "
+118,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 60F-SM/D ,m, 100.00 ," 2,625.00 ", 45.00 ," 1,465.00 "
+119,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 120F-SM/D ,m, 100.00 ," 6,550.00 ", 45.00 ," 1,465.00 "
+120,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 216F-SM/D ,m, 100.00 ," 10,722.00 ", 45.00 ," 1,465.00 "
+121,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 312F-SM/D ,m, 100.00 ," 17,248.00 ", 45.00 ," 1,465.00 "
+122,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 12F-SM/FRSS ,m, 100.00 ," 4,977.00 ", 45.00 ," 1,465.00 "
+123,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 24F-SM/FRSS ,m, 100.00 ," 5,477.00 ", 45.00 ," 1,465.00 "
+124,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 48F-SM/FRSS ,m, 100.00 ," 6,477.00 ", 45.00 ," 1,465.00 "
+125,Optical Fiber Cable Work,Building/Indoor OFC Work,Building 60F-SM/FRSS ,m, 100.00 ," 6,977.00 ", 45.00 ," 1,465.00 "
+126,Optical Fiber Cable Work,FDF and OFCCC Installation,FDF Enclosed Rack,Set, 1.00 , -   ," 26,167.00 "," 1,714.00 "
+127,Optical Fiber Cable Work,FDF and OFCCC Installation,FDF Open Rack,Set, 1.00 , -   ," 7,200.00 ", 857.00 
+128,Optical Fiber Cable Work,FDF and OFCCC Installation,Shelf 24F SC/APC,Set, 1.00 , -   ," 3,000.00 ", 214.00 
+129,Optical Fiber Cable Work,FDF and OFCCC Installation,Shelf 48F SC/APC,Set, 1.00 , -   ," 5,140.00 ", 214.00 
+130,Optical Fiber Cable Work,FDF and OFCCC Installation,Shelf 60F SC/APC,Set, 1.00 , -   ," 5,950.00 ", 214.00 
+131,Optical Fiber Cable Work,FDF and OFCCC Installation,Shelf 72F SC/APC,Set, 1.00 , -   ," 8,740.00 ", 214.00 
+132,Optical Fiber Cable Work,FDF and OFCCC Installation,Shelf 24F SC/UPC,Set, 1.00 , -   ," 3,000.00 ", 214.00 
+133,Optical Fiber Cable Work,FDF and OFCCC Installation,Shelf 48F SC/UPC,Set, 1.00 , -   ," 5,140.00 ", 214.00 
+134,Optical Fiber Cable Work,FDF and OFCCC Installation,Shelf 60F SC/UPC,Set, 1.00 , -   ," 5,950.00 ", 214.00 
+135,Optical Fiber Cable Work,FDF and OFCCC Installation,Shelf 72F SC/UPC,Set, 1.00 , -   ," 8,740.00 ", 214.00 
+136,Optical Fiber Cable Work,FDF and OFCCC Installation,FDF Wall 12F SC/APC,Set, 1.00 , -   ," 2,550.00 ", 857.00 
+137,Optical Fiber Cable Work,FDF and OFCCC Installation,FDF Wall 24F SC/APC,Set, 1.00 , -   ," 3,000.00 ", 857.00 
+138,Optical Fiber Cable Work,FDF and OFCCC Installation,FDF Wall 48F SC/APC,Set, 1.00 , -   ," 5,000.00 ", 857.00 
+139,Optical Fiber Cable Work,FDF and OFCCC Installation,FDF Wall 12F SC/UPC,Set, 1.00 , -   ," 2,550.00 ", 857.00 
+140,Optical Fiber Cable Work,FDF and OFCCC Installation,FDF Wall 24F SC/UPC,Set, 1.00 , -   ," 3,000.00 ", 857.00 
+141,Optical Fiber Cable Work,FDF and OFCCC Installation,FDF Wall 48F SC/UPC,Set, 1.00 , -   ," 5,000.00 ", 857.00 
+142,Optical Fiber Cable Work,FDF and OFCCC Installation,iFDT 12F SC/APC,Set, 1.00 , -   ," 1,800.00 ", 857.00 
+143,Optical Fiber Cable Work,FDF and OFCCC Installation,iFDT 24F SC/APC,Set, 1.00 , -   ," 2,600.00 ", 857.00 
+144,Optical Fiber Cable Work,FDF and OFCCC Installation,iFDT 48F SC/APC,Set, 1.00 , -   ," 4,800.00 ", 857.00 
+145,Optical Fiber Cable Work,FDF and OFCCC Installation,iFDT 60F SC/APC,Set, 1.00 , -   ," 5,550.00 ", 857.00 
+146,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 32F,Set, 1.00 , -   ," 5,200.00 "," 1,286.00 "
+147,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 48F,Set, 1.00 , -   ," 6,600.00 "," 1,286.00 "
+148,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 72F,Set, 1.00 , -   ," 10,700.00 "," 1,286.00 "
+149,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 32F (SPT A2 1:8x4),Set, 1.00 , -   ," 6,800.00 "," 1,286.00 "
+150,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 48F (SPT A2 1:8x6),Set, 1.00 , -   ," 11,000.00 "," 1,286.00 "
+151,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 72F (SPT A2 1:8x9),Set, 1.00 , -   ," 15,900.00 "," 1,286.00 "
+152,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 32F (SPT Box 1:8x4),Set, 1.00 , -   ," 6,800.00 "," 1,286.00 "
+153,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 32F (SPT Box 1:4x8),Set, 1.00 , -   ," 7,600.00 "," 1,286.00 "
+154,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 48F (SPT Box 1:8x6),Set, 1.00 , -   ," 11,700.00 "," 1,286.00 "
+155,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 48F (SPT Box 1:4x12),Set, 1.00 , -   ," 14,100.00 "," 1,286.00 "
+156,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 72F (SPT Box 1:8x9),Set, 1.00 , -   ," 16,750.00 "," 1,286.00 "
+157,Optical Fiber Cable Work,FDF and OFCCC Installation,Mini OFCCC 72F (SPT Box 1:4x18),Set, 1.00 , -   ," 18,620.00 "," 1,286.00 "
+158,Optical Fiber Cable Work,FDF and OFCCC Installation,OFCCC-P 64F/72F,Set, 1.00 , -   ," 6,896.00 "," 1,286.00 "
+159,Optical Fiber Cable Work,FDF and OFCCC Installation,OFCCC-P 128F/144F,Set, 1.00 , -   ," 28,592.00 "," 1,286.00 "
+160,Optical Fiber Cable Work,FDF and OFCCC Installation,OFCCC-P 256F/288F,Set, 1.00 , -   ," 45,184.00 "," 1,286.00 "
+161,Optical Fiber Cable Work,FDF and OFCCC Installation,OFCCC-G 256F/288F,Set, 1.00 , -   ," 45,184.00 "," 3,000.00 "
+162,Optical Fiber Cable Work,FDF and OFCCC Installation,OFCCC-G 512F/576F,Set, 1.00 , -   ," 65,368.00 "," 3,000.00 "
+163,Optical Fiber Cable Work,FDF and OFCCC Installation,OFCCC-G 896F/1024F,Set, 1.00 , -   ," 93,432.00 "," 3,428.00 "
+164,Optical Fiber Cable Work,Closure and Distribution Point Installation,Mini Aerial Inline-12F-24F (4F-24F) ,Set, 1.00 , -   , 590.00 , 857.00 
+165,Optical Fiber Cable Work,Closure and Distribution Point Installation,Aerial Inline-12F ,Set, 1.00 , -   , 947.00 , 857.00 
+166,Optical Fiber Cable Work,Closure and Distribution Point Installation,Aerial Inline-24F ,Set, 1.00 , -   ," 1,027.00 ", 857.00 
+167,Optical Fiber Cable Work,Closure and Distribution Point Installation,Aerial Inline-48F ,Set, 1.00 , -   , 997.00 , 857.00 
+168,Optical Fiber Cable Work,Closure and Distribution Point Installation,Aerial Inline-60F ,Set, 1.00 , -   ," 1,175.00 ", 857.00 
+169,Optical Fiber Cable Work,Closure and Distribution Point Installation,Aerial Inline-120F ,Set, 1.00 , -   ," 4,350.00 "," 1,071.00 "
+170,Optical Fiber Cable Work,Closure and Distribution Point Installation,Aerial Inline-216F ,Set, 1.00 , -   ," 6,500.00 "," 1,071.00 "
+171,Optical Fiber Cable Work,Closure and Distribution Point Installation,Underground Inline-12-24F ,Set, 1.00 , -   ," 1,600.00 "," 1,200.00 "
+172,Optical Fiber Cable Work,Closure and Distribution Point Installation,Underground Inline-48-60F ,Set, 1.00 , -   ," 1,498.00 "," 1,200.00 "
+173,Optical Fiber Cable Work,Closure and Distribution Point Installation,Underground Inline-120F ,Set, 1.00 , -   ," 4,380.00 "," 1,500.00 "
+174,Optical Fiber Cable Work,Closure and Distribution Point Installation,Underground Inline-216-312F ,Set, 1.00 , -   ," 9,500.00 "," 1,500.00 "
+175,Optical Fiber Cable Work,Closure and Distribution Point Installation,ODP 12F-60F (8 ports) ,Set, 1.00 , -   ," 2,250.00 ", 857.00 
+176,Optical Fiber Cable Work,Closure and Distribution Point Installation,ODP 120F (8 ports) ,Set, 1.00 , -   ," 2,250.00 "," 1,071.00 "
+177,Optical Fiber Cable Work,Closure and Distribution Point Installation,ODP 12F-60F (12 ports) ,Set, 1.00 , -   ," 2,250.00 ", 857.00 
+178,Optical Fiber Cable Work,Closure and Distribution Point Installation,SDP-M SPT A2 1:2 (120F) ,Set, 1.00 , -   ," 2,500.00 "," 1,071.00 "
+179,Optical Fiber Cable Work,Closure and Distribution Point Installation,SDP-M SPT A2 1:4 (120F) ,Set, 1.00 , -   ," 2,500.00 "," 1,071.00 "
+180,Optical Fiber Cable Work,Closure and Distribution Point Installation,SDP-M SPT A2 1:8 (120F) ,Set, 1.00 , -   ," 2,500.00 "," 1,071.00 "
+181,Optical Fiber Cable Work,Closure and Distribution Point Installation,Mini SDP SPT Box 1:4x2 (8 ports) (12F-24F) ,Set, 1.00 , -   ," 2,600.00 ", 857.00 
+182,Optical Fiber Cable Work,Closure and Distribution Point Installation,Mini SDP SPT Box 1:8 (8 ports) (12F-24F) ,Set, 1.00 , -   ," 2,600.00 ", 857.00 
+183,Optical Fiber Cable Work,Closure and Distribution Point Installation,"SDP SPT Box 1:2, 1:4 (12 ports) (12F-24F) ",Set, 1.00 , -   ," 3,100.00 ", 857.00 
+184,Optical Fiber Cable Work,Closure and Distribution Point Installation,"SDP SPT Box 1:4, 1:8 (12 ports) (12F-24F) ",Set, 1.00 , -   ," 3,200.00 ", 857.00 
+185,Optical Fiber Cable Work,Closure and Distribution Point Installation,SDP SPT Box 1:8 (16 ports) (12F-24F) ,Set, 1.00 , -   ," 2,640.00 ", 857.00 
+186,Optical Fiber Cable Work,Closure and Distribution Point Installation,SDP SPT Box 1:8x2 (16 ports) (12F-24F) ,Set, 1.00 , -   ," 2,900.00 ", 857.00 
+187,Optical Fiber Cable Work,Closure and Distribution Point Installation,SDP SPT Box 1:16 (16 ports) (12F-24F) ,Set, 1.00 , -   ," 3,200.00 ", 857.00 
+188,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Steel Pole ODP8-S (24F), DP-A ",Set, 1.00 , -   ," 2,350.00 ", 643.00 
+189,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Steel Pole ODP12-S (60F), DP-A ",Set, 1.00 , -   ," 3,500.00 ", 643.00 
+190,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Steel Pole ODP16-S (60F), DP-A ",Set, 1.00 , -   ," 3,700.00 ", 643.00 
+191,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Steel Pole ODP24-S (60F), DP-A ",Set, 1.00 , -   ," 4,900.00 ", 643.00 
+192,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Steel Pole ODP8-S (SPT Box 1:8) (24F), DP-A ",Set, 1.00 , -   ," 2,600.00 ", 643.00 
+193,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Steel Pole ODP16-S (SPT Box 1:8x2) (60F), DP-A ",Set, 1.00 , -   ," 4,600.00 ", 643.00 
+194,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Steel Pole ODP16-S (SPT Box 1:16) (60F), DP-A ",Set, 1.00 , -   ," 4,850.00 ", 643.00 
+195,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Steel Pole ODP24-S (SPT Box 1:8x3) (60F), DP-A ",Set, 1.00 , -   ," 6,000.00 ", 643.00 
+196,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Wall Mounted ODP8-S (24F), DP-W ",Set, 1.00 , -   ," 2,350.00 ", 643.00 
+197,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Wall Mounted ODP12-S (60F), DP-W ",Set, 1.00 , -   ," 3,500.00 ", 643.00 
+198,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Wall Mounted ODP16-S (60F), DP-W ",Set, 1.00 , -   ," 3,700.00 ", 643.00 
+199,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Wall Mounted ODP24-S (60F), DP-W ",Set, 1.00 , -   ," 4,900.00 ", 643.00 
+200,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Wall Mounted ODP8-S (SPT Box 1:8) (24F), DP-W ",Set, 1.00 , -   ," 2,600.00 ", 643.00 
+201,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Wall Mounted ODP16-S (SPT Box 1:8x2) (60F), DP-W ",Set, 1.00 , -   ," 4,600.00 ", 643.00 
+202,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Wall Mounted ODP16-S (SPT Box 1:16) (60F), DP-W ",Set, 1.00 , -   ," 4,850.00 ", 643.00 
+203,Optical Fiber Cable Work,Closure and Distribution Point Installation,"Wall Mounted ODP24-S (SPT Box 1:8x3) (60F), DP-W ",Set, 1.00 , -   ," 6,000.00 ", 643.00 
+204,Optical Fiber Cable Work,Closure and Distribution Point Installation,Re-Open Aerial Closure,Point, 1.00 , -   , 90.00 ," 1,543.00 "
+205,Optical Fiber Cable Work,Closure and Distribution Point Installation,Re-Open Underground Closure,Point, 1.00 , -   , 150.00 ," 2,228.00 "
+206,Optical Fiber Cable Work,Splitter Installation,SPT A2 1:2,Pc, 1.00 , -   , 204.98 , 30.00 
+207,Optical Fiber Cable Work,Splitter Installation,SPT A2 1:4,Pc, 1.00 , -   , 235.98 , 40.00 
+208,Optical Fiber Cable Work,Splitter Installation,SPT A2 1:8,Pc, 1.00 , -   , 255.99 , 60.00 
+209,Optical Fiber Cable Work,Splitter Installation,SPT A2 1:16,Pc, 1.00 , -   ," 1,000.00 ", 90.00 
+210,Optical Fiber Cable Work,Splitter Installation,SPT A2 1:32,Pc, 1.00 , -   ," 1,000.00 ", 110.00 
+211,Optical Fiber Cable Work,Splitter Installation,SPT B 1:2,Pc, 1.00 , -   , 276.00 , 30.00 
+212,Optical Fiber Cable Work,Splitter Installation,SPT B 1:4,Pc, 1.00 , -   , 389.97 , 40.00 
+213,Optical Fiber Cable Work,Splitter Installation,SPT B 1:8,Pc, 1.00 , -   , 405.99 , 60.00 
+214,Optical Fiber Cable Work,Splitter Installation,SPT B 1:16,Pc, 1.00 , -   , 852.00 , 90.00 
+215,Optical Fiber Cable Work,Splitter Installation,SPT B 1:32,Pc, 1.00 , -   ," 1,400.00 ", 110.00 
+216,Optical Fiber Cable Work,Splitter Installation,SPT Box 1:2,Pc, 1.00 , -   , 500.00 , 30.00 
+217,Optical Fiber Cable Work,Splitter Installation,SPT Box 1:4,Pc, 1.00 , -   , 600.00 , 40.00 
+218,Optical Fiber Cable Work,Splitter Installation,SPT Box 1:8,Pc, 1.00 , -   , 700.00 , 60.00 
+219,Optical Fiber Cable Work,Splitter Installation,SPT Box 1:16,Pc, 1.00 , -   ," 1,600.00 ", 90.00 
+220,Optical Fiber Cable Work,Splicing Method,Fusion,F, 100.00 , -   , 100.00 ," 10,541.00 "
+221,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PT SC/APC,F, 100.00 , -   ," 2,850.00 "," 12,000.00 "
+222,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PT OFTK SC/APC STD-Outdoor,F, 100.00 , -   ," 5,000.00 "," 13,284.00 "
+223,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PT OFTK SC/APC AR-Outdoor,F, 100.00 , -   ," 6,100.00 "," 13,712.00 "
+224,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PT OFTK SC/APC STD-Indoor,F, 100.00 , -   ," 4,600.00 "," 12,000.00 "
+225,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PT OFTK SC/APC AR-Indoor,F, 100.00 , -   ," 5,600.00 "," 12,428.00 "
+226,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PT SC/UPC,F, 100.00 , -   ," 2,850.00 "," 12,000.00 "
+227,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (APC) 3 m,F, 100.00 , -   ," 6,500.00 ", 800.00 
+228,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (APC) 5 m,F, 100.00 , -   ," 6,500.00 ", 800.00 
+229,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (APC) 10 m,F, 100.00 , -   ," 10,000.00 "," 1,900.00 "
+230,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (APC) 15 m,F, 100.00 , -   ," 10,000.00 "," 1,900.00 "
+231,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (APC) 20 m,F, 100.00 , -   ," 17,500.00 "," 1,900.00 "
+232,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (APC) 30 m,F, 100.00 , -   ," 19,000.00 "," 3,900.00 "
+233,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (APC) 40 m,F, 100.00 , -   ," 20,000.00 "," 3,900.00 "
+234,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC OFTK SC-SC (APC) STD-Indoor 3 m,F, 100.00 , -   ," 9,500.00 ", 800.00 
+235,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC OFTK SC-SC (APC) AR-Indoor 3 m,F, 100.00 , -   ," 13,000.00 ", 800.00 
+236,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (UPC) 3 m,F, 100.00 , -   ," 8,500.00 ", 800.00 
+237,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (UPC) 5 m,F, 100.00 , -   ," 8,500.00 ", 800.00 
+238,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (UPC) 10 m,F, 100.00 , -   ," 10,000.00 "," 1,900.00 "
+239,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (UPC) 15 m,F, 100.00 , -   ," 10,000.00 "," 1,900.00 "
+240,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (UPC) 20 m,F, 100.00 , -   ," 17,500.00 "," 1,900.00 "
+241,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (UPC) 30 m,F, 100.00 , -   ," 19,000.00 "," 3,900.00 "
+242,Optical Fiber Cable Work,Pigtail and Patch Cord Termination,TER-PC SC-SC (UPC) 40 m,F, 100.00 , -   ," 20,000.00 "," 3,900.00 "
+243,Optical Fiber Cable Work,Sub Duct Installation,Sub Duct PE (1) 33 mm,m, 100.00 , -   ," 1,995.00 "," 1,628.00 "
+244,Optical Fiber Cable Work,Sub Duct Installation,Sub Duct PE (3) 33 mm,m, 100.00 , -   ," 5,985.00 "," 1,628.00 "
+245,Optical Fiber Cable Work,Sub Duct Installation,Sub Duct PE (1) 35 mm,m, 100.00 , -   ," 2,205.00 "," 1,628.00 "
+246,Optical Fiber Cable Work,Sub Duct Installation,Sub Duct PE (4) 35 mm,m, 100.00 , -   ," 8,820.00 "," 1,628.00 "
+247,Optical Fiber Cable Work,Sub Duct Installation,Sub Duct FF (1) 18 mm,m, 100.00 , -   ," 3,700.00 "," 1,414.00 "
+248,Optical Fiber Cable Work,Sub Duct Installation,Sub Duct FF (3) 18 mm,m, 100.00 , -   ," 7,700.00 "," 1,414.00 "
+249,Optical Fiber Cable Work,Sub Duct Installation,Sub Duct FF (1) 28 mm,m, 100.00 , -   ," 5,400.00 "," 1,414.00 "
+250,Optical Fiber Cable Work,Sub Duct Installation,Sub Duct FF (2) 28 mm,m, 100.00 , -   ," 7,800.00 "," 1,414.00 "
+251,Optical Fiber Cable Work,Sub Duct Installation,Sub Duct FF (3) 28 mm,m, 100.00 , -   ," 9,800.00 "," 1,414.00 "
+252,Optical Dropwire with CPE Installaion and management,Optical Dropwire Work with CPE Installation and Management,TER-PT OFTK SC/APC STD-Outdoor,F, 100.00 , -   ," 5,000.00 "," 13,284.00 "
+253,Optical Dropwire with CPE Installaion and management,Terminal Box Installation,TB 2F SC/APC,Set, 1.00 , -   , 70.00 , 38.71 
+254,Optical Dropwire with CPE Installaion and management,Terminal Box Installation,TB 4F SC/APC,Set, 1.00 , -   , 500.00 , 38.71 
+255,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 1/2 in,m, 1.00 , 66.00 , 19.80 , 26.00 
+256,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 3/4 in,m, 1.00 , 84.00 , 25.20 , 30.00 
+257,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 1 in,m, 1.00 , 123.00 , 36.90 , 35.00 
+258,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 1 1/4 in,m, 1.00 , 159.00 , 47.70 , 40.00 
+259,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 1 1/2 in,m, 1.00 , 189.00 , 56.70 , 50.00 
+260,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 2 in,m, 1.00 , 252.00 , 75.60 , 55.00 
+261,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 2 1/2 in,m, 1.00 , 611.00 , 183.30 , 70.00 
+262,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 3 in,m, 1.00 , 786.00 , 235.80 , 80.00 
+263,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 4 in,m, 1.00 ," 1,157.00 ", 347.10 , 105.00 
+264,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 5 in,m, 1.00 ," 1,664.00 ", 499.20 , 115.00 
+265,Building Conduit Work,Rigid Steel Conduit (RSC),RSC dia. 6 in,m, 1.00 ," 1,992.00 ", 597.60 , 135.00 
+266,Building Conduit Work,Intermediate Metal Conduit (IMC),IMC dia. 1/2 in,m, 1.00 , 54.00 , 16.20 , 26.00 
+267,Building Conduit Work,Intermediate Metal Conduit (IMC),IMC dia. 3/4 in,m, 1.00 , 72.00 , 21.60 , 28.00 
+268,Building Conduit Work,Intermediate Metal Conduit (IMC),IMC dia. 1 in,m, 1.00 , 97.00 , 29.10 , 32.00 
+269,Building Conduit Work,Intermediate Metal Conduit (IMC),IMC dia. 1 1/4 in,m, 1.00 , 125.00 , 37.50 , 38.00 
+270,Building Conduit Work,Intermediate Metal Conduit (IMC),IMC dia. 1 1/2 in,m, 1.00 , 154.00 , 46.20 , 42.00 
+271,Building Conduit Work,Intermediate Metal Conduit (IMC),IMC dia. 2 in,m, 1.00 , 210.00 , 63.00 , 48.00 
+272,Building Conduit Work,Electrical Metallic Tubing (EMT),EMT dia. 1/2 in,m, 1.00 , 25.00 , 7.50 , 22.00 
+273,Building Conduit Work,Electrical Metallic Tubing (EMT),EMT dia. 3/4 in,m, 1.00 , 37.00 , 11.10 , 24.00 
+274,Building Conduit Work,Electrical Metallic Tubing (EMT),EMT dia. 1 in,m, 1.00 , 52.00 , 15.60 , 28.00 
+275,Building Conduit Work,Electrical Metallic Tubing (EMT),EMT dia. 1 1/4 in,m, 1.00 , 91.00 , 27.30 , 32.00 
+276,Building Conduit Work,Electrical Metallic Tubing (EMT),EMT dia. 1 1/2 in,m, 1.00 , 106.00 , 31.80 , 38.00 
+277,Building Conduit Work,Electrical Metallic Tubing (EMT),EMT dia. 2 in,m, 1.00 , 132.00 , 39.60 , 42.00 
+278,Building Conduit Work,Liquid-Tight Flexible Metal Conduit (LFMC),LFMC dia. 1/2 in,m, 1.00 , 45.00 , 13.50 , 12.00 
+279,Building Conduit Work,Liquid-Tight Flexible Metal Conduit (LFMC),LFMC dia. 3/4 in,m, 1.00 , 65.00 , 19.50 , 13.00 
+280,Building Conduit Work,Liquid-Tight Flexible Metal Conduit (LFMC),LFMC dia. 1 in,m, 1.00 , 90.00 , 27.00 , 14.00 
+281,Building Conduit Work,Liquid-Tight Flexible Metal Conduit (LFMC),LFMC dia. 1 1/4 in,m, 1.00 , 140.00 , 42.00 , 15.00 
+282,Building Conduit Work,Liquid-Tight Flexible Metal Conduit (LFMC),LFMC dia. 1 1/2 in,m, 1.00 , 170.00 , 51.00 , 16.00 
+283,Building Conduit Work,Liquid-Tight Flexible Metal Conduit (LFMC),LFMC dia. 2 in,m, 1.00 , 230.00 , 69.00 , 20.00 
+284,Building Conduit Work,Liquid-Tight Flexible Metal Conduit (LFMC),LFMC dia. 2 1/2 in,m, 1.00 , 350.00 , 105.00 , 22.00 
+285,Building Conduit Work,Liquid-Tight Flexible Metal Conduit (LFMC),LFMC dia. 3 in,m, 1.00 , 450.00 , 135.00 , 24.00 
+286,Building Conduit Work,Liquid-Tight Flexible Metal Conduit (LFMC),LFMC dia. 4 in,m, 1.00 , 580.00 , 174.00 , 32.00 
+287,Building Conduit Work,Flexible Metal Conduit (FMC),FMC dia. 1/2 in,m, 1.00 , 10.00 , 3.00 , 11.00 
+288,Building Conduit Work,Flexible Metal Conduit (FMC),FMC dia. 3/4 in,m, 1.00 , 15.00 , 4.50 , 12.00 
+289,Building Conduit Work,Flexible Metal Conduit (FMC),FMC dia. 1 in,m, 1.00 , 25.00 , 7.50 , 13.00 
+290,Building Conduit Work,Flexible Metal Conduit (FMC),FMC dia. 1 1/4 in,m, 1.00 , 35.00 , 10.50 , 15.00 
+291,Building Conduit Work,Flexible Metal Conduit (FMC),FMC dia. 1 1/2 in,m, 1.00 , 50.00 , 15.00 , 16.00 
+292,Building Conduit Work,Flexible Metal Conduit (FMC),FMC dia. 2 in,m, 1.00 , 85.00 , 25.50 , 20.00 
+293,Building Conduit Work,Flexible Metal Conduit (FMC),FMC dia. 2 1/2 in,m, 1.00 , 145.00 , 43.50 , 22.00 
+294,Building Conduit Work,Flexible Metal Conduit (FMC),FMC dia. 3 in,m, 1.00 , 175.00 , 52.50 , 24.00 
+295,Building Conduit Work,Flexible Metal Conduit (FMC),FMC dia. 4 in,m, 1.00 , 300.00 , 90.00 , 26.00 
+296,Building Conduit Work,Junction Box,Specified…………….,Each, 1.00 , -   ,, 70.00 
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
