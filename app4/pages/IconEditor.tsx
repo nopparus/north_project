@@ -976,6 +976,31 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
                         </optgroup>
                       </select>
                     </div>
+
+                    <div className="pt-2">
+                      <label className={`flex items-center space-x-3 cursor-pointer p-4 rounded-xl border transition-all ${activeIcon.allowSubMaterials ? (isDark ? 'bg-blue-900/20 border-blue-500/50' : 'bg-blue-50 border-blue-200') : (isDark ? 'bg-slate-800 border-slate-700' : 'bg-slate-50 border-slate-200')}`}>
+                        <div className="flex-grow">
+                          <div className={`text-xs font-black uppercase tracking-widest flex items-center gap-1.5 ${cls.labelText}`}>
+                            Sub-Device Support (อุปกรณ์ภายใน)
+                            <div className="group relative">
+                              <Info size={11} className="cursor-help opacity-60 hover:opacity-100" />
+                              <div className={`absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-2 rounded-lg text-[10px] font-bold shadow-xl opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50 ${isDark ? 'bg-slate-800 text-slate-200 border border-slate-700' : 'bg-white text-slate-700 border border-slate-200'}`}>
+                                หากเปิดใช้งาน คุณจะสามารถเพิ่มวัสดุอุปกรณ์ย่อยภายในไอคอนนี้ได้ในหน้าออกแบบ
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-[10px] opacity-60 font-bold mt-1">
+                            {activeIcon.allowSubMaterials ? 'เปิดใช้งานการเพิ่มอุปกรณ์ย่อย' : 'ไม่รองรับอุปกรณ์ย่อย'}
+                          </div>
+                        </div>
+                        <div
+                          onClick={() => setActiveIcon({ ...activeIcon, allowSubMaterials: !activeIcon.allowSubMaterials })}
+                          className={`w-10 h-6 rounded-full relative transition-all ${activeIcon.allowSubMaterials ? 'bg-blue-600' : 'bg-slate-400'}`}
+                        >
+                          <div className={`absolute top-1 left-1 w-4 h-4 bg-white rounded-full transition-all ${activeIcon.allowSubMaterials ? 'translate-x-4' : ''}`} />
+                        </div>
+                      </label>
+                    </div>
                   </div>
                 </div>
 

@@ -120,6 +120,14 @@ const BOQSummary: React.FC<BOQSummaryProps> = ({ project, materials, savedProjec
           }
         });
       }
+      // Sub-materials (Internal equipment)
+      if (node.subMaterials) {
+        node.subMaterials.forEach(sm => {
+          if (sm.materialId) {
+            map[sm.materialId] = { qty: (map[sm.materialId]?.qty ?? 0) + sm.quantity };
+          }
+        });
+      }
     });
 
     project.edges.forEach(edge => {
@@ -254,7 +262,7 @@ const BOQSummary: React.FC<BOQSummaryProps> = ({ project, materials, savedProjec
                     disabled={factorLoading || !savedProject?.province}
                     onClick={() => fetchFactorOC(subTotal, procureMethod)}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all whitespace-nowrap"
-                    title={!savedProject?.province ? 'กรุณาระบุจังหวัดในโครงการก่อน' : `คำนวณจากวงเงิน ${subTotal.toLocaleString('th-TH', {maximumFractionDigits: 0})} บาท`}
+                    title={!savedProject?.province ? 'กรุณาระบุจังหวัดในโครงการก่อน' : `คำนวณจากวงเงิน ${subTotal.toLocaleString('th-TH', { maximumFractionDigits: 0 })} บาท`}
                   >
                     {factorLoading
                       ? <Loader2 size={14} className="animate-spin" />
@@ -333,7 +341,7 @@ const BOQSummary: React.FC<BOQSummaryProps> = ({ project, materials, savedProjec
                 <th rowSpan={3} className={thBase} style={{ width: '28px' }}>ลำดับที่</th>
                 <th rowSpan={3} className={thBase} style={{ minWidth: '140px' }}>รายการ</th>
                 <th rowSpan={3} className={thBase} style={{ width: '42px' }}>หน่วยนับ</th>
-                <th rowSpan={3} className={thBase} style={{ width: '40px' }}>ปริมาณ<br/>(1)</th>
+                <th rowSpan={3} className={thBase} style={{ width: '40px' }}>ปริมาณ<br />(1)</th>
                 <th colSpan={2} className={thBase}>ค่าเคเบิล</th>
                 <th colSpan={2} className={thBase}>ค่าวัสดุ</th>
                 <th colSpan={2} className={thBase}>ค่าแรงงาน</th>
@@ -341,14 +349,14 @@ const BOQSummary: React.FC<BOQSummaryProps> = ({ project, materials, savedProjec
                 <th rowSpan={3} className={thBase} style={{ width: '80px' }}>หมายเหตุ</th>
               </tr>
               <tr>
-                <th className={thBase} style={{ width: '62px' }}>ราคาต่อหน่วย<br/>(2)</th>
-                <th className={thBase} style={{ width: '72px' }}>ราคาต่อปริมาณ<br/>(3)=(1)×(2)</th>
-                <th className={thBase} style={{ width: '62px' }}>ราคาต่อหน่วย<br/>(4)</th>
-                <th className={thBase} style={{ width: '72px' }}>ราคาต่อปริมาณ<br/>(5)=(1)×(4)</th>
-                <th className={thBase} style={{ width: '62px' }}>ราคาต่อหน่วย<br/>(6)</th>
-                <th className={thBase} style={{ width: '72px' }}>ราคาต่อปริมาณ<br/>(7)=(1)×(6)</th>
-                <th className={thBase} style={{ width: '62px' }}>ราคาต่อหน่วย<br/>(8)=(2)+(4)+(6)</th>
-                <th className={thBase} style={{ width: '80px' }}>ราคาต่อปริมาณ<br/>(9)=(3)+(5)+(7)</th>
+                <th className={thBase} style={{ width: '62px' }}>ราคาต่อหน่วย<br />(2)</th>
+                <th className={thBase} style={{ width: '72px' }}>ราคาต่อปริมาณ<br />(3)=(1)×(2)</th>
+                <th className={thBase} style={{ width: '62px' }}>ราคาต่อหน่วย<br />(4)</th>
+                <th className={thBase} style={{ width: '72px' }}>ราคาต่อปริมาณ<br />(5)=(1)×(4)</th>
+                <th className={thBase} style={{ width: '62px' }}>ราคาต่อหน่วย<br />(6)</th>
+                <th className={thBase} style={{ width: '72px' }}>ราคาต่อปริมาณ<br />(7)=(1)×(6)</th>
+                <th className={thBase} style={{ width: '62px' }}>ราคาต่อหน่วย<br />(8)=(2)+(4)+(6)</th>
+                <th className={thBase} style={{ width: '80px' }}>ราคาต่อปริมาณ<br />(9)=(3)+(5)+(7)</th>
               </tr>
             </thead>
             <tbody>
@@ -406,11 +414,10 @@ const BOQSummary: React.FC<BOQSummaryProps> = ({ project, materials, savedProjec
                       <button
                         onClick={() => fetchFactorOC(subTotal)}
                         disabled={factorLoading || !savedProject?.province}
-                        className={`print:hidden flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold border transition-all ${
-                          savedProject?.province
-                            ? 'border-blue-300 text-blue-600 hover:bg-blue-50'
-                            : 'border-slate-200 text-slate-300 cursor-not-allowed'
-                        }`}
+                        className={`print:hidden flex items-center gap-1 px-2 py-0.5 rounded text-[9px] font-bold border transition-all ${savedProject?.province
+                          ? 'border-blue-300 text-blue-600 hover:bg-blue-50'
+                          : 'border-slate-200 text-slate-300 cursor-not-allowed'
+                          }`}
                         title={savedProject?.province
                           ? `คำนวณ Factor OC จาก API (${savedProject.province}, ${procureMethod})`
                           : 'ระบุจังหวัดในโครงการก่อน'}

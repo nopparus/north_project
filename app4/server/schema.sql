@@ -35,5 +35,6 @@ CREATE TABLE IF NOT EXISTS custom_icons (
     associated_category TEXT,
     is_system INTEGER DEFAULT 0,
     icon_group TEXT,
-    sort_order INTEGER DEFAULT 0
+    sort_order INTEGER DEFAULT 0,
+    allow_sub_materials INTEGER DEFAULT 0
 );

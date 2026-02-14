@@ -2,7 +2,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import { NodeType, ProjectState, Material, NetworkNode, NetworkEdge, CustomIcon } from '../types';
 import { NODE_SYMBOL_MAP, PIN_PATH } from '../constants';
-import { Trash2, Link as LinkIcon, Edit3, MousePointer2, ChevronDown, ChevronRight, Package, Ruler, Tag, Zap, Grid3X3, Cable, Check, X, MapPin } from 'lucide-react';
+import { Trash2, Link as LinkIcon, Edit3, MousePointer2, ChevronDown, ChevronRight, Package, Ruler, Tag, Zap, Grid3X3, Cable, Check, X, MapPin, Search, Plus, Box } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface DesignCanvasProps {
@@ -463,6 +463,90 @@ const DesignCanvas: React.FC<DesignCanvasProps> = ({ project, setProject, materi
             })}
           </div>
         )}
+
+        {/* Sub-Materials (Internal Equipment) */}
+        {(() => {
+          const icon = draftNode.iconId ? customIcons.find(i => i.id === draftNode.iconId) : customIcons.find(i => i.id === draftNode.type);
+          if (!icon?.allowSubMaterials) return null;
+
+          return (
+            <div className={`rounded-xl border p-3 space-y-3 ${isDark ? 'border-purple-800/40 bg-purple-900/10' : 'border-purple-200 bg-purple-50'}`}>
+              <div className="flex items-center justify-between">
+                <div className={`flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-purple-400' : 'text-purple-700'}`}>
+                  <Box size={11} />
+                  อุปกรณ์ภายใน (Internal Equipment)
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDraftNode(d => d ? {
+                      ...d,
+                      subMaterials: [...(d.subMaterials || []), { materialId: 0, quantity: 1 }]
+                    } : d);
+                  }}
+                  className={`flex items-center gap-1 px-2 py-1 rounded-lg text-[9px] font-bold transition-all ${isDark ? 'bg-purple-600/30 text-purple-300 hover:bg-purple-600/50' : 'bg-purple-600 text-white hover:bg-purple-700'}`}
+                >
+                  <Plus size={10} />
+                  เพิ่มอุปกรณ์
+                </button>
+              </div>
+
+              {(draftNode.subMaterials || []).length === 0 ? (
+                <div className={`text-[10px] font-medium italic text-center py-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  ยังไม่มีการเพิ่มอุปกรณ์ภายใน
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {(draftNode.subMaterials || []).map((sm, idx) => (
+                    <div key={idx} className={`flex items-start gap-2 p-2 rounded-lg border ${isDark ? 'bg-slate-900/50 border-slate-700' : 'bg-white border-slate-200'}`}>
+                      <div className="flex-grow space-y-1">
+                        <select
+                          className={`w-full border rounded-lg px-2 py-1.5 text-[11px] font-bold outline-none focus:ring-2 focus:ring-purple-500/30 focus:border-purple-500 ${cls.selectBg}`}
+                          style={{ colorScheme: isDark ? 'dark' : 'light' }}
+                          value={sm.materialId || ''}
+                          onChange={e => {
+                            const newSub = [...(draftNode.subMaterials || [])];
+                            newSub[idx] = { ...newSub[idx], materialId: Number(e.target.value) || 0 };
+                            setDraftNode(d => d ? { ...d, subMaterials: newSub } : d);
+                          }}
+                        >
+                          <option value="">— เลือกอุปกรณ์ —</option>
+                          {materials.filter(m => m.material_type === 'T01').map(m => (
+                            <option key={m.id} value={m.id}>{m.material_name} (฿{m.unit_price})</option>
+                          ))}
+                        </select>
+                        <div className="flex items-center gap-2">
+                          <label className={`text-[9px] font-bold ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>จำนวน:</label>
+                          <input
+                            type="number"
+                            min="1"
+                            className={`w-20 border rounded-lg px-1.5 py-0.5 text-[11px] font-bold outline-none ${cls.inputBg}`}
+                            value={sm.quantity}
+                            onChange={e => {
+                              const newSub = [...(draftNode.subMaterials || [])];
+                              newSub[idx] = { ...newSub[idx], quantity: Math.max(1, Number(e.target.value) || 1) };
+                              setDraftNode(d => d ? { ...d, subMaterials: newSub } : d);
+                            }}
+                          />
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newSub = (draftNode.subMaterials || []).filter((_, i) => i !== idx);
+                          setDraftNode(d => d ? { ...d, subMaterials: newSub } : d);
+                        }}
+                        className={`p-1.5 rounded-lg transition-colors ${isDark ? 'text-red-400 hover:bg-red-400/10' : 'text-red-500 hover:bg-red-50'}`}
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
 
         {/* GPS Coordinates */}
         <div className={`rounded-xl border p-3 space-y-2 ${isDark ? 'border-emerald-800/40 bg-emerald-900/10' : 'border-emerald-200 bg-emerald-50'}`}>

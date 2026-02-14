@@ -56,6 +56,7 @@ export interface CustomIcon {
   isSystem?: boolean;          // true = built-in standard symbol, cannot be deleted/edited
   iconGroup?: string;          // Custom grouping for organizing icons
   sortOrder?: number;          // Manual sort order within group
+  allowSubMaterials?: boolean; // Enable/disable internal equipment for this icon
 }
 
 export interface NetworkNode {
@@ -68,6 +69,7 @@ export interface NetworkNode {
   materialId?: number;
   quantity?: number;
   terMaterialIds?: (number | null)[]; // TER material per connected edge; index matches edge order
+  subMaterials?: { materialId: number; quantity: number }[]; // Internal equipment list
   metadata?: {
     lat?: string;
     lng?: string;

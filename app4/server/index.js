@@ -135,7 +135,8 @@ apiRouter.get('/icons', async (req, res) => {
             associatedCategory: row.associated_category,
             isSystem: row.is_system === 1,
             iconGroup: row.icon_group,
-            sortOrder: row.sort_order || 0
+            sortOrder: row.sort_order || 0,
+            allowSubMaterials: row.allow_sub_materials === 1
         }));
         res.json(icons);
     } catch (err) {
@@ -144,12 +145,12 @@ apiRouter.get('/icons', async (req, res) => {
 });
 
 apiRouter.post('/icons', async (req, res) => {
-    const { id, name, description, dots, dataUrl, associatedCategory, isSystem, iconGroup, sortOrder } = req.body;
+    const { id, name, description, dots, dataUrl, associatedCategory, isSystem, iconGroup, sortOrder, allowSubMaterials } = req.body;
     try {
         await db.run(
-            `INSERT INTO custom_icons (id, name, description, dots, data_url, associated_category, is_system, icon_group, sort_order)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [id, name, description, JSON.stringify(dots), dataUrl, associatedCategory, isSystem ? 1 : 0, iconGroup || null, sortOrder || 0]
+            `INSERT INTO custom_icons (id, name, description, dots, data_url, associated_category, is_system, icon_group, sort_order, allow_sub_materials)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [id, name, description, JSON.stringify(dots), dataUrl, associatedCategory, isSystem ? 1 : 0, iconGroup || null, sortOrder || 0, allowSubMaterials ? 1 : 0]
         );
         res.status(201).json({ message: 'Icon saved' });
     } catch (err) {
@@ -169,12 +170,13 @@ apiRouter.put('/icons/:id', async (req, res) => {
     const finalIsSystem = is_system ?? isSystem;
     const finalIconGroup = icon_group ?? iconGroup;
     const finalSortOrder = sort_order ?? sortOrder;
+    const finalAllowSub = req.body.allow_sub_materials ?? allowSubMaterials;
 
     try {
         const result = await db.run(
-            `UPDATE custom_icons SET name=?, description=?, dots=?, data_url=?, associated_category=?, is_system=?, icon_group=?, sort_order=?
+            `UPDATE custom_icons SET name=?, description=?, dots=?, data_url=?, associated_category=?, is_system=?, icon_group=?, sort_order=?, allow_sub_materials=?
              WHERE id=?`,
-            [name, description, JSON.stringify(dots || []), finalDataUrl, finalCategory, finalIsSystem ? 1 : 0, finalIconGroup || null, finalSortOrder !== undefined ? finalSortOrder : 0, id]
+            [name, description, JSON.stringify(dots || []), finalDataUrl, finalCategory, finalIsSystem ? 1 : 0, finalIconGroup || null, finalSortOrder !== undefined ? finalSortOrder : 0, finalAllowSub ? 1 : 0, id]
         );
         if (result.changes === 0) return res.status(404).json({ error: 'Icon not found' });
         res.json({ message: 'Icon updated' });
