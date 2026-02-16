@@ -14,6 +14,13 @@ echo "  ✓ Express API started (PID: $API_PID)"
 # Wait for API to be ready
 sleep 2
 
+# Start App4 Server (Material DB)
+echo "Starting App4 Server on port 3004..."
+cd /home/nopparus2/www/app4/server
+PORT=3004 node index.js > /tmp/nexus-app4.log 2>&1 &
+APP4_PID=$!
+echo "  ✓ App4 Server started (PID: $APP4_PID)"
+
 # Start Proxy Server
 echo "Starting Proxy Server on port 8080..."
 cd /home/nopparus2/www
@@ -24,6 +31,7 @@ echo "  ✓ Proxy Server started (PID: $PROXY_PID)"
 # Save PIDs
 echo $API_PID > /tmp/nexus-api.pid
 echo $PROXY_PID > /tmp/nexus-proxy.pid
+echo $APP4_PID > /tmp/nexus-app4.pid
 
 echo ""
 echo "✓ All services started!"

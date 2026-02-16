@@ -1,0 +1,107 @@
+version: '3.8'
+
+services:
+  # Gateway / Proxy (Menu App serving logic moved here? No, separate menu container)
+  # Actually, user said "web proxy network... menu as proxy of every web"
+  # This implies the gateway IS the menu app container OR a dedicated Nginx acting as gateway + serving menu.
+  # Let's use a dedicated Nginx as the gateway, which routes '/' to the 'menu-frontend' container.
+  gateway:
+    image: nginx:alpine
+    container_name: nexus-gateway
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx-gateway.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - menu-frontend
+      - app1-frontend
+      - app2-frontend
+      - app3-frontend
+      - app4-frontend
+      - app5-frontend
+      - main-api
+      - app4-backend
+    networks:
+      - nexus-network
+
+  # Main API Backend
+  main-api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: nexus-main-api
+    environment:
+      - PORT=3001
+      - DB_PATH=/app/nexus.db
+    volumes:
+      - ./server/nexus.db:/app/nexus.db
+    networks:
+      - nexus-network
+
+  # App4 Backend (Material DB)
+  app4-backend:
+    build:
+      context: ./app4/server
+      dockerfile: Dockerfile
+    container_name: nexus-app4-backend
+    environment:
+      - PORT=3004
+      - DB_PATH=/app/database.sqlite
+    volumes:
+      - ./app4/server/database.sqlite:/app/database.sqlite
+    networks:
+      - nexus-network
+
+  # --- Frontends ---
+
+  menu-frontend:
+    build:
+      context: ./menu
+      dockerfile: ../Dockerfile.frontend
+    container_name: nexus-menu
+    networks:
+      - nexus-network
+
+  app1-frontend:
+    build:
+      context: ./app1
+      dockerfile: ../Dockerfile.frontend
+    container_name: nexus-app1
+    networks:
+      - nexus-network
+
+  app2-frontend:
+    build:
+      context: ./app2
+      dockerfile: ../Dockerfile.frontend
+    container_name: nexus-app2
+    networks:
+      - nexus-network
+
+  app3-frontend:
+    build:
+      context: ./app3
+      dockerfile: ../Dockerfile.frontend
+    container_name: nexus-app3
+    networks:
+      - nexus-network
+
+  app4-frontend:
+    build:
+      context: ./app4
+      dockerfile: ../Dockerfile.frontend
+    container_name: nexus-app4
+    networks:
+      - nexus-network
+
+  app5-frontend:
+    build:
+      context: ./app5
+      dockerfile: ../Dockerfile.frontend
+    container_name: nexus-app5
+    networks:
+      - nexus-network
+
+networks:
+  nexus-network:
+    driver: bridge

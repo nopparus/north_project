@@ -35,6 +35,20 @@ else
 fi
 echo ""
 
+# Check App4 Server
+echo "📦 App4 Server (port 3004):"
+if ps aux | grep -v grep | grep "node index.js" | grep "app4" > /dev/null; then
+    echo "   ✅ Running (PID: $(cat /tmp/nexus-app4.pid 2>/dev/null || echo 'unknown'))"
+    if curl -s http://localhost:3004/app4/api/materials > /dev/null 2>&1; then
+         echo "   ✅ Responding to requests"
+    else
+         echo "   ⚠️  Process running but endpoint not responding (Check logs: /tmp/nexus-app4.log)"
+    fi
+else
+    echo "   ❌ Not running"
+fi
+echo ""
+
 # Check Cloudflared
 echo "☁️  Cloudflare Tunnel:"
 if ps aux | grep -v grep | grep cloudflared > /dev/null; then
