@@ -10,6 +10,12 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
+// Prevent caching for all API routes
+app.use((req, res, next) => {
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+    next();
+});
+
 // Initialize DB schema
 const initDb = async () => {
     try {
@@ -162,7 +168,7 @@ apiRouter.put('/icons/:id', async (req, res) => {
     const { id } = req.params;
 
     // Accept both camelCase (iconGroup) and snake_case (icon_group) from frontend
-    const { name, description, dots, dataUrl, data_url, associatedCategory, associated_category, isSystem, is_system, iconGroup, icon_group, sortOrder, sort_order } = req.body;
+    const { name, description, dots, dataUrl, data_url, associatedCategory, associated_category, isSystem, is_system, iconGroup, icon_group, sortOrder, sort_order, allowSubMaterials } = req.body;
 
     // Prefer snake_case (what frontend sends) over camelCase (what GET returns)
     const finalDataUrl = data_url ?? dataUrl;

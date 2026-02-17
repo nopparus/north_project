@@ -52,6 +52,39 @@ services:
     networks:
       - nexus-network
 
+  # App5 Database
+  app5-db:
+    image: postgres:15-alpine
+    container_name: nexus-app5-db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pms
+    volumes:
+      - app5_postgres_data:/var/lib/postgresql/data
+      - ./app5/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - nexus-network
+
+  # App5 Backend
+  app5-backend:
+    build:
+      context: ./app5/server
+      dockerfile: Dockerfile
+    container_name: nexus-app5-backend
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: pms
+      DB_HOST: nexus-app5-db
+      PORT: 3000
+    depends_on:
+      - app5-db
+    networks:
+      - nexus-network
+
   # --- Frontends ---
 
   menu-frontend:
@@ -97,11 +130,16 @@ services:
   app5-frontend:
     build:
       context: ./app5
-      dockerfile: ../Dockerfile.frontend
+      dockerfile: Dockerfile
     container_name: nexus-app5
     networks:
       - nexus-network
+    depends_on:
+      - app5-backend
 
 networks:
   nexus-network:
     driver: bridge
+
+volumes:
+  app5_postgres_data:

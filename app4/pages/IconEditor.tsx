@@ -454,7 +454,12 @@ const IconEditor: React.FC<IconEditorProps> = ({ icons, setIcons, materials }) =
     if (!confirm(msg)) return;
 
     // Keep icon in same group when locking/unlocking
-    const updated = { ...activeIcon, isSystem: newSystemState };
+    // IMPORTANT: Use current svgCode to ensure edits are saved when locking
+    const updated = {
+      ...activeIcon,
+      isSystem: newSystemState,
+      dataUrl: encodeSvg(svgCode)
+    };
 
     try {
       const res = await fetch(`/app4/api/icons/${activeIcon.id}`, {

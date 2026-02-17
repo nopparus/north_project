@@ -1,17 +1,22 @@
 import React from 'react';
-import { 
-  LayoutGrid, 
-  Sparkles, 
-  BarChart3, 
-  Settings, 
-  MessageSquare, 
+import {
+  LayoutGrid,
+  Sparkles,
+  BarChart3,
+  Settings,
+  MessageSquare,
   Image as ImageIcon,
   FolderOpen,
   Terminal,
   Cpu,
   Database,
   Cloud,
-  Layers
+  Layers,
+  Zap,
+  FileSpreadsheet,
+  Merge,
+  Network,
+  ClipboardCheck
 } from 'lucide-react';
 
 export const COLORS = {
@@ -36,5 +41,10 @@ export const ICONS = {
   System: Cpu,
   Data: Database,
   Cloud: Cloud,
-  Stack: Layers
+  Stack: Layers,
+  Zap: Zap,
+  FileSpreadsheet: FileSpreadsheet,
+  Merge: Merge,
+  Network: Network,
+  ClipboardCheck: ClipboardCheck
 };

@@ -16,7 +16,7 @@ const DEFAULT_APPS: SubApp[] = [
     id: 'rd-processor',
     name: 'RD Smart Processor',
     description: 'เครื่องมือจัดการข้อมูลมิเตอร์อัจฉริยะ RD03/RD05',
-    icon: 'Data',
+    icon: 'Zap',
     color: 'text-cyan-400',
     path: '/app1',
     appType: 'iframe',
@@ -27,7 +27,7 @@ const DEFAULT_APPS: SubApp[] = [
     id: 'ems-transform',
     name: 'EMS แปลงค่าไฟฟ้า',
     description: 'แปลงข้อมูลค่าไฟฟ้าจาก Excel เป็น CSV',
-    icon: 'Cloud',
+    icon: 'FileSpreadsheet',
     color: 'text-yellow-400',
     path: '/app2',
     appType: 'iframe',
@@ -38,7 +38,7 @@ const DEFAULT_APPS: SubApp[] = [
     id: 'file-merger',
     name: 'Excel & CSV Merger',
     description: 'รวม Excel/CSV หลายไฟล์เข้าเป็นหนึ่ง',
-    icon: 'Stack',
+    icon: 'Merge',
     color: 'text-orange-400',
     path: '/app3',
     appType: 'iframe',
@@ -49,7 +49,7 @@ const DEFAULT_APPS: SubApp[] = [
     id: 'fiberflow-boq',
     name: 'FiberFlow BOQ Planner',
     description: 'ออกแบบเครือข่ายไฟเบอร์และจัดทำ BOQ วัสดุอุปกรณ์',
-    icon: 'Dev',
+    icon: 'Network',
     color: 'text-emerald-400',
     path: '/app4',
     appType: 'iframe',
@@ -60,7 +60,7 @@ const DEFAULT_APPS: SubApp[] = [
     id: 'pms-enterprise',
     name: 'PMS Enterprise',
     description: 'ระบบจัดการงานบำรุงรักษาเชิงป้องกันและสำรวจสถานที่',
-    icon: 'Settings',
+    icon: 'ClipboardCheck',
     color: 'text-purple-400',
     path: '/app5',
     appType: 'iframe',
@@ -78,7 +78,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const parsed = JSON.parse(saved);
       const restored: SubApp[] = parsed.map((app: any) => {
         const original = DEFAULT_APPS.find(d => d.id === app.id);
-        return { ...app, component: original ? original.component : IframeApp };
+        if (original) {
+          return { ...app, ...original, component: original.component };
+        }
+        return { ...app, component: IframeApp };
       });
       // Merge: add any new DEFAULT_APPS not yet in saved list
       const savedIds = new Set(restored.map(a => a.id));

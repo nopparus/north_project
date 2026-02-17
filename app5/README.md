@@ -1,20 +1,32 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Preventive Maintenance System (PMS)
 
-# Run and deploy your AI Studio app
+A comprehensive dashboard for managing preventive maintenance and site surveys.
 
-This contains everything you need to run your app locally.
+## Tech Stack
+- **Frontend**: React, Vite, TypeScript, TailwindCSS
+- **Backend**: Node.js, Express
+- **Database**: PostgreSQL
+- **Infrastructure**: Docker, Docker Compose, Nginx
 
-View your app in AI Studio: https://ai.studio/apps/drive/1xwJSMHTN0lrzHda2EQ6lh4to8WC9QSTq
+## Prerequisite
+- Docker and Docker Compose installed.
 
-## Run Locally
+## How to Run
 
-**Prerequisites:**  Node.js
+1. **Start the application**:
+   ```bash
+   docker-compose up --build
+   ```
 
+2. **Access the application**:
+   Open [http://localhost](http://localhost) in your browser.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+3. **Seed Initial Data** (Optional):
+   To populate the database with sample data:
+   ```bash
+   docker-compose exec backend npm run seed
+   ```
+
+## Development
+- **Frontend**: `npm run dev` (Port 5173 - requires backend running on 3000)
+- **Backend**: `cd server && npm run start` (Port 3000)
