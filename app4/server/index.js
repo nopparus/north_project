@@ -33,7 +33,27 @@ const initDb = async () => {
 
         rawDb.exec(schema, (err) => {
             if (err) console.error('Error initializing DB schema:', err);
-            else console.log('Database schema initialized');
+            else {
+                console.log('Database schema initialized');
+                // Check and add columns for locking mechanism if they don't exist
+                rawDb.all("PRAGMA table_info(projects)", (err, rows) => {
+                    if (err) {
+                        console.error("Error checking table info:", err);
+                        return;
+                    }
+                    const columns = rows.map(r => r.name);
+                    if (!columns.includes('locked_by')) {
+                        rawDb.run("ALTER TABLE projects ADD COLUMN locked_by TEXT", (err) => {
+                            if (!err) console.log("Added locked_by column");
+                        });
+                    }
+                    if (!columns.includes('last_active_at')) {
+                        rawDb.run("ALTER TABLE projects ADD COLUMN last_active_at DATETIME", (err) => {
+                            if (!err) console.log("Added last_active_at column");
+                        });
+                    }
+                });
+            }
         });
     } catch (err) {
         console.error('Error reading/initializing DB:', err);
@@ -42,7 +62,6 @@ const initDb = async () => {
 
 // Routes
 const apiRouter = express.Router();
-
 // Routes on apiRouter
 apiRouter.get('/materials', async (req, res) => {
     try {
@@ -250,14 +269,77 @@ apiRouter.put('/icons/batch/reorder', async (req, res) => {
 apiRouter.get('/projects', async (req, res) => {
     try {
         const result = await db.query('SELECT * FROM projects ORDER BY created_at DESC');
-        const projects = result.rows.map(p => ({
-            ...p,
-            state: JSON.parse(p.state),
-            createdAt: p.created_at,
-            budgetYear: p.budget_year,
-            workType: p.work_type
-        }));
+        const now = Date.now();
+        const projects = result.rows.map(p => {
+            // Check if lock is valid (active within last 45 seconds)
+            const lastActive = p.last_active_at ? new Date(p.last_active_at).getTime() : 0;
+            const isLocked = p.locked_by && (now - lastActive < 45000);
+
+            return {
+                ...p,
+                state: JSON.parse(p.state),
+                createdAt: p.created_at,
+                budgetYear: p.budget_year,
+                workType: p.work_type,
+                lockedBy: isLocked ? p.locked_by : null, // Only return lockedBy if lock is valid
+                lastActiveAt: p.last_active_at
+            };
+        });
         res.json(projects);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+apiRouter.post('/projects/:id/heartbeat', async (req, res) => {
+    const { id } = req.params;
+    const { clientId } = req.body;
+    try {
+        await db.run(
+            `UPDATE projects SET last_active_at = DATETIME('now'), locked_by = ? WHERE id = ?`,
+            [clientId, id]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+apiRouter.post('/projects/:id/lock', async (req, res) => {
+    const { id } = req.params;
+    const { clientId } = req.body;
+    try {
+        const project = await db.get('SELECT locked_by, last_active_at FROM projects WHERE id = ?', [id]);
+        if (!project) return res.status(404).json({ error: 'Project not found' });
+
+        const now = Date.now();
+        const lastActive = project.last_active_at ? new Date(project.last_active_at).getTime() : 0;
+        const isLocked = project.locked_by && project.locked_by !== clientId && (now - lastActive < 45000);
+
+        if (isLocked) {
+            return res.status(409).json({ error: 'Project is locked', lockedBy: project.locked_by });
+        }
+
+        // Acquire lock
+        await db.run(
+            `UPDATE projects SET locked_by = ?, last_active_at = DATETIME('now') WHERE id = ?`,
+            [clientId, id]
+        );
+        res.json({ success: true, message: 'Lock acquired' });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+apiRouter.post('/projects/:id/release', async (req, res) => {
+    const { id } = req.params;
+    const { clientId } = req.body;
+    try {
+        await db.run(
+            `UPDATE projects SET locked_by = NULL WHERE id = ? AND locked_by = ?`,
+            [id, clientId]
+        );
+        res.json({ success: true });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }
@@ -279,10 +361,24 @@ apiRouter.post('/projects', async (req, res) => {
 
 apiRouter.put('/projects/:id', async (req, res) => {
     const { id } = req.params;
-    const { name, description, state, province, budgetYear, area, workType } = req.body;
+    const { name, description, state, province, budgetYear, area, workType, clientId, force } = req.body;
+
+    // Optimistic locking check
+    if (!force) {
+        const current = await db.get('SELECT locked_by, last_active_at FROM projects WHERE id = ?', [id]);
+        if (current) {
+            const now = Date.now();
+            const lastActive = current.last_active_at ? new Date(current.last_active_at).getTime() : 0;
+            const isLocked = current.locked_by && current.locked_by !== clientId && (now - lastActive < 45000);
+            if (isLocked) {
+                return res.status(409).json({ error: 'Project is locked by another user', lockedBy: current.locked_by });
+            }
+        }
+    }
+
     try {
         const result = await db.run(
-            `UPDATE projects SET name=?, description=?, state=?, province=?, budget_year=?, area=?, work_type=?
+            `UPDATE projects SET name=?, description=?, state=?, province=?, budget_year=?, area=?, work_type=?, last_active_at=DATETIME('now')
              WHERE id=?`,
             [name, description, JSON.stringify(state), province, budgetYear, area, workType, id]
         );
@@ -356,3 +452,5 @@ initDb().then(() => {
         console.log(`Server running on port ${PORT}`);
     });
 });
+
+

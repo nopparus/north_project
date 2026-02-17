@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { HashRouter, Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Layout, Database, FileText, PenTool, Printer, Save, Palette, Shield, User, ShieldCheck, Sun, Moon, ChevronDown, FolderOpen, Plus, Trash2, Map as MapIcon, Upload } from 'lucide-react';
+import { Layout, Database, FileText, PenTool, Printer, Save, Palette, Shield, User, ShieldCheck, Sun, Moon, ChevronDown, FolderOpen, Plus, Trash2, Map as MapIcon, Upload, Check, X } from 'lucide-react';
 import DesignCanvas from './pages/DesignCanvas';
 import DatabasePage from './pages/Database';
 import BOQSummary from './pages/BOQSummary';
@@ -31,6 +31,19 @@ const generateCircle = (cx: number, cy: number, r: number, color: string): IconD
   }
   return dots;
 };
+
+// Generate a unique client ID for this session
+// Generate a unique client ID for this session (per tab)
+const generateClientId = () => {
+  let id = sessionStorage.getItem('app_client_id');
+  if (!id) {
+    id = Math.random().toString(36).substring(2) + Date.now().toString(36);
+    sessionStorage.setItem('app_client_id', id);
+  }
+  return id;
+};
+
+const CLIENT_ID = generateClientId();
 
 const AppContent: React.FC = () => {
   const { isDark, toggleTheme } = useTheme();
@@ -149,19 +162,24 @@ const AppContent: React.FC = () => {
             // It will be set by state initializer? No, initializer ran already.
             // We need to set it here if we want to ensure it matches.
             // But activeProjectId state is already set.
-          } else if (data.length > 0) {
-            setActiveProjectId(data[0].id);
           }
         }
       })
       .catch(err => console.error("Failed to load projects:", err));
   }, []);
 
+  // ... (existing code)
+
+  // ... (existing code)
+
   const [activeProjectId, setActiveProjectId] = useState<string>(() =>
     localStorage.getItem('fiber_active_project_id') || ''
   );
 
-  const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+
+  const [isOpenProjectModalOpen, setIsOpenProjectModalOpen] = useState(false);
+
+
   const [showNetworkPrint, setShowNetworkPrint] = useState(false);
   const [kmlExporting, setKmlExporting] = useState(false);
   const [isNewProjectModalOpen, setIsNewProjectModalOpen] = useState(false);
@@ -269,13 +287,38 @@ const AppContent: React.FC = () => {
     }
   }, [icons]);
 
-  const handleSave = () => {
+  const handleOpenDownloadModal = () => {
     // sync latest state first
     setSavedProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, state: project } : p));
     // open save-as modal
     const activeProj = savedProjects.find(p => p.id === activeProjectId);
     setSaveFileName(activeProj?.name || 'project');
     setIsSaveModalOpen(true);
+  };
+
+  const handleServerSave = async () => {
+    try {
+      const currentProj = savedProjects.find(p => p.id === activeProjectId);
+      if (!currentProj) return;
+
+      const payload = { ...currentProj, state: project };
+
+      // Optimistic update local state
+      setSavedProjects(prev => prev.map(p => p.id === activeProjectId ? payload : p));
+
+      const res = await fetch(`/app4/api/projects/${activeProjectId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!res.ok) throw new Error('Save failed');
+
+      alert('บันทึกข้อมูลไปยัง Server เรียบร้อยแล้ว');
+    } catch (err) {
+      console.error(err);
+      alert('การบันทึกข้อมูลล้มเหลว กรุณาลองใหม่อีกครั้ง');
+    }
   };
 
   const handleDownloadProject = (e: React.FormEvent) => {
@@ -333,7 +376,7 @@ const AppContent: React.FC = () => {
   const handleSwitchProject = (id: string) => {
     setSavedProjects(prev => prev.map(p => p.id === activeProjectId ? { ...p, state: project } : p));
     setActiveProjectId(id);
-    setIsProjectDropdownOpen(false);
+    setIsOpenProjectModalOpen(false);
   };
 
   const handleCreateProject = (e: React.FormEvent) => {
@@ -617,90 +660,110 @@ ${edgesKML}
   return (
     <div className={`flex flex-col min-h-screen ${isDark ? 'bg-slate-950' : 'bg-slate-100'}`}>
       <header className={`no-print backdrop-blur-md border-b sticky top-0 z-50 px-6 py-4 flex items-center justify-between shadow-2xl ${isDark ? 'bg-slate-900/50 border-slate-800' : 'bg-white/80 border-slate-200'}`}>
-        <div className="flex items-center space-x-4">
-          <div className="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-600/20">
-            <Layout className="text-white" size={24} />
-          </div>
-          <div>
-            <h1 className={`text-xl font-bold tracking-tight leading-none ${isDark ? 'text-white' : 'text-slate-900'}`}>FiberFlow BOQ</h1>
-            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-1">Enterprise Planner</p>
+        {/* Left Side: Logo & File Menu */}
+        <div className="flex items-center gap-6">
+          <div className="flex items-center gap-3">
+            <div className="bg-blue-600 p-2 rounded-lg shadow-lg shadow-blue-600/20">
+              <Layout className="text-white" size={20} />
+            </div>
+            <div>
+              <h1 className={`text-lg font-bold tracking-tight leading-none ${isDark ? 'text-white' : 'text-slate-900'}`}>FiberFlow</h1>
+            </div>
           </div>
 
-          {/* Project Selector */}
-          <div className="relative">
-            <button
-              onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
-              className={`flex items-center space-x-2 px-3 py-2 rounded-lg border text-sm font-medium transition-all max-w-[200px] ${isDark ? 'bg-slate-800 border-slate-700 text-white hover:bg-slate-700' : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'}`}
-            >
-              <FolderOpen size={15} className="shrink-0 text-blue-500" />
-              <span className="truncate">{savedProjects.find(p => p.id === activeProjectId)?.name || 'No Project'}</span>
-              <ChevronDown size={14} className="shrink-0" />
+          {/* Separator */}
+          <div className={`h-8 w-px ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />
+
+          {/* File Menu */}
+          <div className="relative group z-50">
+            <button className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-all ${isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-100'}`}>
+              <FileText size={16} />
+              <span>ไฟล์ (File)</span>
+              <ChevronDown size={14} className="opacity-50" />
             </button>
-            {isProjectDropdownOpen && (
-              <div className={`absolute top-full left-0 mt-1 w-72 rounded-xl border shadow-2xl z-[200] overflow-hidden ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
-                <div className={`px-3 py-2 text-[10px] font-black uppercase tracking-widest ${isDark ? 'text-slate-500 border-b border-slate-800' : 'text-slate-400 border-b border-slate-100'}`}>โปรเจกต์ทั้งหมด</div>
-                {savedProjects.map(p => (
-                  <div key={p.id} className={`flex items-center justify-between px-3 py-2.5 cursor-pointer transition-all ${p.id === activeProjectId ? 'bg-blue-600 text-white' : isDark ? 'hover:bg-slate-800 text-slate-300' : 'hover:bg-slate-50 text-slate-700'}`}>
-                    <span className="text-sm font-medium truncate flex-1" onClick={() => handleSwitchProject(p.id)}>{p.name}</span>
-                    <button onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }} className={`ml-2 p-1 rounded opacity-50 hover:opacity-100 ${p.id === activeProjectId ? 'hover:bg-blue-500' : 'hover:bg-red-500 hover:text-white'}`}>
-                      <Trash2 size={12} />
-                    </button>
-                  </div>
-                ))}
-                <div className={`border-t px-3 py-2 ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
-                  <button onClick={() => { setIsNewProjectModalOpen(true); setIsProjectDropdownOpen(false); }} className="flex items-center space-x-2 text-sm text-blue-500 hover:text-blue-400 font-medium w-full">
-                    <Plus size={14} />
-                    <span>สร้างโปรเจกต์ใหม่</span>
-                  </button>
-                </div>
+
+            {/* File Dropdown */}
+            <div className={`absolute top-full left-0 mt-1 w-64 rounded-xl shadow-2xl border p-1 opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all transform origin-top-left ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+              <div className="space-y-0.5">
+                <button onClick={() => setIsNewProjectModalOpen(true)} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-50'}`}>
+                  <Plus size={16} className="text-blue-500" />
+                  สร้างโปรเจกต์ใหม่ (New)
+                </button>
+                <div className={`my-1 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`} />
+
+                <button onClick={handleServerSave} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-50'}`}>
+                  <Save size={16} className="text-emerald-500" />
+                  บันทึก (Save)
+                </button>
+                <button onClick={() => setIsOpenProjectModalOpen(true)} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-50'}`}>
+                  <FolderOpen size={16} className="text-amber-500" />
+                  เปิดโปรเจกต์... (Open)
+                </button>
+
+                <div className={`my-1 border-t ${isDark ? 'border-slate-800' : 'border-slate-100'}`} />
+
+                <div className={`px-3 py-1 text-[10px] font-bold uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Local Device</div>
+                <button onClick={handleOpenDownloadModal} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-50'}`}>
+                  <Upload size={16} className="rotate-180" />
+                  Download JSON
+                </button>
+                <button onClick={() => importProjectRef.current?.click()} className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${isDark ? 'text-slate-300 hover:bg-slate-800' : 'text-slate-700 hover:bg-slate-50'}`}>
+                  <Upload size={16} />
+                  Import JSON
+                </button>
               </div>
-            )}
+            </div>
+          </div>
+
+          {/* Current Project Display (Clickable to switch) */}
+          {/* Current Project Display (Clickable to switch) */}
+          <div className="relative z-40">
+            <div
+              className={`flex items-center gap-3 px-3 py-2 rounded-lg border shadow-sm transition-all min-w-[260px] max-w-[320px] cursor-default ${isDark ? 'bg-slate-900 border-slate-700 text-white' : 'bg-white border-slate-200 text-slate-700'}`}
+            >
+              <div className={`p-1.5 rounded-md ${isDark ? 'bg-blue-500/20 text-blue-400' : 'bg-blue-50 text-blue-600'}`}>
+                <FolderOpen size={16} />
+              </div>
+              <div className="flex-1 flex flex-col items-start overflow-hidden text-left">
+                <span className="text-[10px] opacity-60 font-bold uppercase tracking-widest leading-none mb-1">Current Project</span>
+                <span className="truncate w-full font-semibold text-sm leading-none">{savedProjects.find(p => p.id === activeProjectId)?.name || 'Select Project...'}</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <nav className="flex space-x-2">
-          <NavItem to="/" icon={PenTool} label="Network Design" />
-          <NavItem to="/icons" icon={Palette} label="Icon Creator" hidden={!isAdmin} />
-          <NavItem to="/database" icon={Database} label="Material Database" hidden={!isAdmin} />
-          <NavItem to="/boq" icon={FileText} label="BOQ Summary" />
+        <nav className="flex space-x-1 items-center bg-slate-100/50 dark:bg-slate-800/50 p-1 rounded-xl">
+          <NavItem to="/" icon={PenTool} label="Design" />
+          <NavItem to="/boq" icon={FileText} label="BOQ" />
+          <NavItem to="/database" icon={Database} label="Data" hidden={!isAdmin} />
+          <NavItem to="/icons" icon={Palette} label="Icons" hidden={!isAdmin} />
         </nav>
 
         <div className="flex items-center space-x-3">
+          <ExportKMLButton />
+          <PrintButton />
+
+          <div className={`h-6 w-px ${isDark ? 'bg-slate-700' : 'bg-slate-300'}`} />
+
           {/* Admin Toggle */}
           <button
             onClick={() => setIsAdmin(!isAdmin)}
-            className={`flex items-center space-x-2 px-3 py-1.5 rounded-full transition-all text-xs font-black uppercase tracking-tighter border ${isAdmin ? 'bg-amber-900/30 border-amber-700/50 text-amber-400' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-300 text-slate-500'}`}
+            className={`flex items-center space-x-2 px-3 py-1.5 rounded-full transition-all text-xs font-black uppercase tracking-tighter border ${isAdmin ? 'bg-amber-900/30 border-amber-700/50 text-amber-400' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400 hover:text-slate-200' : 'bg-slate-100 border-slate-300 text-slate-500 hover:text-slate-700'}`}
+            title="Toggle Admin Mode"
           >
             {isAdmin ? <ShieldCheck size={14} /> : <User size={14} />}
-            <span>{isAdmin ? 'Admin Mode' : 'User Mode'}</span>
           </button>
 
           {/* Theme Toggle */}
           <button
             onClick={toggleTheme}
-            className={`p-2 rounded-md transition-all ${isDark ? 'bg-slate-800 text-slate-300 hover:bg-slate-700' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+            className={`p-2 rounded-full transition-all ${isDark ? 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white' : 'bg-slate-100 text-slate-500 hover:bg-slate-200 hover:text-slate-900'}`}
             aria-label="Toggle light/dark mode"
           >
-            {isDark ? <Sun size={18} /> : <Moon size={18} />}
+            {isDark ? <Sun size={16} /> : <Moon size={16} />}
           </button>
 
           <input ref={importProjectRef} type="file" accept=".json" className="hidden" onChange={handleImportProject} />
-
-          {/* Show Import/Save buttons only on Network Design page */}
-          {isNetworkDesignPage && (
-            <>
-              <button onClick={() => importProjectRef.current?.click()} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="นำเข้าโปรเจกต์จากไฟล์ .json">
-                <Upload size={16} />
-                <span>Import</span>
-              </button>
-              <button onClick={handleSave} className={`flex items-center space-x-2 px-4 py-2 border rounded-md transition-all text-sm font-medium ${isDark ? 'border-slate-700 text-slate-300 hover:bg-slate-800' : 'border-slate-300 text-slate-600 hover:bg-slate-100'}`} title="บันทึกโปรเจกต์นี้เป็นไฟล์ .json">
-                <Save size={16} />
-                <span>Save</span>
-              </button>
-            </>
-          )}
-          <ExportKMLButton />
-          <PrintButton />
         </div>
       </header>
 
@@ -847,6 +910,94 @@ ${edgesKML}
           </div>
         </div>
       )}
+
+
+      {/* Open Project Modal */}
+      {isOpenProjectModalOpen && (
+        <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className={`rounded-2xl w-full max-w-2xl shadow-2xl border flex flex-col max-h-[80vh] ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
+            <div className={`px-6 py-5 border-b flex items-center justify-between ${isDark ? 'border-slate-800' : 'border-slate-100'}`}>
+              <div>
+                <h3 className={`font-black text-lg ${isDark ? 'text-white' : 'text-slate-900'}`}>เปิดโปรเจกต์ (Open Project)</h3>
+                <p className={`text-sm mt-1 ${isDark ? 'text-slate-400' : 'text-slate-500'}`}>เลือกโปรเจกต์ที่ต้องการทำงาน</p>
+              </div>
+              <button
+                onClick={() => setIsOpenProjectModalOpen(false)}
+                className={`p-2 rounded-full transition-colors ${isDark ? 'hover:bg-slate-800 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-2 custom-scrollbar">
+              {savedProjects.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-12 text-center opacity-50">
+                  <FolderOpen size={48} className="mb-4" />
+                  <p>ยังไม่มีโปรเจกต์</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-1">
+                  {savedProjects.map(p => {
+                    const isActive = p.id === activeProjectId;
+                    const isLocked = p.lockedBy && p.lockedBy !== CLIENT_ID;
+                    return (
+                      <div
+                        key={p.id}
+                        onClick={() => handleSwitchProject(p.id)}
+                        className={`group flex items-center justify-between px-4 py-4 rounded-xl cursor-pointer transition-all border ${isActive
+                          ? 'bg-blue-600 border-blue-600 text-white shadow-md'
+                          : isDark
+                            ? 'bg-slate-800/50 border-slate-700 hover:bg-slate-800 text-slate-300'
+                            : 'bg-white border-slate-100 hover:bg-slate-50 text-slate-700 hover:border-blue-200 shadow-sm'
+                          }`}
+                      >
+                        <div className="flex items-center gap-4 overflow-hidden flex-1">
+                          <div className={`p-2 rounded-lg shrink-0 ${isActive ? 'bg-white/20 text-white' : isDark ? 'bg-slate-700 text-slate-400' : 'bg-blue-50 text-blue-600'}`}>
+                            {isActive ? <Check size={20} strokeWidth={3} /> : (isLocked ? <Shield size={20} className="text-amber-500" /> : <FolderOpen size={20} />)}
+                          </div>
+                          <div className="flex flex-col overflow-hidden">
+                            <span className={`text-base font-bold truncate ${isActive ? 'text-white' : ''}`}>{p.name}</span>
+                            <div className="flex items-center gap-2 text-xs opacity-70">
+                              <span>{new Date(p.createdAt).toLocaleDateString('th-TH')}</span>
+                              {isLocked && (
+                                <span className="flex items-center gap-1 text-amber-500 font-bold bg-amber-500/10 px-2 py-0.5 rounded-full">
+                                  <Shield size={10} /> กำลังถูกใช้งาน
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }}
+                          className={`p-2 rounded-lg transition-all ${isActive
+                            ? 'text-blue-200 hover:bg-white/20 hover:text-white'
+                            : 'text-slate-400 hover:bg-red-50 hover:text-red-600 opacity-0 group-hover:opacity-100'
+                            }`}
+                          title="ลบโปรเจกต์"
+                        >
+                          <Trash2 size={18} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className={`p-4 border-t flex justify-end gap-3 ${isDark ? 'border-slate-800 bg-slate-900/50' : 'border-slate-100 bg-slate-50'}`}>
+              <button
+                onClick={() => setIsNewProjectModalOpen(true)}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm bg-blue-600 text-white hover:bg-blue-500 shadow-lg shadow-blue-500/20`}
+              >
+                <Plus size={18} />
+                <span>สร้างโปรเจกต์ใหม่</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {isDeleteModalOpen && projectToDelete && (
         <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className={`rounded-xl w-full max-w-sm shadow-2xl border overflow-hidden ${isDark ? 'bg-slate-900 border-slate-700' : 'bg-white border-slate-200'}`}>
