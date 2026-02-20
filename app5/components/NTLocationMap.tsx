@@ -656,21 +656,24 @@ const EditLocationContent: React.FC<{
             onPaste={handlePaste}
         >
             <div className="mb-4">
-                <div className="flex items-center justify-between border-b pb-2 mb-2">
-                    <h2 className="font-bold text-lg text-slate-900">แก้ไขข้อมูล</h2>
-                    <button
-                        onClick={() => setShowSettings(!showSettings)}
-                        className={`p-1.5 rounded-lg transition-colors ${showSettings ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
-                        title="ตั้งค่ารูปภาพ"
-                    >
-                        <Settings size={16} />
-                    </button>
+                <h2 className="font-bold text-lg text-slate-900 border-b pb-2 mb-2">แก้ไขข้อมูล</h2>
+
+                <div className="text-xs text-slate-500 bg-blue-50 p-2 rounded border border-blue-100 mb-3">
+                    💡 <b>Tip:</b> กด Ctrl+V เพื่อวางรูปจาก Street View (บีบอัดอัตโนมัติ {imgSettings.maxDimension}px / {Math.round(imgSettings.quality * 100)}%)
                 </div>
+
+                <button
+                    onClick={() => setShowSettings(!showSettings)}
+                    className={`flex items-center gap-2 w-full text-xs font-bold px-3 py-2 rounded-lg border transition-all mb-3 ${showSettings ? 'bg-blue-50 text-blue-700 border-blue-300' : 'bg-slate-50 text-slate-500 border-slate-200 hover:bg-slate-100 hover:text-slate-700'}`}
+                >
+                    <Settings size={14} />
+                    ⚙️ ตั้งค่าคุณภาพรูปภาพ
+                    <span className="ml-auto font-mono text-blue-600">{imgSettings.maxDimension}px / {Math.round(imgSettings.quality * 100)}%</span>
+                </button>
 
                 {/* Image Settings Panel */}
                 {showSettings && (
-                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 space-y-3">
-                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide">⚙️ ตั้งค่ารูปภาพ</h3>
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3 space-y-3">
                         <div>
                             <label className="block text-xs font-bold text-slate-600 mb-1">
                                 ขนาดสูงสุด (px): <span className="text-blue-600 font-mono">{imgSettings.maxDimension}px</span>
@@ -708,10 +711,6 @@ const EditLocationContent: React.FC<{
                         </div>
                     </div>
                 )}
-
-                <div className="text-xs text-slate-500 bg-blue-50 p-2 rounded border border-blue-100 mb-4">
-                    💡 <b>Tip:</b> กด Ctrl+V เพื่อวางรูปจาก Street View (บีบอัดอัตโนมัติ {imgSettings.maxDimension}px / {Math.round(imgSettings.quality * 100)}%)
-                </div>
             </div>
 
             <div className="space-y-4">
