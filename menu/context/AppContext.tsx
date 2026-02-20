@@ -66,6 +66,17 @@ const DEFAULT_APPS: SubApp[] = [
     appType: 'iframe',
     iframeSrc: '/app5/',
     component: IframeApp
+  },
+  {
+    id: 'security-budget',
+    name: 'Security Budget Calculator',
+    description: 'ระบบคำนวณงบประมาณ รปภ. ตามกฎหมายแรงงานไทย',
+    icon: 'Shield',
+    color: 'text-indigo-400',
+    path: '/app6',
+    appType: 'iframe',
+    iframeSrc: '/app6/',
+    component: IframeApp
   }
 ];
 

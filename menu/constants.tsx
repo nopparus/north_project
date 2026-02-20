@@ -16,7 +16,8 @@ import {
   FileSpreadsheet,
   Merge,
   Network,
-  ClipboardCheck
+  ClipboardCheck,
+  Shield
 } from 'lucide-react';
 
 export const COLORS = {
@@ -46,5 +47,6 @@ export const ICONS = {
   FileSpreadsheet: FileSpreadsheet,
   Merge: Merge,
   Network: Network,
-  ClipboardCheck: ClipboardCheck
+  ClipboardCheck: ClipboardCheck,
+  Shield: Shield
 };

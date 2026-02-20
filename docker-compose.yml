@@ -19,6 +19,7 @@ services:
       - app3-frontend
       - app4-frontend
       - app5-frontend
+      - app6-frontend
       - main-api
       - app4-backend
     networks:
@@ -138,6 +139,14 @@ services:
       - nexus-network
     depends_on:
       - app5-backend
+
+  app6-frontend:
+    build:
+      context: ./app6
+      dockerfile: Dockerfile
+    container_name: nexus-app6
+    networks:
+      - nexus-network
 
 networks:
   nexus-network:

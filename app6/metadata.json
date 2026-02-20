@@ -1,0 +1,5 @@
+{
+  "name": "Security Guard Budget Calculator",
+  "description": "A professional tool for calculating security guard service budgets based on Thai labor laws, public holidays, and minimum wage data.",
+  "requestFramePermissions": ["geolocation"]
+}
