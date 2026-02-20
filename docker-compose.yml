@@ -80,6 +80,8 @@ services:
       POSTGRES_DB: pms
       DB_HOST: nexus-app5-db
       PORT: 3000
+    volumes:
+      - ./app5/server/uploads:/usr/src/app/uploads
     depends_on:
       - app5-db
     networks:

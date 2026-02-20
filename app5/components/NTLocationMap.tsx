@@ -6,7 +6,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { locationsApi } from '../services/api';
 import { NTLocation } from '../types';
-import { Loader2, Search, MapPin, ExternalLink, X } from 'lucide-react';
+import { Loader2, Search, MapPin, ExternalLink, X, Settings } from 'lucide-react';
 
 // Fix Leaflet's default icon path issues with Vite
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
@@ -489,6 +489,81 @@ const StackedListContent: React.FC<{
     );
 };
 
+// ----------------------------------------------------
+// IMAGE COMPRESSION UTILITY
+// ----------------------------------------------------
+const IMAGE_SETTINGS_KEY = 'app5_image_settings';
+
+interface ImageSettings {
+    maxDimension: number; // Max width or height in pixels
+    quality: number;      // JPEG quality 0.0 - 1.0
+}
+
+const DEFAULT_IMAGE_SETTINGS: ImageSettings = {
+    maxDimension: 1280,
+    quality: 0.75,
+};
+
+const getImageSettings = (): ImageSettings => {
+    try {
+        const saved = localStorage.getItem(IMAGE_SETTINGS_KEY);
+        if (saved) return { ...DEFAULT_IMAGE_SETTINGS, ...JSON.parse(saved) };
+    } catch { /* ignore */ }
+    return DEFAULT_IMAGE_SETTINGS;
+};
+
+const saveImageSettings = (settings: ImageSettings) => {
+    localStorage.setItem(IMAGE_SETTINGS_KEY, JSON.stringify(settings));
+};
+
+const compressImage = (file: File, settings: ImageSettings): Promise<File> => {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        const url = URL.createObjectURL(file);
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            let { width, height } = img;
+            const maxDim = settings.maxDimension;
+
+            // Only resize if larger than maxDimension
+            if (width > maxDim || height > maxDim) {
+                if (width > height) {
+                    height = Math.round(height * (maxDim / width));
+                    width = maxDim;
+                } else {
+                    width = Math.round(width * (maxDim / height));
+                    height = maxDim;
+                }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d')!;
+            ctx.drawImage(img, 0, 0, width, height);
+
+            canvas.toBlob(
+                (blob) => {
+                    if (!blob) return reject(new Error('Compression failed'));
+                    const compressed = new File([blob], file.name.replace(/\.png$/i, '.jpg'), {
+                        type: 'image/jpeg',
+                        lastModified: Date.now(),
+                    });
+                    console.log(`Image compressed: ${(file.size / 1024).toFixed(0)}KB → ${(compressed.size / 1024).toFixed(0)}KB (${width}x${height})`);
+                    resolve(compressed);
+                },
+                'image/jpeg',
+                settings.quality
+            );
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            reject(new Error('Failed to load image'));
+        };
+        img.src = url;
+    });
+};
+
 // Sub-component for Edit View (In Center Modal)
 const EditLocationContent: React.FC<{
     loc: NTLocation;
@@ -507,6 +582,8 @@ const EditLocationContent: React.FC<{
     });
     const [isSaving, setIsSaving] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
+    const [showSettings, setShowSettings] = useState(false);
+    const [imgSettings, setImgSettings] = useState<ImageSettings>(getImageSettings);
 
     // Update local state when prop changes (e.g. if re-opened)
     useEffect(() => {
@@ -545,6 +622,12 @@ const EditLocationContent: React.FC<{
         setIsSaving(false);
     };
 
+    const updateImageSetting = (key: keyof ImageSettings, value: number) => {
+        const newSettings = { ...imgSettings, [key]: value };
+        setImgSettings(newSettings);
+        saveImageSettings(newSettings);
+    };
+
     const handlePaste = async (e: React.ClipboardEvent) => {
         const items = e.clipboardData.items;
         for (let i = 0; i < items.length; i++) {
@@ -553,7 +636,8 @@ const EditLocationContent: React.FC<{
                 if (file) {
                     setIsUploading(true);
                     try {
-                        const url = await locationsApi.uploadImage(file);
+                        const compressed = await compressImage(file, imgSettings);
+                        const url = await locationsApi.uploadImage(compressed);
                         setFormData(prev => ({ ...prev, image_url: url }));
                     } catch (err) {
                         console.error('Upload failed', err);
@@ -572,9 +656,61 @@ const EditLocationContent: React.FC<{
             onPaste={handlePaste}
         >
             <div className="mb-4">
-                <h2 className="font-bold text-lg text-slate-900 border-b pb-2 mb-2">แก้ไขข้อมูล</h2>
+                <div className="flex items-center justify-between border-b pb-2 mb-2">
+                    <h2 className="font-bold text-lg text-slate-900">แก้ไขข้อมูล</h2>
+                    <button
+                        onClick={() => setShowSettings(!showSettings)}
+                        className={`p-1.5 rounded-lg transition-colors ${showSettings ? 'bg-blue-100 text-blue-600' : 'text-slate-400 hover:text-slate-600 hover:bg-slate-100'}`}
+                        title="ตั้งค่ารูปภาพ"
+                    >
+                        <Settings size={16} />
+                    </button>
+                </div>
+
+                {/* Image Settings Panel */}
+                {showSettings && (
+                    <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-4 space-y-3">
+                        <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wide">⚙️ ตั้งค่ารูปภาพ</h3>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">
+                                ขนาดสูงสุด (px): <span className="text-blue-600 font-mono">{imgSettings.maxDimension}px</span>
+                            </label>
+                            <input
+                                type="range"
+                                min="480" max="3840" step="160"
+                                value={imgSettings.maxDimension}
+                                onChange={(e) => updateImageSetting('maxDimension', parseInt(e.target.value))}
+                                className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            />
+                            <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                                <span>480px</span>
+                                <span>1280px</span>
+                                <span>1920px</span>
+                                <span>3840px</span>
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-slate-600 mb-1">
+                                คุณภาพ JPEG: <span className="text-blue-600 font-mono">{Math.round(imgSettings.quality * 100)}%</span>
+                            </label>
+                            <input
+                                type="range"
+                                min="0.3" max="1.0" step="0.05"
+                                value={imgSettings.quality}
+                                onChange={(e) => updateImageSetting('quality', parseFloat(e.target.value))}
+                                className="w-full h-2 bg-blue-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            />
+                            <div className="flex justify-between text-[10px] text-slate-400 mt-1">
+                                <span>30% (เล็ก)</span>
+                                <span>75%</span>
+                                <span>100% (ชัด)</span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 <div className="text-xs text-slate-500 bg-blue-50 p-2 rounded border border-blue-100 mb-4">
-                    💡 <b>Tip:</b> สามารถกด Ctrl+V เพื่อวางรูปภาพได้ทันที
+                    💡 <b>Tip:</b> กด Ctrl+V เพื่อวางรูปจาก Street View (บีบอัดอัตโนมัติ {imgSettings.maxDimension}px / {Math.round(imgSettings.quality * 100)}%)
                 </div>
             </div>
 
