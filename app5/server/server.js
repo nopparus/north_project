@@ -1,13 +1,34 @@
 const express = require('express');
 const cors = require('cors');
 const pool = require('./db');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Multer Configuration
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadDir = 'uploads';
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir);
+        }
+        cb(null, uploadDir);
+    },
+    filename: (req, file, cb) => {
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        cb(null, 'img-' + uniqueSuffix + path.extname(file.originalname));
+    }
+});
+const upload = multer({ storage: storage });
+
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+// Serve uploads statically
+app.use('/api/pms/uploads', express.static('uploads'));
 
 // ─── PROJECTS ────────────────────────────────────────────────────────────────
 
@@ -147,6 +168,59 @@ app.delete('/api/pms/locations/:id', async (req, res) => {
 });
 
 // ─── RECORDS ─────────────────────────────────────────────────────────────────
+
+app.get('/api/pms/nt-locations', async (req, res) => {
+    try {
+        const { rows } = await pool.query('SELECT * FROM nt_locations ORDER BY id ASC');
+        res.json(rows);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+// Upload Endpoint
+app.post('/api/pms/upload', upload.single('image'), (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+        // Return relative path
+        res.json({ url: `/api/pms/uploads/${req.file.filename}` });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Upload failed' });
+    }
+});
+
+app.put('/api/pms/nt-locations/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { type, locationname, province, servicecenter, latitude, longitude, image_url, site_exists } = req.body;
+
+        // Dynamic Update Query
+        // We only update fields that are provided in the body (COALESCE logic handled in query or by building dynamic query)
+        // Here we use COALESCE in SQL for simplicity
+        const { rows } = await pool.query(
+            `UPDATE nt_locations 
+             SET Type = COALESCE($1, Type),
+                 LocationName = COALESCE($2, LocationName),
+                 Province = COALESCE($3, Province),
+                 ServiceCenter = COALESCE($4, ServiceCenter),
+                 Latitude = COALESCE($5, Latitude),
+                 Longitude = COALESCE($6, Longitude),
+                 image_url = COALESCE($7, image_url),
+                 site_exists = $8
+             WHERE id = $9 RETURNING *`,
+            [type, locationname, province, servicecenter, latitude, longitude, image_url, site_exists, id]
+        );
+        if (rows.length === 0) return res.status(404).json({ error: 'Location not found' });
+        res.json(rows[0]);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
 
 app.get('/api/pms/records', async (req, res) => {
     try {

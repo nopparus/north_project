@@ -1,4 +1,4 @@
-import { Project, MaintenanceRecord, ScheduleItem, LocationInfo, WorkType } from '../types';
+import { Project, MaintenanceRecord, ScheduleItem, LocationInfo, WorkType, NTLocation } from '../types';
 
 const BASE = '/api/pms';
 
@@ -159,6 +159,67 @@ export const locationsApi = {
 
   delete: (id: string): Promise<{ success: boolean }> =>
     request('DELETE', `/locations/${id}`),
+
+  listNT: async (): Promise<NTLocation[]> => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = await request('GET', '/nt-locations');
+    return rows.map((r: any) => ({
+      id: r.id,
+      locationId: String(r.id), // DB has no location_id, using id
+      name: r.locationname || '',
+      lat: parseFloat(r.latitude || '0'),
+      lng: parseFloat(r.longitude || '0'),
+      serviceCenter: r.servicecenter || '',
+      province: r.province || '',
+      type: r.type || '',
+      image_url: r.image_url || '',
+      site_exists: r.site_exists,
+    }));
+  },
+
+  updateNT: async (id: number, type: string): Promise<void> => {
+    await request('PUT', `/nt-locations/${id}`, { type });
+  },
+
+  updateNTDetails: async (id: number, data: Partial<NTLocation>): Promise<NTLocation> => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: any = await request('PUT', `/nt-locations/${id}`, {
+      type: data.type,
+      locationname: data.name,
+      province: data.province,
+      servicecenter: data.serviceCenter,
+      latitude: data.lat,
+      longitude: data.lng,
+      image_url: data.image_url,
+      site_exists: data.site_exists,
+    });
+    return {
+      id: res.id,
+      locationId: String(res.id),
+      name: res.locationname,
+      lat: parseFloat(res.latitude),
+      lng: parseFloat(res.longitude),
+      serviceCenter: res.servicecenter,
+      province: res.province,
+      type: res.type,
+      image_url: res.image_url,
+      site_exists: res.site_exists,
+    };
+  },
+
+  uploadImage: async (file: File): Promise<string> => {
+    const formData = new FormData();
+    formData.append('image', file);
+
+    const res = await fetch(`${BASE}/upload`, {
+      method: 'POST',
+      body: formData
+    });
+
+    if (!res.ok) throw new Error('Upload failed');
+    const data = await res.json();
+    return data.url;
+  }
 };
 
 // ─── RECORDS ─────────────────────────────────────────────────────────────────
@@ -167,7 +228,7 @@ export const recordsApi = {
   list: async (filters?: { projectId?: string; workType?: WorkType }): Promise<MaintenanceRecord[]> => {
     const params = new URLSearchParams();
     if (filters?.projectId) params.set('projectId', filters.projectId);
-    if (filters?.workType)  params.set('workType', filters.workType);
+    if (filters?.workType) params.set('workType', filters.workType);
     const qs = params.toString();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows: any[] = await request('GET', `/records${qs ? `?${qs}` : ''}`);

@@ -10,6 +10,19 @@ export interface LocationInfo {
   numGenerators: number;
 }
 
+export interface NTLocation {
+  id: number;
+  locationId: string;
+  name: string;
+  lat: number;
+  lng: number;
+  type: string;
+  serviceCenter: string;
+  province: string;
+  image_url?: string;
+  site_exists?: boolean;
+}
+
 export interface Project {
   id: string;
   name: string;

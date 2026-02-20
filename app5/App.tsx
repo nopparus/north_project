@@ -4,6 +4,7 @@ import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import Schedule from './components/Schedule';
 import LocationManager from './components/LocationManager';
+import NTLocationMap from './components/NTLocationMap';
 import MaintenanceForm from './components/MaintenanceForm';
 import { MaintenanceRecord, EquipmentType, LocationInfo, ScheduleItem, Project, WorkType } from './types';
 import { NAVIGATION } from './constants';
@@ -34,16 +35,25 @@ const App: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [proj, rec, sch, loc] = await Promise.all([
+      const [proj, rec, sch, ntLocs] = await Promise.all([
         projectsApi.list(),
         recordsApi.list(),
         scheduleApi.list(),
-        locationsApi.list(),
+        locationsApi.listNT(),
       ]);
       setProjects(proj);
       setRecords(rec);
       setScheduleItems(sch);
-      setLocations(loc);
+
+      // Map NT Locations to LocationInfo for LocationManager
+      const mappedLocations: LocationInfo[] = ntLocs.map(nt => ({
+        id: String(nt.id),
+        siteName: nt.name,
+        province: nt.province,
+        numFacilities: 0, // Default
+        numGenerators: 0, // Default
+      }));
+      setLocations(mappedLocations);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'ไม่สามารถเชื่อมต่อ API ได้');
     } finally {
@@ -273,6 +283,8 @@ const App: React.FC = () => {
             }}
           />
         );
+      case 'nt-map':
+        return <NTLocationMap />;
       case 'history':
         return (
           <div className="p-4 md:p-8 text-white">
@@ -362,8 +374,10 @@ const App: React.FC = () => {
             </div>
           </div>
         </header>
-        <div className="flex-1 overflow-x-hidden">
-          <div className="container mx-auto pb-10">{renderContent()}</div>
+        <div className={`flex-1 overflow-x-hidden ${activeTab === 'nt-map' ? 'overflow-y-hidden' : ''}`}>
+          <div className={activeTab === 'nt-map' ? 'h-full w-full' : 'container mx-auto pb-10'}>
+            {renderContent()}
+          </div>
         </div>
       </main>
 
