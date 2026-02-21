@@ -1716,6 +1716,7 @@ export default function App() {
             <tr className="bg-slate-100">
               <th rowSpan={2} className="border border-black p-1 text-center">ลำดับ</th>
               <th rowSpan={2} className="border border-black p-1 text-center">สถานที่</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">รูปแบบผลัด<br />/ โปรไฟล์</th>
               <th rowSpan={2} className="border border-black p-1 text-center">ค่าแรง<br />ขั้นต่ำ</th>
               <th rowSpan={2} className="border border-black p-1 text-center">ปฏิบัติงาน<br />ปกติ (8 ชม.)</th>
               <th rowSpan={2} className="border border-black p-1 text-center">จำนวน<br />สถานที่<br />(จุด รปภ.)</th>
@@ -1740,6 +1741,7 @@ export default function App() {
                 <tr key={row.id}>
                   <td className="border border-black p-1 text-center">{index + 1}</td>
                   <td className="border border-black p-1">{row.location} {row.province !== 'กรุงเทพมหานคร' && `(${row.province})`}</td>
+                  <td className="border border-black p-1 text-center">{profile.name}</td>
                   <td className="border border-black p-1 text-center">{row.minWage.toLocaleString(undefined, { minimumFractionDigits: 0 })}</td>
                   <td className="border border-black p-1 text-center">{dailyRatePerPerson.toLocaleString(undefined, { minimumFractionDigits: 0 })}</td>
                   <td className="border border-black p-1 text-center">{row.points}</td>
@@ -1753,7 +1755,7 @@ export default function App() {
               );
             })}
             <tr className="bg-slate-50 font-bold">
-              <td colSpan={4} className="border border-black p-1 text-center">รวม</td>
+              <td colSpan={5} className="border border-black p-1 text-center">รวม</td>
               <td className="border border-black p-1 text-center">
                 {rows.reduce((acc, r) => acc + r.points, 0)}
               </td>

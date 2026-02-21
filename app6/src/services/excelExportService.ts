@@ -21,6 +21,7 @@ export const exportBudgetToExcel = async (data: ExportData) => {
     worksheet.columns = [
         { width: 5 },  // No.
         { width: 30 }, // Location
+        { width: 20 }, // Profile
         { width: 12 }, // Min Wage
         { width: 15 }, // Daily Rate
         { width: 12 }, // Points
@@ -35,7 +36,7 @@ export const exportBudgetToExcel = async (data: ExportData) => {
     // Title
     const titleRow = worksheet.addRow(['รายงานสรุปงบประมาณค่าจ้างรักษาความปลอดภัย']);
     titleRow.font = { size: 16, bold: true };
-    worksheet.mergeCells(`A${titleRow.number}:K${titleRow.number}`);
+    worksheet.mergeCells(`A${titleRow.number}:L${titleRow.number}`);
     titleRow.alignment = { horizontal: 'center' };
 
     // Period
@@ -44,7 +45,7 @@ export const exportBudgetToExcel = async (data: ExportData) => {
     const periodText = `ประจำช่วงเวลา ${format(startD, 'MMMM yyyy')} ถึง ${format(endD, 'MMMM yyyy')}`;
     const periodRow = worksheet.addRow([periodText]);
     periodRow.font = { size: 12 };
-    worksheet.mergeCells(`A${periodRow.number}:K${periodRow.number}`);
+    worksheet.mergeCells(`A${periodRow.number}:L${periodRow.number}`);
     periodRow.alignment = { horizontal: 'center' };
 
     worksheet.addRow([]); // Empty row
@@ -53,6 +54,7 @@ export const exportBudgetToExcel = async (data: ExportData) => {
     const headerRow = worksheet.addRow([
         'ลำดับ',
         'สถานที่',
+        'รูปแบบผลัด / โปรไฟล์',
         'ค่าแรงขั้นต่ำ',
         'ปฏิบัติงานปกติ (8 ชม.)',
         'จำนวนสถานที่ (จุด รปภ.)',
@@ -94,6 +96,7 @@ export const exportBudgetToExcel = async (data: ExportData) => {
         const dataRow = worksheet.addRow([
             index + 1,
             `${row.location}${row.province !== 'กรุงเทพมหานคร' ? ` (${row.province})` : ''}`,
+            profile.name,
             row.minWage,
             dailyRatePerPerson,
             row.points,
@@ -114,9 +117,9 @@ export const exportBudgetToExcel = async (data: ExportData) => {
             };
 
             // Number formatting
-            if (colNumber >= 3) {
-                cell.numFmt = colNumber >= 8 ? '#,##0.00' : '#,##0';
-                cell.alignment = { horizontal: colNumber >= 8 ? 'right' : 'center' };
+            if (colNumber >= 4) {
+                cell.numFmt = colNumber >= 9 ? '#,##0.00' : '#,##0';
+                cell.alignment = { horizontal: colNumber >= 9 ? 'right' : 'center' };
             } else {
                 cell.alignment = { horizontal: colNumber === 1 ? 'center' : 'left' };
             }
@@ -140,6 +143,7 @@ export const exportBudgetToExcel = async (data: ExportData) => {
         '',
         '',
         '',
+        '',
         totalPoints,
         totalPeople,
         totalShiftsCombined,
@@ -149,7 +153,7 @@ export const exportBudgetToExcel = async (data: ExportData) => {
         totalGrand
     ]);
 
-    worksheet.mergeCells(`A${footerRow.number}:D${footerRow.number}`);
+    worksheet.mergeCells(`A${footerRow.number}:E${footerRow.number}`);
     footerRow.eachCell((cell, colNumber) => {
         cell.font = { bold: true };
         cell.fill = {
@@ -164,9 +168,9 @@ export const exportBudgetToExcel = async (data: ExportData) => {
             right: { style: 'thin' }
         };
 
-        if (colNumber >= 5) {
-            cell.numFmt = colNumber >= 8 ? '#,##0.00' : '#,##0';
-            cell.alignment = { horizontal: colNumber >= 8 ? 'right' : 'center' };
+        if (colNumber >= 6) {
+            cell.numFmt = colNumber >= 9 ? '#,##0.00' : '#,##0';
+            cell.alignment = { horizontal: colNumber >= 9 ? 'right' : 'center' };
         } else {
             cell.alignment = { horizontal: 'center' };
         }
@@ -178,15 +182,15 @@ export const exportBudgetToExcel = async (data: ExportData) => {
     const vat = totalGrand * 0.07;
     const netTotal = totalGrand * 1.07;
 
-    const vatRow = worksheet.addRow(['', '', '', '', '', '', '', '', '', 'ภาษีมูลค่าเพิ่ม 7%', vat]);
-    vatRow.getCell(10).font = { bold: true };
-    vatRow.getCell(11).numFmt = '#,##0.00';
-    vatRow.getCell(11).border = { bottom: { style: 'thin' } };
+    const vatRow = worksheet.addRow(['', '', '', '', '', '', '', '', '', '', 'ภาษีมูลค่าเพิ่ม 7%', vat]);
+    vatRow.getCell(11).font = { bold: true };
+    vatRow.getCell(12).numFmt = '#,##0.00';
+    vatRow.getCell(12).border = { bottom: { style: 'thin' } };
 
-    const netTotalRow = worksheet.addRow(['', '', '', '', '', '', '', '', '', 'วงเงินเสนอราคารวมภาษีมูลค่าเพิ่ม', netTotal]);
-    netTotalRow.getCell(10).font = { bold: true };
+    const netTotalRow = worksheet.addRow(['', '', '', '', '', '', '', '', '', '', 'วงเงินเสนอราคารวมภาษีมูลค่าเพิ่ม', netTotal]);
     netTotalRow.getCell(11).font = { bold: true };
-    netTotalRow.getCell(11).numFmt = '#,##0.00';
+    netTotalRow.getCell(12).font = { bold: true };
+    netTotalRow.getCell(12).numFmt = '#,##0.00';
     netTotalRow.alignment = { horizontal: 'right' };
 
     // Generate and save

@@ -86,18 +86,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [apps, setApps] = useState<SubApp[]>(() => {
     const saved = localStorage.getItem('nexus_registered_apps');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      const restored: SubApp[] = parsed.map((app: any) => {
-        const original = DEFAULT_APPS.find(d => d.id === app.id);
-        if (original) {
-          return { ...app, ...original, component: original.component };
-        }
-        return { ...app, component: IframeApp };
-      });
-      // Merge: add any new DEFAULT_APPS not yet in saved list
-      const savedIds = new Set(restored.map(a => a.id));
-      const newDefaults = DEFAULT_APPS.filter(d => !savedIds.has(d.id));
-      return [...restored, ...newDefaults];
+      try {
+        const parsed = JSON.parse(saved);
+        // We want default apps to always be present and in their intended order.
+        // If a user has "custom added" apps later (via addApp), we preserve them.
+
+        const defaultAppIds = DEFAULT_APPS.map(a => a.id);
+
+        // 1. Keep defaults updated from DEFAULT_APPS (updates icons/names from code changes)
+        // 2. Filter out any saved custom apps that might have same ID as default (prioritize codebase rules)
+        const customApps = parsed.filter((app: any) => !defaultAppIds.includes(app.id)).map((app: any) => ({
+          ...app,
+          component: IframeApp
+        }));
+
+        // The overall list should be DEFAULT_APPS + any custom apps they added dynamically.
+        return [...DEFAULT_APPS, ...customApps];
+      } catch (e) {
+        console.error("Failed to parse cached apps, falling back to defaults", e);
+      }
     }
     return DEFAULT_APPS;
   });
