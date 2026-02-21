@@ -44,11 +44,57 @@ export interface MonthStats {
   holidayDates: string[];
 }
 
+export const getEffectiveHolidays = (inputHolidays: ThaiHoliday[]): ThaiHoliday[] => {
+  // Sort holidays to process chronologically
+  const sorted = [...inputHolidays].sort((a, b) => a.date.localeCompare(b.date));
+  const effective: ThaiHoliday[] = [...sorted];
+  const holidayDatesSet = new Set(effective.map(h => h.date));
+
+  sorted.forEach(holiday => {
+    const d = new Date(holiday.date);
+    const dayOfWeek = d.getDay(); // 0 = Sun, 6 = Sat
+
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      // Find the next available workday (Mon-Fri) that isn't already a holiday
+      let substituteDate = new Date(d);
+      substituteDate.setDate(substituteDate.getDate() + (dayOfWeek === 6 ? 2 : 1)); // start checking from Monday
+
+      while (true) {
+        const subDayOfWeek = substituteDate.getDay();
+        const subDateStr = format(substituteDate, 'yyyy-MM-dd');
+
+        // Next available must be Mon-Fri AND not already a holiday
+        if (subDayOfWeek >= 1 && subDayOfWeek <= 5 && !holidayDatesSet.has(subDateStr)) {
+          effective.push({
+            date: subDateStr,
+            name: `ชดเชย${holiday.name}`
+          });
+          holidayDatesSet.add(subDateStr);
+          break;
+        }
+
+        // Move to next day if occupied
+        substituteDate.setDate(substituteDate.getDate() + 1);
+      }
+    }
+  });
+
+  return effective.sort((a, b) => a.date.localeCompare(b.date));
+};
+
 export const getMonthStats = (month: number, year: number, customHolidays?: ThaiHoliday[]): MonthStats => {
   const start = startOfMonth(new Date(year, month));
   const end = endOfMonth(start);
   const days = eachDayOfInterval({ start, end });
-  const thaiHolidays = customHolidays || DEFAULT_THAI_HOLIDAYS(year);
+
+  // Need to fetch holidays for the previous and next year to handle substitution correctly over year boundaries
+  const allHolidays = customHolidays || [
+    ...DEFAULT_THAI_HOLIDAYS(year - 1),
+    ...DEFAULT_THAI_HOLIDAYS(year),
+    ...DEFAULT_THAI_HOLIDAYS(year + 1)
+  ];
+
+  const effectiveHolidays = getEffectiveHolidays(allHolidays);
 
   let totalHolidays = 0;
   let holidaysOnWorkDays = 0;
@@ -60,7 +106,7 @@ export const getMonthStats = (month: number, year: number, customHolidays?: Thai
 
   days.forEach(day => {
     const dateStr = format(day, 'yyyy-MM-dd');
-    const holiday = thaiHolidays.find(h => h.date === dateStr);
+    const holiday = effectiveHolidays.find(h => h.date === dateStr);
     const dayOfWeek = day.getDay();
     dayOfWeekCounts[dayOfWeek]++;
 
@@ -121,7 +167,12 @@ export interface ShiftProfile {
   name: string;
   normalHours: number;
   otHours: number;
-  shiftsPerPoint: number;
+  holidayNormalHours: number;
+  holidayOtHours: number;
+  shiftsPerPointNormal: number;
+  shiftsPerPointHoliday: number;
+  // Backward compatibility: might still receive shiftsPerPoint from old localStorage
+  shiftsPerPoint?: number;
 }
 
 export const SHIFT_PROFILES: ShiftProfile[] = [
@@ -130,27 +181,39 @@ export const SHIFT_PROFILES: ShiftProfile[] = [
     name: 'ทำงานทุกวัน 24 ชั่วโมง ผลัดละ 8 ชั่วโมง (ไม่มี OT) 3 ผลัด เริ่ม 07.00 น.',
     normalHours: 8,
     otHours: 0,
-    shiftsPerPoint: 3,
+    holidayNormalHours: 8,
+    holidayOtHours: 0,
+    shiftsPerPointNormal: 3,
+    shiftsPerPointHoliday: 3,
   },
   {
     id: 'p2',
     name: 'ทำงานกลางคืน 8 ชั่วโมง (ไม่มี OT) 1 ผลัด เริ่ม 19.00 น.',
     normalHours: 8,
     otHours: 0,
-    shiftsPerPoint: 1,
+    holidayNormalHours: 8,
+    holidayOtHours: 0,
+    shiftsPerPointNormal: 1,
+    shiftsPerPointHoliday: 1,
   },
   {
     id: 'p3',
     name: 'ทำงานกลางคืน 12 ชั่วโมง (ไม่มี OT) 2 ผลัด เริ่ม 18.00 น.',
     normalHours: 12,
     otHours: 0,
-    shiftsPerPoint: 2,
+    holidayNormalHours: 12,
+    holidayOtHours: 0,
+    shiftsPerPointNormal: 2,
+    shiftsPerPointHoliday: 2,
   },
   {
     id: 'p4',
     name: 'ทำงานกลางคืน 12 ชั่วโมง (มี OT 4 ชม.) 1 ผลัด เริ่ม 18.00 น.',
     normalHours: 8,
     otHours: 4,
-    shiftsPerPoint: 1,
+    holidayNormalHours: 8,
+    holidayOtHours: 4,
+    shiftsPerPointNormal: 1,
+    shiftsPerPointHoliday: 1,
   }
 ];

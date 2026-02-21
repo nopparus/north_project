@@ -17,9 +17,9 @@ function getDB() {
 }
 
 const SEED_APPS = [
-  { id: 'rd-processor',  name: 'RD Smart Processor',  description: 'เครื่องมือจัดการข้อมูลมิเตอร์อัจฉริยะ RD03/RD05', icon: 'Data',    color: 'text-cyan-400',    path: '/app1',  app_type: 'iframe',   iframe_src: '/app1/', display_order: 0 },
-  { id: 'ems-transform', name: 'EMS แปลงค่าไฟฟ้า',   description: 'แปลงข้อมูลค่าไฟฟ้าจาก Excel เป็น CSV', icon: 'Cloud',  color: 'text-yellow-400',  path: '/app2', app_type: 'iframe',   iframe_src: '/app2/', display_order: 1 },
-  { id: 'file-merger',   name: 'Excel & CSV Merger',  description: 'รวม Excel/CSV หลายไฟล์เข้าเป็นหนึ่ง',                                 icon: 'Stack',   color: 'text-orange-400',  path: '/app3',   app_type: 'iframe',   iframe_src: '/app3/', display_order: 2 },
+  { id: 'rd-processor', name: 'RD Smart Processor', description: 'เครื่องมือจัดการข้อมูลมิเตอร์อัจฉริยะ RD03/RD05', icon: 'Data', color: 'text-cyan-400', path: '/app1', app_type: 'iframe', iframe_src: '/app1/', display_order: 0 },
+  { id: 'ems-transform', name: 'EMS แปลงค่าไฟฟ้า', description: 'แปลงข้อมูลค่าไฟฟ้าจาก Excel เป็น CSV', icon: 'Cloud', color: 'text-yellow-400', path: '/app2', app_type: 'iframe', iframe_src: '/app2/', display_order: 1 },
+  { id: 'file-merger', name: 'Excel & CSV Merger', description: 'รวม Excel/CSV หลายไฟล์เข้าเป็นหนึ่ง', icon: 'Stack', color: 'text-orange-400', path: '/app3', app_type: 'iframe', iframe_src: '/app3/', display_order: 2 },
 ];
 
 function initDB() {
@@ -93,6 +93,18 @@ function initDB() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (project_id) REFERENCES pms_projects(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS app6_shift_profiles (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      normalHours INTEGER DEFAULT 8,
+      otHours INTEGER DEFAULT 0,
+      holidayNormalHours INTEGER DEFAULT 8,
+      holidayOtHours INTEGER DEFAULT 0,
+      shiftsPerPointNormal INTEGER DEFAULT 1,
+      shiftsPerPointHoliday INTEGER DEFAULT 1,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Seed admin user if not exists
@@ -150,9 +162,9 @@ function initDB() {
   const pmsLocCount = db.prepare('SELECT COUNT(*) as count FROM pms_locations').get();
   if (pmsLocCount.count === 0) {
     const seedLocations = [
-      { id: 'loc-1', province: 'เชียงใหม่', site_name: 'ศูนย์เชียงใหม่ 1',    num_facilities: 54, num_generators: 50 },
-      { id: 'loc-2', province: 'เชียงราย',  site_name: 'ศูนย์เชียงราย 1',     num_facilities: 14, num_generators: 14 },
-      { id: 'loc-3', province: 'ลำปาง',     site_name: 'ศูนย์ลำปาง 1',        num_facilities: 22, num_generators: 18 },
+      { id: 'loc-1', province: 'เชียงใหม่', site_name: 'ศูนย์เชียงใหม่ 1', num_facilities: 54, num_generators: 50 },
+      { id: 'loc-2', province: 'เชียงราย', site_name: 'ศูนย์เชียงราย 1', num_facilities: 14, num_generators: 14 },
+      { id: 'loc-3', province: 'ลำปาง', site_name: 'ศูนย์ลำปาง 1', num_facilities: 22, num_generators: 18 },
     ];
     const lStmt = db.prepare('INSERT INTO pms_locations (id, province, site_name, num_facilities, num_generators) VALUES (?, ?, ?, ?, ?)');
     for (const l of seedLocations) lStmt.run(l.id, l.province, l.site_name, l.num_facilities, l.num_generators);
@@ -195,8 +207,8 @@ function initDB() {
   const pmsSchCount = db.prepare('SELECT COUNT(*) as count FROM pms_schedule_items').get();
   if (pmsSchCount.count === 0) {
     const seedSchedule = [
-      { id: 'sch-1', project_id: 'proj-pm-1', equipment_type: 'AC',        start_month: 3, duration: 2, label: 'PM เครื่องปรับอากาศ (ล้างคอยล์)' },
-      { id: 'sch-2', project_id: 'proj-pm-1', equipment_type: 'Battery',   start_month: 5, duration: 2, label: 'PM แบตเตอรี่ (Capacity Test)' },
+      { id: 'sch-1', project_id: 'proj-pm-1', equipment_type: 'AC', start_month: 3, duration: 2, label: 'PM เครื่องปรับอากาศ (ล้างคอยล์)' },
+      { id: 'sch-2', project_id: 'proj-pm-1', equipment_type: 'Battery', start_month: 5, duration: 2, label: 'PM แบตเตอรี่ (Capacity Test)' },
       { id: 'sch-3', project_id: 'proj-pm-1', equipment_type: 'Generator', start_month: 8, duration: 3, label: 'PM เครื่องกำเนิดไฟฟ้า (Annual Service)' },
     ];
     const sStmt = db.prepare('INSERT INTO pms_schedule_items (id, project_id, equipment_type, start_month, duration, label) VALUES (?, ?, ?, ?, ?, ?)');

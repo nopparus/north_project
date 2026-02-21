@@ -27,8 +27,12 @@ import { format, addMonths, startOfMonth, parse, endOfMonth, eachDayOfInterval }
 import { motion, AnimatePresence } from 'motion/react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { getMonthStats, PROVINCES, MonthStats, DEFAULT_THAI_HOLIDAYS, ThaiHoliday, REGIONS, PROVINCE_REGIONS, SHIFT_PROFILES, ShiftProfile } from './constants';
+import { getMonthStats, PROVINCES, MonthStats, DEFAULT_THAI_HOLIDAYS, ThaiHoliday, REGIONS, PROVINCE_REGIONS, SHIFT_PROFILES, ShiftProfile, getEffectiveHolidays } from './constants';
 import { getMinimumWage } from './services/geminiService';
+import { exportBudgetToExcel } from './services/excelExportService';
+import { profileService } from './services/profileService';
+import { authService } from './services/authService';
+import { FileSpreadsheet, Lock, LogOut, User } from 'lucide-react';
 
 function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -46,7 +50,7 @@ interface CalculationRow {
 
 export default function App() {
   // --- State ---
-  const [activeTab, setActiveTab] = useState<'budget' | 'holidays' | 'wages'>('budget');
+  const [activeTab, setActiveTab] = useState<'budget' | 'holidays' | 'wages' | 'settings'>('budget');
   const [startDate, setStartDate] = useState(format(new Date(), 'yyyy-MM'));
   const [endDate, setEndDate] = useState(format(addMonths(new Date(), 1), 'yyyy-MM'));
   const [customHolidays, setCustomHolidays] = useState<ThaiHoliday[]>([]);
@@ -58,6 +62,22 @@ export default function App() {
   const [csvExportModal, setCsvExportModal] = useState<{ isOpen: boolean; filename: string } | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [profiles, setProfiles] = useState<ShiftProfile[]>(SHIFT_PROFILES);
+  const [isAuthenticated, setIsAuthenticated] = useState(authService.isAuthenticated());
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginForm, setLoginForm] = useState({ username: '', password: '' });
+  const [loginError, setLoginError] = useState('');
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onResolve: (value: boolean) => void;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onResolve: () => { }
+  });
 
   const [rows, setRows] = useState<CalculationRow[]>([
     {
@@ -74,7 +94,7 @@ export default function App() {
   const [settings, setSettings] = useState({
     socialSecurityRate: 5,
     managementFeeRate: 20,
-    otNormalRate: 1.5,
+    otNormalRate: 1.25,
     otHolidayRate: 3.0,
     holidayPayRate: 1.0,
   });
@@ -111,13 +131,47 @@ export default function App() {
         }
         if (data.activeTab) setActiveTab(data.activeTab);
         if (data.isDarkMode !== undefined) setIsDarkMode(data.isDarkMode);
-        if (data.profiles) setProfiles(data.profiles);
+        if (data.profiles) {
+          const mapped = data.profiles.map((p: any) => ({
+            ...p,
+            shiftsPerPointNormal: p.shiftsPerPointNormal ?? p.shiftsPerPoint ?? 1,
+            shiftsPerPointHoliday: p.shiftsPerPointHoliday ?? p.shiftsPerPoint ?? 1,
+            holidayNormalHours: p.holidayNormalHours ?? p.normalHours ?? 8,
+            holidayOtHours: p.holidayOtHours ?? p.otHours ?? 0
+          }));
+          setProfiles(mapped);
+        }
       } catch (e) {
         console.error("Failed to load saved config", e);
       }
     }
     setIsLoaded(true);
   }, []);
+
+  useEffect(() => {
+    const loadProfiles = async () => {
+      try {
+        const serverProfiles = await profileService.getAll();
+
+        // Initial Sync Logic:
+        // If server is empty, migrate profiles from current state (which might be from localStorage or SHIFT_PROFILES)
+        if (serverProfiles.length === 0 && profiles.length > 0) {
+          await profileService.sync(profiles);
+          // Fetch again after sync to ensure IDs match etc (though they should)
+          const synced = await profileService.getAll();
+          setProfiles(synced);
+        } else if (serverProfiles.length > 0) {
+          setProfiles(serverProfiles);
+        }
+      } catch (error) {
+        console.error("Failed to load profiles from server", error);
+      }
+    };
+
+    if (isLoaded) {
+      loadProfiles();
+    }
+  }, [isLoaded]);
 
   useEffect(() => {
     if (isLoaded) {
@@ -129,12 +183,12 @@ export default function App() {
         customHolidays,
         wages: Object.fromEntries(Object.entries(wages).filter(([key]) => PROVINCES.includes(key))),
         activeTab,
-        isDarkMode,
-        profiles
+        isDarkMode
+        // profiles: removed from persistence as it is now server-side
       };
       localStorage.setItem('security_budget_config', JSON.stringify(config));
     }
-  }, [startDate, endDate, settings, rows, customHolidays, wages, activeTab, isDarkMode, profiles, isLoaded]);
+  }, [startDate, endDate, settings, rows, customHolidays, wages, activeTab, isDarkMode, isLoaded]);
 
   useEffect(() => {
     if (isDarkMode) {
@@ -160,8 +214,8 @@ export default function App() {
       customHolidays,
       wages: Object.fromEntries(Object.entries(wages).filter(([key]) => PROVINCES.includes(key))),
       activeTab,
-      isDarkMode,
-      profiles
+      isDarkMode
+      // profiles: removed from JSON export
     };
     const json = JSON.stringify(config, null, 2);
     localStorage.setItem('security_budget_config', json);
@@ -208,7 +262,6 @@ export default function App() {
       if (data.rows) setRows(data.rows);
       if (data.customHolidays) setCustomHolidays(data.customHolidays);
       if (data.wages) setWages(data.wages);
-      if (data.profiles) setProfiles(data.profiles);
     } else {
       // Merge logic
       if (data.rows) {
@@ -350,7 +403,14 @@ export default function App() {
 
   const removeRow = (id: string) => {
     if (rows.length > 1) {
-      setRows(rows.filter(r => r.id !== id));
+      confirmAction({
+        title: 'ยืนยันการลบแถว',
+        message: 'คุณต้องการลบรายการแถวงบประมาณนี้ใช่หรือไม่?'
+      }).then(confirmed => {
+        if (confirmed) {
+          setRows(rows.filter(r => r.id !== id));
+        }
+      });
     }
   };
 
@@ -359,33 +419,77 @@ export default function App() {
   };
 
   const updateProvinceWage = (province: string, wage: number) => {
+    if (!isAuthenticated) return;
     setWages(prev => ({ ...prev, [province]: wage }));
   };
 
-  const addProfile = () => {
+  const addProfile = async () => {
+    if (!isAuthenticated) {
+      setShowLoginModal(true);
+      return;
+    }
+
     const newId = `p${Date.now()}`;
-    setProfiles([...profiles, {
+    const newProfile: ShiftProfile = {
       id: newId,
       name: 'โปรไฟล์ใหม่',
       normalHours: 8,
       otHours: 0,
-      shiftsPerPoint: 1
-    }]);
+      holidayNormalHours: 8,
+      holidayOtHours: 0,
+      shiftsPerPointNormal: 1,
+      shiftsPerPointHoliday: 1
+    };
+
+    try {
+      await profileService.save(newProfile);
+      setProfiles([...profiles, newProfile]);
+    } catch (error) {
+      alert('ไม่สามารถเพิ่มโปรไฟล์ได้');
+    }
   };
 
-  const updateProfile = (id: string, updates: Partial<ShiftProfile>) => {
-    setProfiles(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+  const updateProfile = async (id: string, updates: Partial<ShiftProfile>) => {
+    if (!isAuthenticated) return;
+    const profile = profiles.find(p => p.id === id);
+    if (!profile) return;
+
+    const updated = { ...profile, ...updates };
+    try {
+      await profileService.save(updated);
+      setProfiles(prev => prev.map(p => p.id === id ? updated : p));
+    } catch (error) {
+      console.error("Failed to update profile", error);
+    }
   };
 
-  const removeProfile = (id: string) => {
-    if (profiles.length <= 1) {
-      alert('ต้องมีรูปแบบกะอย่างน้อย 1 รายการ');
+  const removeProfile = async (id: string) => {
+    if (!isAuthenticated) {
+      setShowLoginModal(true);
       return;
     }
-    // Also re-assign rows using this profile to the first available one
-    const remainingProfiles = profiles.filter(p => p.id !== id);
-    setProfiles(remainingProfiles);
-    setRows(prev => prev.map(r => r.selectedProfileId === id ? { ...r, selectedProfileId: remainingProfiles[0].id } : r));
+
+    if (profiles.length <= 1) {
+      alert('ต้องมีรูปแบบผลัดอย่างน้อย 1 รายการ');
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'ยืนยันการลบรูปแบบผลัด',
+      message: 'การลบรูปแบบผลัดอาจส่งผลต่อการคำนวณในแถวที่เลือกใช้โปรไฟล์นี้ คุณยืนยันที่จะลบหรือไม่?'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      await profileService.delete(id);
+      const remainingProfiles = profiles.filter(p => p.id !== id);
+      setProfiles(remainingProfiles);
+      // Re-assign rows using this profile to the first available one
+      setRows(prev => prev.map(r => r.selectedProfileId === id ? { ...r, selectedProfileId: remainingProfiles[0].id } : r));
+    } catch (error) {
+      alert('ไม่สามารถลบโปรไฟล์ได้');
+    }
   };
 
   const exportWagesCSV = () => {
@@ -411,6 +515,10 @@ export default function App() {
   };
 
   const importWagesCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isAuthenticated) {
+      setShowLoginModal(true);
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -441,10 +549,22 @@ export default function App() {
     e.target.value = '';
   };
 
-  const toggleHoliday = (date: string) => {
+  const toggleHoliday = async (date: string) => {
+    if (!isAuthenticated) {
+      setShowLoginModal(true);
+      return;
+    }
+
     const exists = customHolidays.find(h => h.date === date);
     if (exists) {
-      setCustomHolidays(prev => prev.filter(h => h.date !== date));
+      const confirmed = await confirmAction({
+        title: 'ยืนยันการลบวันหยุด',
+        message: `คุณต้องการลบวันหยุด "${exists.name}" ใช่หรือไม่?`
+      });
+
+      if (confirmed) {
+        setCustomHolidays(prev => prev.filter(h => h.date !== date));
+      }
     } else {
       // Check if it's a standard holiday to suggest name
       const year = new Date(date).getFullYear();
@@ -464,8 +584,18 @@ export default function App() {
     }
   };
 
-  const resetHolidays = () => {
-    if (confirm('คุณต้องการรีเซ็ตวันหยุดกลับเป็นค่าเริ่มต้นใช่หรือไม่? (การเปลี่ยนแปลงที่คุณทำจะหายไป)')) {
+  const resetHolidays = async () => {
+    if (!isAuthenticated) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    const confirmed = await confirmAction({
+      title: 'รีเซ็ตวันหยุด',
+      message: 'คุณต้องการรีเซ็ตวันหยุดกลับเป็นค่าเริ่มต้นใช่หรือไม่? (การเปลี่ยนแปลงที่คุณทำจะหายไป)'
+    });
+
+    if (confirmed) {
       const startYear = parse(startDate, 'yyyy-MM', new Date()).getFullYear();
       const endYear = parse(endDate, 'yyyy-MM', new Date()).getFullYear();
 
@@ -491,30 +621,47 @@ export default function App() {
     const normalHours = profile.normalHours;
     const otHours = profile.otHours;
 
-    // 1. Normal Day Pay
+    // RULE 1: Total Period Calculation (No more averages)
+    const netWorkDaysPeriod = periodStats.netWorkDays;
+    const netHolidayDaysPeriod = periodStats.netHolidayDays;
+
+    // RULE 2: Normal Day Pay (Always calculates regular hours + OT if specified)
     const normalDayWage = (normalHours * hourlyRate) + (otHours * hourlyRate * settings.otNormalRate);
-    const totalNormalPay = normalDayWage * periodStats.avgWorkDays;
+    const totalNormalPay = normalDayWage * netWorkDaysPeriod * profile.shiftsPerPointNormal;
 
-    // 2. Holiday Pay
-    // Holiday Work (Normal 8h) = 2x (1x regular + 1x extra)
-    // Holiday OT = 2.5x
-    const holidayWage = (normalHours * hourlyRate * 2) + (otHours * hourlyRate * settings.otHolidayRate);
-    const totalHolidayPay = holidayWage * periodStats.avgHolidays;
+    // RULE 3: Holiday Pay Logic based on Profile specifics
+    let holidayWage = 0;
+    const hNormalHours = profile.holidayNormalHours ?? profile.normalHours;
+    const hOtHours = profile.holidayOtHours ?? profile.otHours;
 
-    // 3. Total per person per month (1)
+    if (profile.shiftsPerPointHoliday > 0) {
+      if (hOtHours > 0) {
+        // Condition A: If they work on holidays AND have OT -> Double pay logic applies
+        holidayWage = (hNormalHours * hourlyRate * 2) + (hOtHours * hourlyRate * settings.otHolidayRate);
+      } else {
+        // Condition B: If they work on holidays but NO OT is specified in profile -> Flat rate
+        holidayWage = (hNormalHours * hourlyRate);
+      }
+    } else {
+      // Condition C: If nobody works on holidays, wage is 0
+      holidayWage = 0;
+    }
+
+    const totalHolidayPay = holidayWage * netHolidayDaysPeriod * profile.shiftsPerPointHoliday;
+
+    // 4. Total Period Base (for 1 point covering full 21 months)
     const baseTotal = totalNormalPay + totalHolidayPay;
 
-    // 4. Social Security (2) - Max cap usually 750 THB, but let's use the % for budget
+    // 5. Social Security (per person limit logic is ignored for flat 5% calculation as requested in spreadsheet)
     const socialSecurity = (baseTotal * settings.socialSecurityRate) / 100;
 
-    // 5. Management Fee & Profit (3)
+    // 6. Management Fee & Profit
     const managementFee = (baseTotal * settings.managementFeeRate) / 100;
 
-    // 6. Total per point per month (for all shifts) (4)
-    const totalPerPerson = baseTotal + socialSecurity + managementFee;
-    const totalPerPoint = totalPerPerson * profile.shiftsPerPoint;
+    // 7. Total per point (Period length)
+    const totalPerPoint = baseTotal + socialSecurity + managementFee;
 
-    // 7. Grand Total (4) x (5)
+    // 8. Grand Total (Total per point x Number of points)
     const grandTotal = totalPerPoint * row.points;
 
     return {
@@ -525,8 +672,48 @@ export default function App() {
       socialSecurity,
       managementFee,
       totalPerPoint,
-      grandTotal
+      grandTotal,
+      // Metadata for Print Report
+      totalShiftsNormal: netWorkDaysPeriod * profile.shiftsPerPointNormal,
+      totalShiftsHoliday: netHolidayDaysPeriod * profile.shiftsPerPointHoliday,
+      totalShiftsCombined: (netWorkDaysPeriod * profile.shiftsPerPointNormal) + (netHolidayDaysPeriod * profile.shiftsPerPointHoliday)
     };
+  };
+
+  const handleLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoginError('');
+    setIsLoggingIn(true);
+    try {
+      const success = await authService.login(loginForm.username, loginForm.password);
+      if (success) {
+        setIsAuthenticated(true);
+        setShowLoginModal(false);
+        setLoginForm({ username: '', password: '' });
+      } else {
+        setLoginError('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
+      }
+    } catch (err) {
+      setLoginError('เกิดข้อผิดพลาดในการเชื่อมต่อ');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    authService.logout();
+    setIsAuthenticated(false);
+  };
+
+  const confirmAction = ({ title, message }: { title: string; message: string }): Promise<boolean> => {
+    return new Promise((resolve) => {
+      setConfirmModal({
+        isOpen: true,
+        title,
+        message,
+        onResolve: resolve
+      });
+    });
   };
 
   return (
@@ -572,6 +759,15 @@ export default function App() {
             >
               ค่าแรงขั้นต่ำ
             </button>
+            <button
+              onClick={() => setActiveTab('settings')}
+              className={cn(
+                "px-4 py-2 text-sm font-bold rounded-lg transition-all",
+                activeTab === 'settings' ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700"
+              )}
+            >
+              การตั้งค่า
+            </button>
           </div>
 
           <div className="flex items-center gap-2 sm:gap-4">
@@ -581,29 +777,6 @@ export default function App() {
               title={isDarkMode ? "เปลี่ยนเป็นโหมดสว่าง" : "เปลี่ยนเป็นโหมดมืด"}
             >
               {isDarkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-            </button>
-            <div className="relative">
-              <input
-                type="file"
-                id="import-file"
-                className="hidden"
-                accept=".json"
-                onChange={handleImportFile}
-              />
-              <label
-                htmlFor="import-file"
-                className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm cursor-pointer"
-              >
-                <Upload className="w-4 h-4" />
-                นำเข้าข้อมูล
-              </label>
-            </div>
-            <button
-              onClick={saveToLocalStorage}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-emerald-600 dark:bg-emerald-500 rounded-lg hover:bg-emerald-700 dark:hover:bg-emerald-600 transition-all shadow-md shadow-emerald-100 dark:shadow-none"
-            >
-              <Shield className="w-4 h-4" />
-              บันทึก/ส่งออก
             </button>
             <button
               onClick={() => {
@@ -615,6 +788,13 @@ export default function App() {
               <Printer className="w-4 h-4" />
               ส่งออกเป็น PDF
             </button>
+            <button
+              onClick={() => exportBudgetToExcel({ rows, startDate, endDate, settings, periodStats, profiles, calculateBudget })}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-indigo-600 dark:bg-indigo-500 rounded-lg hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-colors shadow-sm"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              ส่งออกเป็น Excel
+            </button>
           </div>
         </div>
       </header>
@@ -623,202 +803,108 @@ export default function App() {
         {activeTab === 'budget' ? (
           <>
             {/* Configuration Section */}
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-
-              {/* Date Range & Basic Info */}
-              <section className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
-                <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                    <h2 className="font-bold text-slate-800 dark:text-slate-100">กำหนดระยะเวลาและข้อมูลพื้นฐาน</h2>
-                  </div>
+            {/* Date Range & Basic Info */}
+            <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Calendar className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  <h2 className="font-bold text-slate-800 dark:text-slate-100">กำหนดระยะเวลาและข้อมูลพื้นฐาน</h2>
                 </div>
-                <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-600 dark:text-slate-400">เดือน/ปี เริ่มต้น</label>
+                <div className="flex items-center gap-2">
+                  <div className="relative">
                     <input
-                      type="month"
-                      value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none text-slate-900 dark:text-slate-100"
+                      type="file"
+                      id="import-file"
+                      className="hidden"
+                      accept=".json"
+                      onChange={handleImportFile}
                     />
+                    <label
+                      htmlFor="import-file"
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors shadow-sm cursor-pointer"
+                    >
+                      <Upload className="w-4 h-4" />
+                      นำเข้าข้อมูล
+                    </label>
                   </div>
-                  <div className="space-y-2">
-                    <label className="text-sm font-semibold text-slate-600 dark:text-slate-400">เดือน/ปี สิ้นสุด</label>
-                    <input
-                      type="month"
-                      value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none text-slate-900 dark:text-slate-100"
-                    />
-                  </div>
-                  <div className="md:col-span-2 bg-indigo-50/50 dark:bg-indigo-900/20 rounded-xl p-4 border border-indigo-100 dark:border-indigo-800/50 space-y-4">
-                    <div className="flex items-start gap-3">
-                      <Info className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mt-0.5 flex-shrink-0" />
-                      <div className="text-sm text-indigo-900 dark:text-indigo-200 leading-relaxed w-full">
-                        <p className="font-bold mb-3">สรุปจำนวนวันทำงานและวันหยุดตลอดช่วงเวลา:</p>
+                  <button
+                    onClick={saveToLocalStorage}
+                    className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-emerald-600 dark:bg-emerald-500 rounded-lg hover:bg-emerald-700 dark:hover:bg-emerald-600 transition-all shadow-md shadow-emerald-100 dark:shadow-none"
+                  >
+                    <Shield className="w-4 h-4" />
+                    บันทึก/ส่งออก
+                  </button>
+                </div>
+              </div>
+              <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-600 dark:text-slate-400">เดือน/ปี เริ่มต้น</label>
+                  <input
+                    type="month"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-600 dark:text-slate-400">เดือน/ปี สิ้นสุด</label>
+                  <input
+                    type="month"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all outline-none text-slate-900 dark:text-slate-100"
+                  />
+                </div>
+                <div className="md:col-span-2 bg-indigo-50/50 dark:bg-indigo-900/20 rounded-xl p-4 border border-indigo-100 dark:border-indigo-800/50 space-y-4">
+                  <div className="flex items-start gap-3">
+                    <Info className="w-5 h-5 text-indigo-600 dark:text-indigo-400 mt-0.5 flex-shrink-0" />
+                    <div className="text-sm text-indigo-900 dark:text-indigo-200 leading-relaxed w-full">
+                      <p className="font-bold mb-3">สรุปจำนวนวันทำงานและวันหยุดตลอดช่วงเวลา:</p>
 
-                        {/* 7 Day Breakdown */}
-                        <div className="grid grid-cols-7 gap-2 mb-4">
-                          {['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map((day, i) => (
-                            <div key={day} className="text-center p-2 bg-white dark:bg-slate-800 rounded-lg border border-indigo-100 dark:border-indigo-800/50 shadow-sm">
-                              <span className={cn("block text-[10px] font-bold uppercase mb-1", i === 0 || i === 6 ? "text-red-500 dark:text-red-400" : "text-slate-500 dark:text-slate-400")}>
-                                {day}
-                              </span>
-                              <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{periodStats?.dayOfWeekCounts[i]}</span>
-                            </div>
-                          ))}
-                        </div>
-
-                        {/* Summary Summary */}
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-indigo-100 dark:border-indigo-800/50">
-                          <div>
-                            <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase">วันทำงานปกติ</span>
-                            <span className="text-lg font-bold">{periodStats?.netWorkDays} วัน</span>
-                          </div>
-                          <div>
-                            <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase">วันหยุด ส-อา</span>
-                            <span className="text-lg font-bold">{(periodStats?.totalSaturdays || 0) + (periodStats?.totalSundays || 0)} วัน</span>
-                          </div>
-                          <div className="flex flex-col">
-                            <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase">วันหยุดนักขัตฤกษ์ (จ-ศ)</span>
-                            <button
-                              onClick={() => setActiveTab('holidays')}
-                              className="text-lg font-bold text-indigo-900 dark:text-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 underline decoration-dotted underline-offset-4 transition-all text-left w-fit"
-                            >
-                              {periodStats?.holidaysOnWorkDays} วัน
-                            </button>
-                          </div>
-                          <div>
-                            <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase">รวมทั้งสิ้น</span>
-                            <span className="text-lg font-bold">
-                              {periodStats?.totalWeeks} สัปดาห์ {periodStats?.remainingDays} วัน
-                              <span className="block text-[10px] opacity-60 font-normal">({periodStats?.totalDays} วัน)</span>
+                      {/* 7 Day Breakdown */}
+                      <div className="grid grid-cols-7 gap-2 mb-4">
+                        {['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map((day, i) => (
+                          <div key={day} className="text-center p-2 bg-white dark:bg-slate-800 rounded-lg border border-indigo-100 dark:border-indigo-800/50 shadow-sm">
+                            <span className={cn("block text-[10px] font-bold uppercase mb-1", i === 0 || i === 6 ? "text-red-500 dark:text-red-400" : "text-slate-500 dark:text-slate-400")}>
+                              {day}
                             </span>
+                            <span className="text-sm font-bold text-slate-700 dark:text-slate-200">{periodStats?.dayOfWeekCounts[i]}</span>
                           </div>
+                        ))}
+                      </div>
+
+                      {/* Summary Summary */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4 border-t border-indigo-100 dark:border-indigo-800/50">
+                        <div>
+                          <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase">วันทำงานปกติ</span>
+                          <span className="text-lg font-bold">{periodStats?.netWorkDays} วัน</span>
+                        </div>
+                        <div>
+                          <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase">วันหยุด ส-อา</span>
+                          <span className="text-lg font-bold">{(periodStats?.totalSaturdays || 0) + (periodStats?.totalSundays || 0)} วัน</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase">วันหยุดนักขัตฤกษ์ (จ-ศ)</span>
+                          <button
+                            onClick={() => setActiveTab('holidays')}
+                            className="text-lg font-bold text-indigo-900 dark:text-indigo-300 hover:text-indigo-600 dark:hover:text-indigo-400 underline decoration-dotted underline-offset-4 transition-all text-left w-fit"
+                          >
+                            {periodStats?.holidaysOnWorkDays} วัน
+                          </button>
+                        </div>
+                        <div>
+                          <span className="block text-[10px] text-indigo-600 dark:text-indigo-400 font-bold uppercase">รวมทั้งสิ้น</span>
+                          <span className="text-lg font-bold">
+                            {periodStats?.totalWeeks} สัปดาห์ {periodStats?.remainingDays} วัน
+                            <span className="block text-[10px] opacity-60 font-normal">({periodStats?.totalDays} วัน)</span>
+                          </span>
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </section>
-
-              {/* Global Settings */}
-              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
-                <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <Clock className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
-                    <h2 className="font-bold text-slate-800 dark:text-slate-100">ตั้งค่ามาตรฐาน</h2>
-                  </div>
-                </div>
-                <div className="p-6 space-y-5">
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ประกันสังคม (%)</label>
-                      <input
-                        type="number"
-                        value={settings.socialSecurityRate}
-                        onChange={(e) => setSettings({ ...settings, socialSecurityRate: Number(e.target.value) })}
-                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-slate-100"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">บริหาร+กำไร (%)</label>
-                      <input
-                        type="number"
-                        value={settings.managementFeeRate}
-                        onChange={(e) => setSettings({ ...settings, managementFeeRate: Number(e.target.value) })}
-                        className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-slate-100"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-4">
-                    <div className="flex justify-between items-center">
-                      <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-                        รูปแบบกะ / โปรไฟล์การทำงาน
-                      </h3>
-                      <button onClick={addProfile} className="text-xs text-indigo-600 dark:text-indigo-400 font-bold hover:underline flex items-center gap-1">
-                        <Plus className="w-3 h-3" /> เพิ่มโปรไฟล์ใหม่
-                      </button>
-                    </div>
-                    <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
-                      <AnimatePresence>
-                        {profiles.map(p => (
-                          <motion.div
-                            key={p.id}
-                            initial={{ opacity: 0, height: 0 }}
-                            animate={{ opacity: 1, height: 'auto' }}
-                            exit={{ opacity: 0, height: 0 }}
-                            className="p-4 border border-slate-200 dark:border-slate-700/50 rounded-xl space-y-4 bg-slate-50/50 dark:bg-slate-800/30"
-                          >
-                            <div className="flex justify-between items-start gap-4">
-                              <input
-                                type="text"
-                                value={p.name}
-                                onChange={(e) => updateProfile(p.id, { name: e.target.value })}
-                                className="flex-1 font-bold text-sm bg-transparent border-b border-transparent focus:border-indigo-500 outline-none text-slate-800 dark:text-slate-200 transition-colors"
-                                placeholder="ชื่อรูปแบบกะ"
-                              />
-                              <button
-                                onClick={() => removeProfile(p.id)}
-                                disabled={profiles.length <= 1}
-                                className="text-slate-400 hover:text-red-500 disabled:opacity-30 transition-colors"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-
-                            <div className="grid grid-cols-3 gap-3">
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">เวลาทำงานปกติ (ชม.)</label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={p.normalHours}
-                                  onChange={(e) => updateProfile(p.id, { normalHours: Number(e.target.value) })}
-                                  className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">โอที (ชม.)</label>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  value={p.otHours}
-                                  onChange={(e) => updateProfile(p.id, { otHours: Number(e.target.value) })}
-                                  className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">จน. คน/จุด (ผลัด)</label>
-                                <input
-                                  type="number"
-                                  min="1"
-                                  value={p.shiftsPerPoint}
-                                  onChange={(e) => updateProfile(p.id, { shiftsPerPoint: Number(e.target.value) })}
-                                  className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100"
-                                />
-                              </div>
-                            </div>
-
-                            <div className="text-[10px] text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700 italic flex items-start gap-2">
-                              <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-indigo-400" />
-                              <p>
-                                <strong className="text-slate-600 dark:text-slate-300 not-italic">วิธีคำนวณฐานค่าแรง:</strong> นำค่าแรงขั้นต่ำของจังหวัด ÷ 8 เพื่อหา "ค่าแรงต่อชั่วโมง"
-                                <br />• ค่าจ้างปกติ = (ชม.ละ x {p.normalHours} ชม.)
-                                {p.otHours > 0 && ` + (OT = ชม.ละ x 1.5 x ${p.otHours} ชม.)`}
-                                <br />• ใช้บุคลากร {p.shiftsPerPoint} คน ต่อ 1 จุด/สถานที่
-                              </p>
-                            </div>
-                          </motion.div>
-                        ))}
-                      </AnimatePresence>
-                    </div>
-                  </div>
-                </div>
-              </section>
-            </div>
+              </div>
+            </section>
 
             {/* Main Calculation Table */}
             <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
@@ -883,7 +969,7 @@ export default function App() {
                           </div>
 
                           <div className="w-full md:w-64 space-y-1">
-                            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">รูปแบบกะ / โปรไฟล์</label>
+                            <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">รูปแบบผลัด / โปรไฟล์</label>
                             <select
                               value={row.selectedProfileId}
                               onChange={(e) => updateRow(row.id, { selectedProfileId: e.target.value })}
@@ -906,7 +992,7 @@ export default function App() {
 
                           <button
                             onClick={() => removeRow(row.id)}
-                            className="p-2.5 mt-4 text-slate-400 bg-white dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm border border-slate-200 dark:border-slate-700 rounded-lg hover:text-red-500 transition-all self-end md:self-auto"
+                            className="p-2.5 mt-4 text-slate-400 bg-white dark:bg-slate-800 hover:bg-red-50 dark:hover:bg-red-900/20 shadow-sm border border-slate-200 dark:border-slate-700 rounded-lg hover:text-red-500 transition-colors self-end md:self-auto"
                             title="ลบสถานที่นี้"
                           >
                             <Trash2 className="w-4 h-4" />
@@ -929,17 +1015,17 @@ export default function App() {
                           </div>
 
                           <div className="space-y-1">
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">ค่าแรงปกติ + OT</span>
-                            <span className="text-sm font-mono font-medium text-slate-700 dark:text-slate-300">฿ {budget?.totalNormalPay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">วันทำงานปกติ (ผลัด)</span>
+                            <span className="text-sm font-mono font-medium text-slate-700 dark:text-slate-300">{(budget?.totalShiftsNormal || 0).toLocaleString()} ผลัด</span>
                           </div>
 
                           <div className="space-y-1">
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">ค่าแรงวันหยุด + OT</span>
-                            <span className="text-sm font-mono font-medium text-slate-700 dark:text-slate-300">฿ {budget?.totalHolidayPay.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">วันหยุด/นักขัตฯ (ผลัด)</span>
+                            <span className="text-sm font-mono font-medium text-slate-700 dark:text-slate-300">{(budget?.totalShiftsHoliday || 0).toLocaleString()} ผลัด</span>
                           </div>
 
                           <div className="space-y-1">
-                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">รวม/คน/เดือน (1)</span>
+                            <span className="block text-[10px] font-bold text-slate-400 uppercase tracking-wider">รวมฐานค่าแรง/จุด (1)</span>
                             <span className="text-sm font-bold text-emerald-600 dark:text-emerald-400">฿ {budget?.baseTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                           </div>
 
@@ -958,7 +1044,7 @@ export default function App() {
                           </div>
 
                           <div className="space-y-1 bg-indigo-50/50 dark:bg-indigo-900/20 p-3 rounded-xl border border-indigo-100 dark:border-indigo-800 shadow-sm text-right">
-                            <span className="block text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider">รวม/เดือน/จุด ({profile.shiftsPerPoint} ผลัด)</span>
+                            <span className="block text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider">รวมทั้งช่วงเวลา/จุด ({profile.shiftsPerPointNormal} ปกติ, {profile.shiftsPerPointHoliday} หยุด)</span>
                             <div className="text-lg font-black text-indigo-700 dark:text-indigo-300">
                               ฿ {budget?.totalPerPoint.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </div>
@@ -977,7 +1063,7 @@ export default function App() {
               <div className="flex-1 bg-indigo-600 dark:bg-indigo-600/90 rounded-2xl p-8 text-white shadow-xl shadow-indigo-200 dark:shadow-none relative overflow-hidden">
                 <div className="relative z-10 flex flex-col md:flex-row justify-between items-center gap-6">
                   <div className="space-y-1 text-center md:text-left">
-                    <p className="text-indigo-100 text-sm font-bold uppercase tracking-widest">งบประมาณรวมทั้งสิ้นต่อเดือน</p>
+                    <p className="text-indigo-100 text-sm font-bold uppercase tracking-widest">งบประมาณรวมทั้งสิ้น (ตลอดช่วงเวลา)</p>
                     <h3 className="text-4xl md:text-5xl font-black tracking-tighter">
                       ฿ {rows.reduce((acc, row) => acc + (calculateBudget(row)?.grandTotal || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </h3>
@@ -992,7 +1078,7 @@ export default function App() {
                       <p className="text-indigo-200 text-xs font-bold uppercase">จำนวนบุคลากร</p>
                       <p className="text-2xl font-bold">{rows.reduce((acc, r) => {
                         const profile = profiles.find(p => p.id === r.selectedProfileId) || profiles[0];
-                        return acc + (r.points * profile.shiftsPerPoint);
+                        return acc + (r.points * profile.shiftsPerPointNormal);
                       }, 0)} คน</p>
                     </div>
                   </div>
@@ -1040,10 +1126,13 @@ export default function App() {
                       ส่งออก CSV
                     </button>
                     <div className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-1" />
-                    <label className="flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-600 dark:hover:text-indigo-300 rounded-md transition-all cursor-pointer">
+                    <label className={cn(
+                      "flex items-center gap-1 px-3 py-1.5 text-xs font-bold rounded-md transition-all",
+                      isAuthenticated ? "text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-700 hover:text-indigo-600 dark:hover:text-indigo-300 cursor-pointer" : "text-slate-300 dark:text-slate-600 cursor-not-allowed"
+                    )}>
                       <Upload className="w-3.5 h-3.5" />
                       นำเข้า CSV
-                      <input type="file" accept=".csv" className="hidden" onChange={importWagesCSV} />
+                      {isAuthenticated && <input type="file" accept=".csv" className="hidden" onChange={importWagesCSV} />}
                     </label>
                   </div>
                 </div>
@@ -1068,8 +1157,9 @@ export default function App() {
                               <input
                                 type="number"
                                 value={wages[province] || 350}
+                                disabled={!isAuthenticated}
                                 onChange={(e) => updateProvinceWage(province, Number(e.target.value))}
-                                className="w-16 text-right text-sm font-mono font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100"
+                                className="w-16 text-right text-sm font-mono font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded px-1.5 py-1 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100 disabled:opacity-50"
                               />
                               <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">฿</span>
                             </div>
@@ -1082,7 +1172,7 @@ export default function App() {
               </div>
             </section>
           </motion.div>
-        ) : (
+        ) : activeTab === 'holidays' ? (
           /* Holiday Management Tab */
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -1100,7 +1190,10 @@ export default function App() {
                 </div>
                 <button
                   onClick={resetHolidays}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 text-sm font-bold rounded-lg transition-all",
+                    isAuthenticated ? "text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700" : "text-slate-300 dark:text-slate-600 bg-slate-50 dark:bg-slate-800/50 cursor-not-allowed"
+                  )}
                 >
                   <RotateCcw className="w-4 h-4" />
                   รีเซ็ตค่าเริ่มต้น
@@ -1131,7 +1224,16 @@ export default function App() {
                         ))}
                         {daysInMonth.map(day => {
                           const dateStr = format(day, 'yyyy-MM-dd');
-                          const holiday = customHolidays.find(h => h.date === dateStr);
+
+                          // Use allHolidays for calculation to support cross-year substitution
+                          const allHolidays = customHolidays.length > 0 ? customHolidays : [
+                            ...DEFAULT_THAI_HOLIDAYS(month.year - 1),
+                            ...DEFAULT_THAI_HOLIDAYS(month.year),
+                            ...DEFAULT_THAI_HOLIDAYS(month.year + 1)
+                          ];
+                          const effectiveHolidays = getEffectiveHolidays(allHolidays);
+                          const holiday = effectiveHolidays.find(h => h.date === dateStr);
+
                           const isWeekend = day.getDay() === 0 || day.getDay() === 6;
 
                           return (
@@ -1170,7 +1272,11 @@ export default function App() {
               </div>
               <div className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {customHolidays
+                  {getEffectiveHolidays(customHolidays.length > 0 ? customHolidays : [
+                    ...DEFAULT_THAI_HOLIDAYS(parseInt(startDate.split('-')[0]) - 1),
+                    ...DEFAULT_THAI_HOLIDAYS(parseInt(startDate.split('-')[0])),
+                    ...DEFAULT_THAI_HOLIDAYS(parseInt(endDate.split('-')[0]) + 1)
+                  ])
                     .filter(h => {
                       const d = new Date(h.date);
                       const start = parse(startDate, 'yyyy-MM', new Date());
@@ -1179,29 +1285,266 @@ export default function App() {
                     })
                     .sort((a, b) => a.date.localeCompare(b.date))
                     .map(h => (
-                      <div key={h.date} className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-100 dark:border-slate-700/50">
-                        <div className="space-y-1">
-                          <p className="text-xs font-bold text-slate-400 dark:text-slate-500">{format(new Date(h.date), 'dd/MM/yyyy')}</p>
-                          <input
-                            type="text"
-                            value={h.name}
-                            onChange={(e) => updateHolidayName(h.date, e.target.value)}
-                            className="text-sm font-bold bg-transparent border-none outline-none text-slate-700 dark:text-slate-300 focus:text-indigo-600 dark:focus:text-indigo-400"
-                          />
+                      <div key={h.date} className="flex justify-between items-center bg-slate-50 dark:bg-slate-800/50 p-4 border border-slate-100 dark:border-slate-800 rounded-xl relative">
+                        <div>
+                          <span className="text-xs text-slate-500 dark:text-slate-400 block mb-1">
+                            {format(new Date(h.date), 'dd/MM/yyyy')}
+                          </span>
+                          <span className={cn("font-bold", h.name.startsWith('ชดเชย') ? "text-amber-600 dark:text-amber-500" : "text-slate-700 dark:text-slate-200")}>
+                            {h.name}
+                          </span>
                         </div>
-                        <button
-                          onClick={() => toggleHoliday(h.date)}
-                          className="p-2 text-slate-300 dark:text-slate-500 hover:text-red-500 dark:hover:text-red-400 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        {!h.name.startsWith('ชดเชย') && (
+                          <button
+                            onClick={() => toggleHoliday(h.date)}
+                            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
                       </div>
                     ))}
                 </div>
               </div>
             </section>
           </motion.div>
-        )}
+        ) : activeTab === 'settings' ? (
+          /* Settings Management Tab */
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-8"
+          >
+            {/* Global Settings */}
+            <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
+              <div className="p-6 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Clock className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                  <h2 className="font-bold text-slate-800 dark:text-slate-100">ตั้งค่ามาตรฐาน</h2>
+                </div>
+              </div>
+              <div className="p-6 space-y-5">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">ประกันสังคม (%)</label>
+                    <input
+                      type="number"
+                      value={settings.socialSecurityRate}
+                      disabled={!isAuthenticated}
+                      onChange={(e) => setSettings({ ...settings, socialSecurityRate: Number(e.target.value) })}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-slate-100 disabled:opacity-50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">บริหาร+กำไร (%)</label>
+                    <input
+                      type="number"
+                      value={settings.managementFeeRate}
+                      disabled={!isAuthenticated}
+                      onChange={(e) => setSettings({ ...settings, managementFeeRate: Number(e.target.value) })}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-slate-100 disabled:opacity-50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+                      <span>คูณล่วงเวลาวันปกติ (เท่า)</span>
+                      <span className="text-[10px] text-indigo-500 lowercase bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">Global</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.05"
+                      value={settings.otNormalRate}
+                      disabled={!isAuthenticated}
+                      onChange={(e) => setSettings({ ...settings, otNormalRate: Number(e.target.value) })}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-slate-100 disabled:opacity-50"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center justify-between">
+                      <span>คูณล่วงเวลาวันหยุด (เท่า)</span>
+                      <span className="text-[10px] text-indigo-500 lowercase bg-indigo-50 dark:bg-indigo-900/30 px-1.5 py-0.5 rounded">Global</span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.5"
+                      value={settings.otHolidayRate}
+                      disabled={!isAuthenticated}
+                      onChange={(e) => setSettings({ ...settings, otHolidayRate: Number(e.target.value) })}
+                      className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none text-slate-900 dark:text-slate-100 disabled:opacity-50"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
+                      รูปแบบผลัด / โปรไฟล์การทำงาน
+                    </h3>
+                    <div className="flex items-center gap-4">
+                      {isAuthenticated ? (
+                        <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-900/20 px-3 py-1.5 rounded-lg border border-emerald-100 dark:border-emerald-800/50">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                            <User className="w-3.5 h-3.5" />
+                            Admin Mode
+                          </div>
+                          <button
+                            onClick={handleLogout}
+                            className="text-xs font-bold text-slate-500 hover:text-red-500 transition-colors"
+                          >
+                            <LogOut className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ) : (
+                        <button
+                          onClick={() => setShowLoginModal(true)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-indigo-600 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-all border border-indigo-100"
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          เข้าสู่ระบบเพื่อแก้ไข
+                        </button>
+                      )}
+                      <button
+                        onClick={addProfile}
+                        className={cn(
+                          "text-xs font-bold flex items-center gap-1 transition-colors",
+                          isAuthenticated ? "text-indigo-600 dark:text-indigo-400 hover:underline" : "text-slate-400 cursor-not-allowed"
+                        )}
+                      >
+                        <Plus className="w-3 h-3" /> เพิ่มโปรไฟล์ใหม่
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-3 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                    <AnimatePresence>
+                      {profiles.map(p => (
+                        <motion.div
+                          key={p.id}
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: 'auto' }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="p-4 border border-slate-200 dark:border-slate-700/50 rounded-xl space-y-4 bg-slate-50/50 dark:bg-slate-800/30"
+                        >
+                          <div className="flex justify-between items-start gap-4">
+                            <input
+                              type="text"
+                              value={p.name}
+                              disabled={!isAuthenticated}
+                              onChange={(e) => updateProfile(p.id, { name: e.target.value })}
+                              className="flex-1 font-bold text-sm bg-transparent border-b border-transparent focus:border-indigo-500 outline-none text-slate-800 dark:text-slate-200 transition-colors disabled:opacity-50"
+                              placeholder="ชื่อรูปแบบผลัด"
+                            />
+                            <button
+                              onClick={() => removeProfile(p.id)}
+                              disabled={profiles.length <= 1}
+                              className="text-slate-400 hover:text-red-500 disabled:opacity-30 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                            <div className="space-y-4 col-span-2 border-r border-slate-200 dark:border-slate-700/50 pr-4">
+                              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                <Sun className="w-3 h-3 text-amber-500" /> วันปกติ (Mon-Fri)
+                              </h4>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">ปกติ (ชม.)</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={p.normalHours}
+                                    disabled={!isAuthenticated}
+                                    onChange={(e) => updateProfile(p.id, { normalHours: Number(e.target.value) })}
+                                    className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100 disabled:opacity-50"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">โอที (ชม.)</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={p.otHours}
+                                    disabled={!isAuthenticated}
+                                    onChange={(e) => updateProfile(p.id, { otHours: Number(e.target.value) })}
+                                    className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100 disabled:opacity-50"
+                                  />
+                                </div>
+                                <div className="space-y-1 col-span-2">
+                                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">จน. คน/จุด</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={p.shiftsPerPointNormal}
+                                    disabled={!isAuthenticated}
+                                    onChange={(e) => updateProfile(p.id, { shiftsPerPointNormal: Number(e.target.value) })}
+                                    className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100 disabled:opacity-50"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-4 col-span-2">
+                              <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                                <Calendar className="w-3 h-3 text-red-500" /> วันหยุด/ขัตฤกษ์
+                              </h4>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">ปกติ (ชม.)</label>
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    value={p.holidayNormalHours}
+                                    disabled={!isAuthenticated}
+                                    onChange={(e) => updateProfile(p.id, { holidayNormalHours: Number(e.target.value) })}
+                                    className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100 disabled:opacity-50"
+                                  />
+                                </div>
+                                <div className="space-y-1">
+                                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">โอที (ชม.)</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={p.holidayOtHours}
+                                    disabled={!isAuthenticated}
+                                    onChange={(e) => updateProfile(p.id, { holidayOtHours: Number(e.target.value) })}
+                                    className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100 disabled:opacity-50"
+                                  />
+                                </div>
+                                <div className="space-y-1 col-span-2">
+                                  <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">จน. คน/จุด</label>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={p.shiftsPerPointHoliday}
+                                    disabled={!isAuthenticated}
+                                    onChange={(e) => updateProfile(p.id, { shiftsPerPointHoliday: Number(e.target.value) })}
+                                    className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-indigo-500 dark:text-slate-100 disabled:opacity-50"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="text-[10px] text-slate-500 dark:text-slate-400 bg-white dark:bg-slate-800 p-2.5 rounded-lg border border-slate-100 dark:border-slate-700 italic flex items-start gap-2">
+                            <Info className="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-indigo-400" />
+                            <p>
+                              <strong className="text-slate-600 dark:text-slate-300 not-italic">วิธีคำนวณฐานค่าแรง:</strong> นำค่าแรงขั้นต่ำของจังหวัด ÷ 8 เพื่อหา "ค่าแรงต่อชั่วโมง"
+                              <br />• ค่าจ้างปกติ = (ชม.ละ x {p.normalHours} ชม.)
+                              {p.otHours > 0 && ` + (OT = ชม.ละ x ${settings.otNormalRate} x ${p.otHours} ชม.)`}
+                              <br />• ค่าจ้างวันหยุด = {p.holidayOtHours > 0 ? `(ชม.ละ x 2 x ${p.holidayNormalHours} ชม.) + (OT = ชม.ละ x ${settings.otHolidayRate} x ${p.holidayOtHours} ชม.)` : `(ชม.ละ x ${p.holidayNormalHours} ชม.)`}
+                              <br />• ใช้บุคลากร {p.shiftsPerPointNormal} คน สำหรับวันปกติ, และ {p.shiftsPerPointHoliday} คน สำหรับวันหยุด ต่อ 1 จุด/สถานที่
+                            </p>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </motion.div>
+        ) : null}
       </main>
 
       {/* Holiday Modal */}
@@ -1372,79 +1715,62 @@ export default function App() {
           <thead>
             <tr className="bg-slate-100">
               <th rowSpan={2} className="border border-black p-1 text-center">ลำดับ</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">ส่วนงาน/สถานที่</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">จำนวนวัน<br />ทำงานปกติ</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">จำนวนวันเสาร์</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">จำนวนวันอาทิตย์</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">จำนวนวัน<br />หยุดนักขัตฤกษ์</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">รวมจำนวน<br />วันหยุดทั้งหมด</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">จำนวนผลัด<br />ที่มีทั้งหมด</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">ค่าแรงขั้นต่ำ</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">ค่าแรงจำนวน<br />วันทำงานปกติ/<br />คน(บาท)</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">ค่าแรงจำนวน<br />วันหยุดทั้งหมด<br />(บาท)</th>
-              <th colSpan={3} className="border border-black p-1 text-center">ค่าดำเนินการ</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">ค่าจ้างรวม/<br />แห่ง/2ผลัด/<br />เดือน (บาท)</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">จำนวน<br />สถานที่(จุด<br />รปภ.)</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">ค่าจ้างรวม/<br />เดือน (บาท)</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">จำนวนคน</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">จำนวนเงินรวม<br />(บาท)</th>
-            </tr>
-            <tr className="bg-slate-100">
-              <th className="border border-black p-1 text-center text-[8px]">อัตราค่าจ้าง/<br />แห่ง/เดือน(บาท)<br />(1)</th>
-              <th className="border border-black p-1 text-center text-[8px]">เงินสมทบ<br />ประกันสังคม<br />ตามกฎหมาย<br />กำหนด (1x5%)</th>
-              <th className="border border-black p-1 text-center text-[8px]">ค่าใช้จ่าย<br />บริหาร<br />จัดการและ<br />กำไร (1x20%)</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">สถานที่</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">ค่าแรง<br />ขั้นต่ำ</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">ปฏิบัติงาน<br />ปกติ (8 ชม.)</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">จำนวน<br />สถานที่<br />(จุด รปภ.)</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">จำนวน<br />คน</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">จำนวน<br />ผลัด</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">ค่าจ้างแรงงาน<br />{periodStats ? Math.floor(periodStats.totalDays / 30) : 0} เดือน</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">ค่าใช้จ่าย<br />บริหารจัดการ<br />{settings.managementFeeRate}%</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">เงินสมทบ<br />{settings.socialSecurityRate}%</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">รวม (บาท)</th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row, index) => {
               const b = calculateBudget(row);
               if (!b || !periodStats) return null;
+
+              const profile = profiles.find(p => p.id === row.selectedProfileId) || profiles[0];
+              const totalPeopleShift = (profile.shiftsPerPointNormal + profile.shiftsPerPointHoliday); // Just display combined 
+              const dailyRatePerPerson = (profile.normalHours * (row.minWage / 8));
+
               return (
                 <tr key={row.id}>
                   <td className="border border-black p-1 text-center">{index + 1}</td>
-                  <td className="border border-black p-1">{row.location} ({row.province})</td>
-                  <td className="border border-black p-1 text-center">{periodStats.netWorkDays}</td>
-                  <td className="border border-black p-1 text-center">{periodStats.totalSaturdays}</td>
-                  <td className="border border-black p-1 text-center">{periodStats.totalSundays}</td>
-                  <td className="border border-black p-1 text-center">{periodStats.holidaysOnWorkDays}</td>
-                  <td className="border border-black p-1 text-center">{periodStats.netHolidayDays}</td>
-                  <td className="border border-black p-1 text-center">{periodStats.totalDays}</td>
-                  <td className="border border-black p-1 text-right">{row.minWage.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                  <td className="border border-black p-1 text-right">{b.totalNormalPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                  <td className="border border-black p-1 text-right">{b.totalHolidayPay.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                  <td className="border border-black p-1 text-right bg-orange-50">{b.baseTotal.toLocaleString(undefined, { minimumFractionDigits: 0 })}</td>
-                  <td className="border border-black p-1 text-right">{b.socialSecurity.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                  <td className="border border-black p-1 text-right">{b.managementFee.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                  <td className="border border-black p-1 text-right font-bold">{b.totalPerPoint.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  <td className="border border-black p-1">{row.location} {row.province !== 'กรุงเทพมหานคร' && `(${row.province})`}</td>
+                  <td className="border border-black p-1 text-center">{row.minWage.toLocaleString(undefined, { minimumFractionDigits: 0 })}</td>
+                  <td className="border border-black p-1 text-center">{dailyRatePerPerson.toLocaleString(undefined, { minimumFractionDigits: 0 })}</td>
                   <td className="border border-black p-1 text-center">{row.points}</td>
-                  <td className="border border-black p-1 text-right">{(b.totalPerPoint * row.points).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                  <td className="border border-black p-1 text-center">{row.points * (profiles.find(p => p.id === row.selectedProfileId) || profiles[0]).shiftsPerPoint}</td>
+                  <td className="border border-black p-1 text-center">{row.points * Math.max(profile.shiftsPerPointNormal, profile.shiftsPerPointHoliday)}</td>
+                  <td className="border border-black p-1 text-center">{b.totalShiftsCombined * row.points}</td>
+                  <td className="border border-black p-1 text-right">{b.baseTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  <td className="border border-black p-1 text-right">{b.managementFee.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                  <td className="border border-black p-1 text-right">{b.socialSecurity.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                   <td className="border border-black p-1 text-right font-bold">{b.grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                 </tr>
               );
             })}
             <tr className="bg-slate-50 font-bold">
-              <td colSpan={11} className="border border-black p-1 text-center">รวม</td>
-              <td className="border border-black p-1 text-right">
-                {rows.reduce((acc, r) => acc + (calculateBudget(r)?.baseTotal || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              <td colSpan={4} className="border border-black p-1 text-center">รวม</td>
+              <td className="border border-black p-1 text-center">
+                {rows.reduce((acc, r) => acc + r.points, 0)}
+              </td>
+              <td className="border border-black p-1 text-center">
+                {rows.reduce((acc, r) => acc + (r.points * Math.max((profiles.find(p => p.id === r.selectedProfileId) || profiles[0]).shiftsPerPointNormal, (profiles.find(p => p.id === r.selectedProfileId) || profiles[0]).shiftsPerPointHoliday)), 0)}
+              </td>
+              <td className="border border-black p-1 text-center">
+                {rows.reduce((acc, r) => acc + ((calculateBudget(r)?.totalShiftsCombined || 0) * r.points), 0)}
               </td>
               <td className="border border-black p-1 text-right">
-                {rows.reduce((acc, r) => acc + (calculateBudget(r)?.socialSecurity || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                {rows.reduce((acc, r) => acc + (calculateBudget(r)?.baseTotal || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </td>
               <td className="border border-black p-1 text-right">
                 {rows.reduce((acc, r) => acc + (calculateBudget(r)?.managementFee || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </td>
               <td className="border border-black p-1 text-right">
-                {rows.reduce((acc, r) => acc + (calculateBudget(r)?.totalPerPoint || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </td>
-              <td className="border border-black p-1 text-center">
-                {rows.reduce((acc, r) => acc + r.points, 0)}
-              </td>
-              <td className="border border-black p-1 text-right">
-                {rows.reduce((acc, r) => acc + (calculateBudget(r)?.grandTotal || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </td>
-              <td className="border border-black p-1 text-center">
-                {rows.reduce((acc, r) => acc + (r.points * (profiles.find(p => p.id === r.selectedProfileId) || profiles[0]).shiftsPerPoint), 0)}
+                {rows.reduce((acc, r) => acc + (calculateBudget(r)?.socialSecurity || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
               </td>
               <td className="border border-black p-1 text-right">
                 {rows.reduce((acc, r) => acc + (calculateBudget(r)?.grandTotal || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -1466,6 +1792,85 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* Login Modal */}
+      <AnimatePresence>
+        {showLoginModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden border border-slate-200 dark:border-slate-800"
+            >
+              <form onSubmit={handleLogin}>
+                <div className="p-6 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
+                    <h3 className="font-bold text-slate-800 dark:text-slate-100">ผู้ดูแลระบบ</h3>
+                  </div>
+                  <button type="button" onClick={() => setShowLoginModal(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="p-6 space-y-4">
+                  {loginError && (
+                    <div className="p-3 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 text-sm rounded-lg font-bold border border-red-100 dark:border-red-800/50">
+                      {loginError}
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase">ชื่อผู้ใช้</label>
+                    <input
+                      type="text"
+                      autoFocus
+                      disabled={isLoggingIn}
+                      value={loginForm.username}
+                      onChange={(e) => setLoginForm({ ...loginForm, username: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900 dark:text-slate-100 disabled:opacity-50"
+                      placeholder="Username"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-bold text-slate-500 uppercase">รหัสผ่าน</label>
+                    <input
+                      type="password"
+                      disabled={isLoggingIn}
+                      value={loginForm.password}
+                      onChange={(e) => setLoginForm({ ...loginForm, password: e.target.value })}
+                      className="w-full px-4 py-3 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none font-bold text-slate-900 dark:text-slate-100 disabled:opacity-50"
+                      placeholder="Password"
+                    />
+                  </div>
+                </div>
+                <div className="p-6 bg-slate-50 dark:bg-slate-800/50 flex gap-3 border-t border-slate-100 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginModal(false)}
+                    className="flex-1 px-4 py-2.5 text-sm font-bold text-slate-600 dark:text-slate-300 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 transition-all"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isLoggingIn || !loginForm.username || !loginForm.password}
+                    className="flex-1 px-4 py-2.5 text-sm font-bold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:bg-indigo-400 disabled:cursor-not-allowed transition-all shadow-lg shadow-indigo-100 dark:shadow-none flex items-center justify-center gap-2"
+                  >
+                    {isLoggingIn ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        กำลังตรวจสอบ...
+                      </>
+                    ) : (
+                      'เข้าสู่ระบบ'
+                    )}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* CSV Export Modal */}
       <AnimatePresence>
@@ -1513,6 +1918,59 @@ export default function App() {
                 >
                   ส่งออกไฟล์
                 </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Confirmation Modal */}
+      <AnimatePresence>
+        {confirmModal.isOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 overflow-hidden">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="p-6">
+                <div className="flex items-center gap-4 mb-4">
+                  <div className="bg-red-100 dark:bg-red-900/30 p-3 rounded-full">
+                    <Trash2 className="w-6 h-6 text-red-600 dark:text-red-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-bold text-slate-900 dark:text-white">{confirmModal.title}</h3>
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">{confirmModal.message}</p>
+                  </div>
+                </div>
+                <div className="flex gap-3 mt-8">
+                  <button
+                    onClick={() => {
+                      confirmModal.onResolve(false);
+                      setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                    }}
+                    className="flex-1 px-4 py-2.5 text-sm font-bold text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 rounded-xl hover:bg-slate-200 dark:hover:bg-slate-700 transition-all font-sans"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    onClick={() => {
+                      confirmModal.onResolve(true);
+                      setConfirmModal(prev => ({ ...prev, isOpen: false }));
+                    }}
+                    className="flex-1 px-4 py-2.5 text-sm font-bold text-white bg-red-600 dark:bg-red-500 rounded-xl hover:bg-red-700 dark:hover:bg-red-600 transition-all shadow-lg shadow-red-100 dark:shadow-none"
+                  >
+                    ยืนยันการลบ
+                  </button>
+                </div>
               </div>
             </motion.div>
           </div>
