@@ -75,6 +75,8 @@ services:
       dockerfile: Dockerfile
     container_name: nexus-app5-backend
     restart: always
+    ports:
+      - "3000:3000"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: password

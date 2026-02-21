@@ -10,6 +10,7 @@ const url = require('url');
 const PORT = process.env.PORT || 8080;
 const API_TARGET = 'http://127.0.0.1:3001';
 const APP4_TARGET = 'http://127.0.0.1:3004';
+const APP5_TARGET = 'http://127.0.0.1:3000';
 
 // Create proxy for API requests
 const apiProxy = httpProxy.createProxyServer({
@@ -19,6 +20,12 @@ const apiProxy = httpProxy.createProxyServer({
 
 const app4Proxy = httpProxy.createProxyServer({
   target: APP4_TARGET,
+  changeOrigin: true,
+  ws: true
+});
+
+const app5Proxy = httpProxy.createProxyServer({
+  target: APP5_TARGET,
   changeOrigin: true,
   ws: true
 });
@@ -136,6 +143,12 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Route: /api/pms/* -> Proxy to App5 PMS Backend (Port 3000)
+  if (pathname.startsWith('/api/pms/')) {
+    app5Proxy.web(req, res);
+    return;
+  }
+
   // Route: /api/* -> Proxy to Express API
   if (pathname.startsWith('/api/')) {
     apiProxy.web(req, res);
@@ -174,6 +187,13 @@ const server = http.createServer((req, res) => {
   if (pathname.startsWith('/app5/')) {
     const rootDir = '/home/nopparus2/www/app5/dist';
     serveStatic(req, res, rootDir, '/app5');
+    return;
+  }
+
+  // Route: /app6/* -> Serve app6/dist
+  if (pathname.startsWith('/app6/')) {
+    const rootDir = '/home/nopparus2/www/app6/dist';
+    serveStatic(req, res, rootDir, '/app6');
     return;
   }
 
