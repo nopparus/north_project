@@ -1,4 +1,5 @@
 
+console.log('App5 Build:', __BUILD_TIME__);
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
@@ -14,3 +15,4 @@ root.render(
     <App />
   </React.StrictMode>
 );
+export const BUILD_VERSION = "20260223-v2";

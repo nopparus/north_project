@@ -11,6 +11,7 @@ const PORT = process.env.PORT || 8080;
 const API_TARGET = 'http://127.0.0.1:3001';
 const APP4_TARGET = 'http://127.0.0.1:3004';
 const APP5_TARGET = 'http://127.0.0.1:3000';
+const GATEWAY_TARGET = 'http://127.0.0.1:8081';
 
 // Create proxy for API requests
 const apiProxy = httpProxy.createProxyServer({
@@ -26,6 +27,12 @@ const app4Proxy = httpProxy.createProxyServer({
 
 const app5Proxy = httpProxy.createProxyServer({
   target: APP5_TARGET,
+  changeOrigin: true,
+  ws: true
+});
+
+const gatewayProxy = httpProxy.createProxyServer({
+  target: GATEWAY_TARGET,
   changeOrigin: true,
   ws: true
 });
@@ -155,51 +162,44 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // Route: /app1/* -> Serve app1/dist
+  // Route: /app1/* -> Proxy to Gateway via temporary port 8081
   if (pathname.startsWith('/app1/')) {
-    const rootDir = '/home/nopparus2/www/app1/dist';
-    serveStatic(req, res, rootDir, '/app1');
+    gatewayProxy.web(req, res);
     return;
   }
 
-  // Route: /app2/* -> Serve app2/dist
+  // Route: /app2/* -> Proxy to Gateway via temporary port 8081
   if (pathname.startsWith('/app2/')) {
-    const rootDir = '/home/nopparus2/www/app2/dist';
-    serveStatic(req, res, rootDir, '/app2');
+    gatewayProxy.web(req, res);
     return;
   }
 
-  // Route: /app3/* -> Serve app3/dist
+  // Route: /app3/* -> Proxy to Gateway via temporary port 8081
   if (pathname.startsWith('/app3/')) {
-    const rootDir = '/home/nopparus2/www/app3/dist';
-    serveStatic(req, res, rootDir, '/app3');
+    gatewayProxy.web(req, res);
     return;
   }
 
-  // Route: /app4/* -> Serve app4/dist
+  // Route: /app4/* -> Proxy to Gateway via temporary port 8081
   if (pathname.startsWith('/app4/')) {
-    const rootDir = '/home/nopparus2/www/app4/dist';
-    serveStatic(req, res, rootDir, '/app4');
+    gatewayProxy.web(req, res);
     return;
   }
 
-  // Route: /app5/* -> Serve app5/dist
+  // Route: /app5/* -> Proxy to Gateway via temporary port 8081
   if (pathname.startsWith('/app5/')) {
-    const rootDir = '/home/nopparus2/www/app5/dist';
-    serveStatic(req, res, rootDir, '/app5');
+    gatewayProxy.web(req, res);
     return;
   }
 
-  // Route: /app6/* -> Serve app6/dist
+  // Route: /app6/* -> Proxy to Gateway via temporary port 8081
   if (pathname.startsWith('/app6/')) {
-    const rootDir = '/home/nopparus2/www/app6/dist';
-    serveStatic(req, res, rootDir, '/app6');
+    gatewayProxy.web(req, res);
     return;
   }
 
-  // Route: /* (root) -> Serve menu/dist
-  const rootDir = '/home/nopparus2/www/menu/dist';
-  serveStatic(req, res, rootDir, null);
+  // Route: /* (root) -> Proxy to Gateway via temporary port 8081
+  gatewayProxy.web(req, res);
 });
 
 // WebSocket upgrade handling
