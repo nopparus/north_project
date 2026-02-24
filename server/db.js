@@ -105,6 +105,11 @@ function initDB() {
       shiftsPerPointHoliday INTEGER DEFAULT 1,
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS app6_minimum_wages (
+      province TEXT PRIMARY KEY,
+      wage INTEGER NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Seed admin user if not exists

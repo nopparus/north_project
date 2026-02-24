@@ -86,4 +86,71 @@ router.post('/profiles/sync', (req, res) => {
     }
 });
 
+// Get all wages
+router.get('/wages', (req, res) => {
+    try {
+        const db = getDB();
+        const wagesList = db.prepare('SELECT province, wage FROM app6_minimum_wages').all();
+        // Return as key-value pair for easy usage frontend side { 'กรุงเทพมหานคร': 363, ... }
+        const wagesObj = {};
+        for (const item of wagesList) {
+            wagesObj[item.province] = item.wage;
+        }
+        res.json(wagesObj);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Update single province wage
+router.post('/wages', (req, res) => {
+    const { province, wage } = req.body;
+    try {
+        const db = getDB();
+        const stmt = db.prepare(`
+            INSERT INTO app6_minimum_wages (province, wage, updated_at) 
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(province) DO UPDATE SET 
+                wage = excluded.wage, 
+                updated_at = CURRENT_TIMESTAMP
+        `);
+        stmt.run(province, wage);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Bulk sync (import)
+router.post('/wages/sync', (req, res) => {
+    const wagesArray = req.body; // Expects an object like: { 'กรุงเทพ': 363, 'ภูเก็ต': 370 }
+    if (!wagesArray || typeof wagesArray !== 'object') {
+        return res.status(400).json({ error: 'Invalid payload format' });
+    }
+
+    try {
+        const db = getDB();
+        const stmt = db.prepare(`
+            INSERT INTO app6_minimum_wages (province, wage, updated_at) 
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(province) DO UPDATE SET 
+                wage = excluded.wage, 
+                updated_at = CURRENT_TIMESTAMP
+        `);
+
+        const transaction = db.transaction((wages) => {
+            for (const [province, wage] of Object.entries(wages)) {
+                if (province && !isNaN(Number(wage))) {
+                    stmt.run(province, Number(wage));
+                }
+            }
+        });
+
+        transaction(wagesArray);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;

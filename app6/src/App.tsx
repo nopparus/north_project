@@ -31,6 +31,7 @@ import { getMonthStats, PROVINCES, MonthStats, DEFAULT_THAI_HOLIDAYS, ThaiHolida
 import { getMinimumWage } from './services/geminiService';
 import { exportBudgetToExcel } from './services/excelExportService';
 import { profileService } from './services/profileService';
+import { wageService } from './services/wageService';
 import { authService } from './services/authService';
 import { FileSpreadsheet, Lock, LogOut, User } from 'lucide-react';
 
@@ -82,12 +83,12 @@ export default function App() {
   const [rows, setRows] = useState<CalculationRow[]>([
     {
       id: crypto.randomUUID(),
-      location: 'สำนักงานใหญ่',
-      province: 'กรุงเทพมหานคร',
+      location: '',
+      province: '',
       points: 1,
-      minWage: 363,
+      minWage: 0,
       isLoadingWage: false,
-      selectedProfileId: 'p1'
+      selectedProfileId: ''
     }
   ]);
 
@@ -149,27 +150,37 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const loadProfiles = async () => {
+    const loadServerData = async () => {
       try {
-        const serverProfiles = await profileService.getAll();
+        const [serverProfiles, serverWages] = await Promise.all([
+          profileService.getAll(),
+          wageService.getAll()
+        ]);
 
-        // Initial Sync Logic:
-        // If server is empty, migrate profiles from current state (which might be from localStorage or SHIFT_PROFILES)
+        // Profiles Sync Logic
         if (serverProfiles.length === 0 && profiles.length > 0) {
           await profileService.sync(profiles);
-          // Fetch again after sync to ensure IDs match etc (though they should)
-          const synced = await profileService.getAll();
-          setProfiles(synced);
+          const syncedProfiles = await profileService.getAll();
+          setProfiles(syncedProfiles);
         } else if (serverProfiles.length > 0) {
           setProfiles(serverProfiles);
         }
+
+        // Wages Sync Logic
+        if (Object.keys(serverWages).length === 0 && Object.keys(wages).length > 0) {
+          await wageService.sync(wages);
+          const syncedWages = await wageService.getAll();
+          setWages(syncedWages);
+        } else if (Object.keys(serverWages).length > 0) {
+          setWages(serverWages);
+        }
       } catch (error) {
-        console.error("Failed to load profiles from server", error);
+        console.error("Failed to load data from server", error);
       }
     };
 
     if (isLoaded) {
-      loadProfiles();
+      loadServerData();
     }
   }, [isLoaded]);
 
@@ -181,7 +192,7 @@ export default function App() {
         settings,
         rows,
         customHolidays,
-        wages: Object.fromEntries(Object.entries(wages).filter(([key]) => PROVINCES.includes(key))),
+        // wages: removed from persistence as it is now server-side
         activeTab,
         isDarkMode
         // profiles: removed from persistence as it is now server-side
@@ -212,7 +223,7 @@ export default function App() {
       settings,
       rows,
       customHolidays,
-      wages: Object.fromEntries(Object.entries(wages).filter(([key]) => PROVINCES.includes(key))),
+      // wages: removed from JSON export
       activeTab,
       isDarkMode
       // profiles: removed from JSON export
@@ -389,38 +400,40 @@ export default function App() {
 
   // --- Handlers ---
   const addRow = () => {
-    const defaultProvince = 'กรุงเทพมหานคร';
     setRows([...rows, {
       id: crypto.randomUUID(),
       location: '',
-      province: defaultProvince,
+      province: '',
       points: 1,
-      minWage: wages[defaultProvince] || 363,
+      minWage: 0,
       isLoadingWage: false,
-      selectedProfileId: 'p1'
+      selectedProfileId: ''
     }]);
   };
 
   const removeRow = (id: string) => {
-    if (rows.length > 1) {
-      confirmAction({
-        title: 'ยืนยันการลบแถว',
-        message: 'คุณต้องการลบรายการแถวงบประมาณนี้ใช่หรือไม่?'
-      }).then(confirmed => {
-        if (confirmed) {
-          setRows(rows.filter(r => r.id !== id));
-        }
-      });
-    }
+    confirmAction({
+      title: 'ยืนยันการลบแถว',
+      message: 'คุณต้องการลบรายการแถวงบประมาณนี้ใช่หรือไม่?'
+    }).then(confirmed => {
+      if (confirmed) {
+        setRows(rows.filter(r => r.id !== id));
+      }
+    });
   };
 
   const updateRow = (id: string, updates: Partial<CalculationRow>) => {
     setRows(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
   };
 
-  const updateProvinceWage = (province: string, wage: number) => {
+  const updateProvinceWage = async (province: string, wage: number) => {
     if (!isAuthenticated) return;
-    setWages(prev => ({ ...prev, [province]: wage }));
+    try {
+      await wageService.save(province, wage);
+      setWages(prev => ({ ...prev, [province]: wage }));
+    } catch (error) {
+      alert('ไม่สามารถบันทึกค่าแรงได้');
+    }
   };
 
   const addProfile = async () => {
@@ -514,7 +527,7 @@ export default function App() {
     setCsvExportModal(null);
   };
 
-  const importWagesCSV = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const importWagesCSV = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!isAuthenticated) {
       setShowLoginModal(true);
       return;
@@ -523,11 +536,11 @@ export default function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const text = event.target?.result as string;
         const lines = text.split(/\r?\n/);
-        const newWages = { ...wages };
+        const newWages: Record<string, number> = {};
 
         // Skip header, start from index 1
         for (let i = 1; i < lines.length; i++) {
@@ -539,10 +552,11 @@ export default function App() {
           }
         }
 
+        await wageService.sync(newWages);
         setWages(newWages);
         alert('นำเข้าข้อมูลค่าแรงเรียบร้อยแล้ว');
       } catch (err) {
-        alert('ไฟล์ CSV ไม่ถูกต้อง');
+        alert('เกิดข้อผิดพลาดในการนำเข้า กรุณาตรวจสอบอีกครั้ง');
       }
     };
     reader.readAsText(file);
@@ -616,7 +630,16 @@ export default function App() {
   const calculateBudget = (row: CalculationRow) => {
     if (!periodStats) return null;
 
-    const profile = profiles.find(p => p.id === row.selectedProfileId) || profiles[0];
+    const profile = profiles.find(p => p.id === row.selectedProfileId) || {
+      id: '',
+      name: '',
+      normalHours: 0,
+      otHours: 0,
+      holidayNormalHours: 0,
+      holidayOtHours: 0,
+      shiftsPerPointNormal: 0,
+      shiftsPerPointHoliday: 0
+    };
     const hourlyRate = row.minWage / 8;
     const normalHours = profile.normalHours;
     const otHours = profile.otHours;
@@ -913,19 +936,21 @@ export default function App() {
                   <Calculator className="w-5 h-5 text-indigo-600 dark:text-indigo-400" />
                   <h2 className="font-bold text-slate-800 dark:text-slate-100">รายการคำนวณงบประมาณรายจุด</h2>
                 </div>
-                <button
-                  onClick={addRow}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-indigo-600 dark:bg-indigo-500 rounded-lg hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-all shadow-md shadow-indigo-100 dark:shadow-none"
-                >
-                  <Plus className="w-4 h-4" />
-                  เพิ่มสถานที่
-                </button>
               </div>
 
               <div className="flex flex-col divide-y divide-slate-100 dark:divide-slate-800">
                 <AnimatePresence mode="popLayout">
                   {rows.map((row) => {
-                    const profile = profiles.find(p => p.id === row.selectedProfileId) || profiles[0];
+                    const profile = profiles.find(p => p.id === row.selectedProfileId) || {
+                      id: '',
+                      name: '',
+                      normalHours: 0,
+                      otHours: 0,
+                      holidayNormalHours: 0,
+                      holidayOtHours: 0,
+                      shiftsPerPointNormal: 0,
+                      shiftsPerPointHoliday: 0
+                    };
                     const budget = calculateBudget(row);
                     return (
                       <motion.div
@@ -959,11 +984,12 @@ export default function App() {
                                 const newProvince = e.target.value;
                                 updateRow(row.id, {
                                   province: newProvince,
-                                  minWage: wages[newProvince] || row.minWage
+                                  minWage: wages[newProvince] || 0
                                 });
                               }}
                               className="w-full text-sm font-bold bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500 dark:text-slate-100"
                             >
+                              <option value="" disabled hidden>เลือกจังหวัด</option>
                               {PROVINCES.map(p => <option key={p} value={p}>{p}</option>)}
                             </select>
                           </div>
@@ -975,6 +1001,7 @@ export default function App() {
                               onChange={(e) => updateRow(row.id, { selectedProfileId: e.target.value })}
                               className="w-full text-sm font-bold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 rounded-lg px-3 py-2 outline-none focus:ring-2 focus:ring-indigo-500"
                             >
+                              <option value="" disabled hidden>เลือกรูปแบบผลัด / โปรไฟล์</option>
                               {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                             </select>
                           </div>
@@ -1055,8 +1082,89 @@ export default function App() {
                     );
                   })}
                 </AnimatePresence>
+
+                {/* Add Location Button - centered when empty, at end of list when items exist */}
+                {rows.length === 0 ? (
+                  <div className="flex items-center justify-center py-16">
+                    <button
+                      onClick={addRow}
+                      className="flex items-center gap-2 px-6 py-3 text-sm font-bold text-white bg-indigo-600 dark:bg-indigo-500 rounded-lg hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-all shadow-md shadow-indigo-100 dark:shadow-none"
+                    >
+                      <Plus className="w-4 h-4" />
+                      เพิ่มสถานที่
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-6 flex justify-center border-t border-slate-100 dark:border-slate-800">
+                    <button
+                      onClick={addRow}
+                      className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-indigo-600 dark:bg-indigo-500 rounded-lg hover:bg-indigo-700 dark:hover:bg-indigo-600 transition-all shadow-md shadow-indigo-100 dark:shadow-none"
+                    >
+                      <Plus className="w-4 h-4" />
+                      เพิ่มสถานที่
+                    </button>
+                  </div>
+                )}
               </div>
             </section>
+
+            {/* Per-row Summary Breakdown */}
+            {rows.length > 0 && rows.some(r => calculateBudget(r) !== null) && (
+              <section className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden transition-colors">
+                <div className="p-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-800/50 flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <h2 className="font-bold text-sm text-slate-800 dark:text-slate-100">สรุปงบประมาณรายสถานที่ (ตลอดช่วงเวลา)</h2>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/30">
+                        <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">สถานที่</th>
+                        <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">จังหวัด</th>
+                        <th className="text-left text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">รูปแบบผลัด</th>
+                        <th className="text-center text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">จำนวนจุด</th>
+                        <th className="text-right text-[10px] font-bold text-slate-500 uppercase tracking-wider px-4 py-3">งบ/จุด</th>
+                        <th className="text-right text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider px-4 py-3">รวมทั้งสิ้น</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50 dark:divide-slate-800">
+                      {rows.map((row) => {
+                        const budget = calculateBudget(row);
+                        const profile = profiles.find(p => p.id === row.selectedProfileId);
+                        return (
+                          <tr key={row.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/30 transition-colors">
+                            <td className="px-4 py-3 font-semibold text-slate-800 dark:text-slate-100">
+                              {row.location || <span className="text-slate-400 italic">ไม่ระบุชื่อ</span>}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{row.province || '-'}</td>
+                            <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-[11px]">{profile?.name || '-'}</td>
+                            <td className="px-4 py-3 text-center font-mono font-medium">{row.points}</td>
+                            <td className="px-4 py-3 text-right font-mono text-emerald-600 dark:text-emerald-400">
+                              {budget ? `฿ ${budget.totalPerPoint.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
+                            </td>
+                            <td className="px-4 py-3 text-right font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                              {budget ? `฿ ${budget.grandTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-indigo-100 dark:border-indigo-800 bg-indigo-50/50 dark:bg-indigo-900/20">
+                        <td colSpan={3} className="px-4 py-3 text-xs font-bold text-indigo-700 dark:text-indigo-300 uppercase tracking-wider">รวมทั้งหมด</td>
+                        <td className="px-4 py-3 text-center font-mono font-bold text-indigo-700 dark:text-indigo-300">
+                          {rows.reduce((acc, r) => acc + r.points, 0)} จุด
+                        </td>
+                        <td className="px-4 py-3" />
+                        <td className="px-4 py-3 text-right font-mono font-black text-lg text-indigo-700 dark:text-indigo-300">
+                          ฿ {rows.reduce((acc, row) => acc + (calculateBudget(row)?.grandTotal || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </section>
+            )}
 
             {/* Summary Footer */}
             <div className="flex flex-col md:flex-row gap-6 items-stretch">
