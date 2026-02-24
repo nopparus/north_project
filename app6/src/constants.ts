@@ -45,12 +45,24 @@ export interface MonthStats {
 }
 
 export const getEffectiveHolidays = (inputHolidays: ThaiHoliday[]): ThaiHoliday[] => {
-  // Sort holidays to process chronologically
-  const sorted = [...inputHolidays].sort((a, b) => a.date.localeCompare(b.date));
-  const effective: ThaiHoliday[] = [...sorted];
-  const holidayDatesSet = new Set(effective.map(h => h.date));
+  // 1. Deduplicate by date using a Map (Strict 1 date = 1 holiday)
+  const holidayMap = new Map<string, ThaiHoliday>();
 
-  sorted.forEach(holiday => {
+  // Sort input to ensure deterministic override if they exist (last one wins if same date)
+  const sortedInput = [...inputHolidays].sort((a, b) => a.date.localeCompare(b.date));
+
+  sortedInput.forEach(h => {
+    // If we already have a holiday on this date, we might want to keep the one that is NOT a substitute
+    // or just let the last one override. Given the user's issue, strict deduplication is key.
+    holidayMap.set(h.date, h);
+  });
+
+  const baseHolidays = Array.from(holidayMap.values());
+  const effective: ThaiHoliday[] = [...baseHolidays];
+  const holidayDatesSet = new Set(baseHolidays.map(h => h.date));
+
+  // 2. Process substitutions
+  baseHolidays.forEach(holiday => {
     const d = new Date(holiday.date);
     const dayOfWeek = d.getDay(); // 0 = Sun, 6 = Sat
 
@@ -75,6 +87,9 @@ export const getEffectiveHolidays = (inputHolidays: ThaiHoliday[]): ThaiHoliday[
 
         // Move to next day if occupied
         substituteDate.setDate(substituteDate.getDate() + 1);
+
+        // Safety break after 14 days (prevent infinite loop if something goes wrong)
+        if (substituteDate.getTime() - d.getTime() > 14 * 24 * 60 * 60 * 1000) break;
       }
     }
   });
@@ -87,12 +102,18 @@ export const getMonthStats = (month: number, year: number, customHolidays?: Thai
   const end = endOfMonth(start);
   const days = eachDayOfInterval({ start, end });
 
-  // Need to fetch holidays for the previous and next year to handle substitution correctly over year boundaries
-  const allHolidays = customHolidays || [
-    ...DEFAULT_THAI_HOLIDAYS(year - 1),
-    ...DEFAULT_THAI_HOLIDAYS(year),
-    ...DEFAULT_THAI_HOLIDAYS(year + 1)
-  ];
+  // Ensure custom holidays are merged with standard holidays for range calculation
+  const baseHolidays = customHolidays || [];
+  const years = [year - 1, year, year + 1];
+  const allHolidays = [...baseHolidays];
+
+  years.forEach(y => {
+    DEFAULT_THAI_HOLIDAYS(y).forEach(sh => {
+      if (!allHolidays.some(h => h.date === sh.date)) {
+        allHolidays.push(sh);
+      }
+    });
+  });
 
   const effectiveHolidays = getEffectiveHolidays(allHolidays);
 
