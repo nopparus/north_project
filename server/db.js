@@ -110,6 +110,11 @@ function initDB() {
       wage INTEGER NOT NULL,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS app6_holidays (
+      date TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Seed admin user if not exists
@@ -129,6 +134,37 @@ function initDB() {
       stmt.run(app.id, app.name, app.description, app.icon, app.color, app.path, app.app_type, app.iframe_src, app.display_order);
     }
   }
+
+  // Seed default Thai holidays for years 2024–2034 (if not already present)
+  const defaultThaiHolidays = (year) => [
+    { date: `${year}-01-01`, name: 'วันขึ้นปีใหม่' },
+    { date: `${year}-04-06`, name: 'วันจักรี' },
+    { date: `${year}-04-13`, name: 'วันสงกรานต์' },
+    { date: `${year}-04-14`, name: 'วันสงกรานต์' },
+    { date: `${year}-04-15`, name: 'วันสงกรานต์' },
+    { date: `${year}-05-01`, name: 'วันแรงงานแห่งชาติ' },
+    { date: `${year}-05-04`, name: 'วันฉัตรมงคล' },
+    { date: `${year}-06-03`, name: 'วันเฉลิมพระชนมพรรษาพระราชินี' },
+    { date: `${year}-07-28`, name: 'วันเฉลิมพระชนมพรรษา ร.10' },
+    { date: `${year}-08-12`, name: 'วันแม่แห่งชาติ' },
+    { date: `${year}-10-13`, name: 'วันคล้ายวันสวรรคต ร.9' },
+    { date: `${year}-10-23`, name: 'วันปิยมหาราช' },
+    { date: `${year}-12-05`, name: 'วันพ่อแห่งชาติ' },
+    { date: `${year}-12-10`, name: 'วันรัฐธรรมนูญ' },
+    { date: `${year}-12-31`, name: 'วันสิ้นปี' },
+  ];
+  const insertHoliday = db.prepare(`
+    INSERT OR IGNORE INTO app6_holidays (date, name, updated_at)
+    VALUES (?, ?, CURRENT_TIMESTAMP)
+  `);
+  const seedHolidays = db.transaction(() => {
+    for (let year = 2024; year <= 2034; year++) {
+      for (const h of defaultThaiHolidays(year)) {
+        insertHoliday.run(h.date, h.name);
+      }
+    }
+  });
+  seedHolidays();
 
   // Seed PMS projects (3 examples)
   const pmsProjectCount = db.prepare('SELECT COUNT(*) as count FROM pms_projects').get();

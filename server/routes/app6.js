@@ -153,4 +153,70 @@ router.post('/wages/sync', (req, res) => {
     }
 });
 
+// ── Holidays ───────────────────────────────────────────────
+
+// Get all holidays
+router.get('/holidays', (req, res) => {
+    try {
+        const db = getDB();
+        const rows = db.prepare('SELECT date, name FROM app6_holidays ORDER BY date ASC').all();
+        res.json(rows); // array of { date, name }
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Upsert a single holiday
+router.post('/holidays', (req, res) => {
+    const { date, name } = req.body;
+    if (!date || !name) return res.status(400).json({ error: 'date and name are required' });
+    try {
+        const db = getDB();
+        db.prepare(`
+            INSERT INTO app6_holidays (date, name, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(date) DO UPDATE SET
+                name = excluded.name,
+                updated_at = CURRENT_TIMESTAMP
+        `).run(date, name);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Delete a single holiday
+router.delete('/holidays/:date', (req, res) => {
+    const { date } = req.params;
+    try {
+        const db = getDB();
+        db.prepare('DELETE FROM app6_holidays WHERE date = ?').run(date);
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Bulk sync (replace all)
+router.post('/holidays/sync', (req, res) => {
+    const holidays = req.body; // expects Array<{ date, name }>
+    if (!Array.isArray(holidays)) return res.status(400).json({ error: 'Expected an array' });
+    try {
+        const db = getDB();
+        const deleteAll = db.prepare('DELETE FROM app6_holidays');
+        const insert = db.prepare(`
+            INSERT INTO app6_holidays (date, name, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP)
+        `);
+        db.transaction(() => {
+            deleteAll.run();
+            for (const h of holidays) {
+                if (h.date && h.name) insert.run(h.date, h.name);
+            }
+        })();
+        res.json({ success: true });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;
