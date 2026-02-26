@@ -22,6 +22,7 @@ import {
 import { RDMode, SummaryData, GroupRule, Condition, Operator } from './types';
 import { processExcelFile, exportProcessedExcel } from './services/excelProcessor';
 import { RD03_COLS, RD05_COLS, DEFAULT_RD03_RULES, DEFAULT_RD05_RULES } from './constants';
+import { configService } from './services/configService';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell, Legend
@@ -77,12 +78,26 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const saved03 = localStorage.getItem('rd03_rules_v2');
-    const saved05 = localStorage.getItem('rd05_rules_v2');
-    const savedProfiles = localStorage.getItem('rd_profiles');
-    setRd03Rules(saved03 ? JSON.parse(saved03) : DEFAULT_RD03_RULES);
-    setRd05Rules(saved05 ? JSON.parse(saved05) : DEFAULT_RD05_RULES);
-    setProfiles(savedProfiles ? JSON.parse(savedProfiles) : []);
+    const loadConfigs = async () => {
+      // 1. Load from DB
+      const dbConfigs = await configService.getConfigs();
+
+      // 2. Load from LocalStorage (Fallback/Legacy)
+      const saved03 = localStorage.getItem('rd03_rules_v2');
+      const saved05 = localStorage.getItem('rd05_rules_v2');
+      const savedProfiles = localStorage.getItem('rd_profiles');
+
+      setRd03Rules(dbConfigs.rd03_rules_v2 || (saved03 ? JSON.parse(saved03) : DEFAULT_RD03_RULES));
+      setRd05Rules(dbConfigs.rd05_rules_v2 || (saved05 ? JSON.parse(saved05) : DEFAULT_RD05_RULES));
+      setProfiles(dbConfigs.rd_profiles || (savedProfiles ? JSON.parse(savedProfiles) : []));
+
+      // Sync local storage if DB had data
+      if (dbConfigs.rd03_rules_v2) localStorage.setItem('rd03_rules_v2', JSON.stringify(dbConfigs.rd03_rules_v2));
+      if (dbConfigs.rd05_rules_v2) localStorage.setItem('rd05_rules_v2', JSON.stringify(dbConfigs.rd05_rules_v2));
+      if (dbConfigs.rd_profiles) localStorage.setItem('rd_profiles', JSON.stringify(dbConfigs.rd_profiles));
+    };
+
+    loadConfigs();
   }, []);
 
   useEffect(() => { localStorage.setItem('rd_view', view); }, [view]);
@@ -96,10 +111,17 @@ export default function App() {
     else setRd05Rules(rules);
   };
 
-  const saveRules = () => {
+  const saveRules = async () => {
+    // Save to LocalStorage
     localStorage.setItem('rd03_rules_v2', JSON.stringify(rd03Rules));
     localStorage.setItem('rd05_rules_v2', JSON.stringify(rd05Rules));
-    alert('บันทึกการตั้งค่าเรียบร้อยแล้ว');
+
+    // Save to DB
+    const p1 = configService.saveConfig('rd03_rules_v2', rd03Rules);
+    const p2 = configService.saveConfig('rd05_rules_v2', rd05Rules);
+
+    await Promise.all([p1, p2]);
+    alert('บันทึกการตั้งค่าเรียบร้อยแล้ว (ตรวจสอบ Database และ LocalStorage)');
   };
 
   const startProcessing = async () => {
@@ -252,8 +274,8 @@ export default function App() {
     condOp === 'in_list'
       ? !condValue.trim()
       : condOp === 'between'
-      ? !condValue
-      : !condValue.trim();
+        ? !condValue
+        : !condValue.trim();
 
   return (
     <div className="min-h-screen text-slate-200 bg-slate-950 flex flex-col font-['Sarabun']">
@@ -279,11 +301,10 @@ export default function App() {
           )}
           <button
             onClick={() => setView(view === 'settings' ? 'summary' : 'settings')}
-            className={`p-2.5 rounded-lg transition-all border ${
-              view === 'settings'
+            className={`p-2.5 rounded-lg transition-all border ${view === 'settings'
                 ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500/50 shadow-inner'
                 : 'bg-slate-800 text-slate-400 hover:text-white border-slate-700 hover:bg-slate-700'
-            }`}
+              }`}
           >
             <SettingsIcon size={20} />
           </button>
@@ -345,11 +366,10 @@ export default function App() {
                       draggable
                       onDragStart={() => setDraggedCol(col)}
                       onDragEnd={() => setDraggedCol(null)}
-                      className={`flex items-center gap-2 p-2.5 bg-slate-800/50 border rounded-lg transition-all cursor-grab active:cursor-grabbing group select-none ${
-                        draggedCol === col
+                      className={`flex items-center gap-2 p-2.5 bg-slate-800/50 border rounded-lg transition-all cursor-grab active:cursor-grabbing group select-none ${draggedCol === col
                           ? 'border-indigo-500/60 bg-indigo-950/30 opacity-60'
                           : 'border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800'
-                      }`}
+                        }`}
                     >
                       <GripVertical size={12} className="text-slate-600 group-hover:text-slate-400 shrink-0" />
                       <span className="text-xs font-medium text-slate-400 group-hover:text-slate-200 truncate">{col}</span>
@@ -379,11 +399,10 @@ export default function App() {
                       onDragOver={e => handleDragOver(e, rule.id)}
                       onDragLeave={handleDragLeave}
                       onDrop={e => handleDrop(e, rule.id)}
-                      className={`bg-slate-900 border rounded-xl p-5 transition-all shadow-sm ${
-                        dropTarget === rule.id
+                      className={`bg-slate-900 border rounded-xl p-5 transition-all shadow-sm ${dropTarget === rule.id
                           ? 'border-indigo-500 bg-indigo-950/20 shadow-indigo-500/10 shadow-lg'
                           : 'border-slate-800 hover:border-slate-700'
-                      }`}
+                        }`}
                     >
                       {/* Rule header */}
                       <div className="flex items-center gap-3 mb-4">
@@ -432,9 +451,8 @@ export default function App() {
                           </div>
                         ))}
                         {rule.conditions.length === 0 && (
-                          <p className={`text-[10px] italic py-1 px-1 transition-colors ${
-                            dropTarget === rule.id ? 'text-indigo-400' : 'text-slate-700'
-                          }`}>
+                          <p className={`text-[10px] italic py-1 px-1 transition-colors ${dropTarget === rule.id ? 'text-indigo-400' : 'text-slate-700'
+                            }`}>
                             {dropTarget === rule.id ? '✦ วางที่นี่เพื่อเพิ่มเงื่อนไข' : 'ลากคอลัมน์มาวาง หรือจะว่างไว้เพื่อจับทุกแถว'}
                           </p>
                         )}
@@ -473,9 +491,8 @@ export default function App() {
               </button>
             </div>
             <div
-              className={`bg-slate-900/50 border-2 border-dashed rounded-[2.5rem] p-16 text-center transition-all ${
-                file ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900'
-              }`}
+              className={`bg-slate-900/50 border-2 border-dashed rounded-[2.5rem] p-16 text-center transition-all ${file ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900'
+                }`}
             >
               {!file ? (
                 <div className="space-y-6">

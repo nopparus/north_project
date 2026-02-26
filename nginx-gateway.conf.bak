@@ -1,0 +1,114 @@
+server {
+    listen 80;
+    server_name localhost;
+
+    # Enable CORS
+    add_header Access-Control-Allow-Origin *;
+    add_header Access-Control-Allow-Methods 'GET, POST, OPTIONS, PUT, DELETE';
+    add_header Access-Control-Allow-Headers 'DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization';
+
+    resolver 127.0.0.11 valid=10s;
+    client_max_body_size 50M;
+
+    # 0. Protocol Handling (Internal variable)
+    set $proto $scheme;
+    if ($http_x_forwarded_proto) {
+        set $proto $http_x_forwarded_proto;
+    }
+
+    # 1. Redirect app URLs without trailing slash (Protocol-aware)
+    location ~ ^/(app[1-6])$ {
+        return 301 $proto://$http_host/$1/;
+    }
+
+    # 2. App1 Proxy
+    location /app1/ {
+        set $upstream_app1 http://nexus-app1:80;
+        rewrite ^/app1/(.*) /$1 break;
+        proxy_pass $upstream_app1$uri$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+
+    # 3. App2 Proxy
+    location /app2/ {
+        set $upstream_app2 http://nexus-app2:80;
+        rewrite ^/app2/(.*) /$1 break;
+        proxy_pass $upstream_app2$uri$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+
+    # 4. App3 Proxy
+    location /app3/ {
+        set $upstream_app3 http://nexus-app3:80;
+        rewrite ^/app3/(.*) /$1 break;
+        proxy_pass $upstream_app3$uri$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+
+    # 5. App4 Proxy (Frontend)
+    location /app4/ {
+        set $upstream_app4 http://nexus-app4:80;
+        rewrite ^/app4/(.*) /$1 break;
+        proxy_pass $upstream_app4$uri$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+
+    # 6. App5 Proxy
+    location /app5/ {
+        set $upstream_app5 http://nexus-app5:80;
+        rewrite ^/app5/(.*) /$1 break;
+        proxy_pass $upstream_app5$uri$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+
+    # 7. App6 Proxy (Match standard pattern)
+    location /app6/ {
+        set $upstream_app6 http://nexus-app6:80;
+        rewrite ^/app6/(.*) /$1 break;
+        proxy_pass $upstream_app6$uri$is_args$args;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+
+    # 8. API Proxies
+    location /api/pms/ {
+        proxy_pass http://nexus-app5-backend:3000/api/pms/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+
+    location /api/ {
+        proxy_pass http://nexus-main-api:3001/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+
+    location /app4/api/ {
+        proxy_pass http://nexus-app4-backend:3004/app4/api/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+
+    # 9. Main Portal (Catch-all) - MUST BE AT THE END
+    location / {
+        proxy_pass http://nexus-menu:80/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $proto;
+    }
+}

@@ -35,7 +35,7 @@ services:
       - PORT=3001
       - DB_PATH=/app/nexus.db
     volumes:
-      - ./server/data:/app/data
+      - ./server/nexus.db:/app/nexus.db
     networks:
       - nexus-network
 

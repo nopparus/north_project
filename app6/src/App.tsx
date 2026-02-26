@@ -104,7 +104,7 @@ export default function App() {
     holidayPayRate: 1.0,
   });
 
-  const [isSummaryExpanded, setIsSummaryExpanded] = useState(true);
+  const [isSummaryExpanded, setIsSummaryExpanded] = useState(false);
 
   // --- Persistence ---
   useEffect(() => {
@@ -173,12 +173,8 @@ export default function App() {
           setProfiles(serverProfiles);
         }
 
-        // Wages Sync Logic
-        if (Object.keys(serverWages).length === 0 && Object.keys(wages).length > 0) {
-          await wageService.sync(wages);
-          const syncedWages = await wageService.getAll();
-          setWages(syncedWages);
-        } else if (Object.keys(serverWages).length > 0) {
+        // Wages Logic (No more sync from frontend, just load from server)
+        if (Object.keys(serverWages).length > 0) {
           setWages(serverWages);
         }
 
@@ -442,19 +438,6 @@ export default function App() {
     } catch (e) { }
   }, [isLoaded, startDate, endDate]);
 
-  // Initialize wages if empty
-  useEffect(() => {
-    if (isLoaded && Object.keys(wages).length === 0) {
-      const initialWages: Record<string, number> = {};
-      PROVINCES.forEach(p => {
-        // Set some reasonable defaults if we don't have them
-        if (p === 'กรุงเทพมหานคร') initialWages[p] = 363;
-        else if (p === 'ภูเก็ต') initialWages[p] = 370;
-        else initialWages[p] = 350;
-      });
-      setWages(initialWages);
-    }
-  }, [isLoaded, wages]);
 
   // --- Calculations ---
   const months = useMemo(() => {
@@ -1293,7 +1276,7 @@ export default function App() {
                                     {row.location || <span className="text-slate-400 italic">ไม่ระบุชื่อ</span>}
                                   </td>
                                   <td className="px-4 py-3 text-slate-600 dark:text-slate-400">{row.province || '-'}</td>
-                                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-[11px]">{profile?.name || '-'}</td>
+                                  <td className="px-4 py-3 text-slate-600 dark:text-slate-400 text-sm">{profile?.name || '-'}</td>
                                   <td className="px-4 py-3 text-center font-mono font-medium">{row.points}</td>
                                   <td className="px-4 py-3 text-right font-mono text-emerald-600 dark:text-emerald-400">
                                     {budget ? `฿ ${budget.totalPerPoint.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '-'}

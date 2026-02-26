@@ -4,7 +4,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
-const DB_PATH = path.join(__dirname, 'nexus.db');
+const DB_PATH = path.join(__dirname, 'data', 'nexus.db');
 let db = null;
 
 function getDB() {
@@ -115,6 +115,12 @@ function initDB() {
       name TEXT NOT NULL,
       updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS app1_configs (
+      key TEXT PRIMARY KEY,
+      value TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 
   // Seed admin user if not exists
@@ -165,6 +171,32 @@ function initDB() {
     }
   });
   seedHolidays();
+
+  // Seed default wages (if not already present)
+  const wageCount = db.prepare('SELECT COUNT(*) as count FROM app6_minimum_wages').get();
+  if (wageCount.count === 0) {
+    const insertWage = db.prepare('INSERT INTO app6_minimum_wages (province, wage) VALUES (?, ?)');
+
+    // Full list of provinces based on app6 constants
+    const allProvinces = [
+      "กรุงเทพมหานคร", "นครปฐม", "นนทบุรี", "ปทุมธานี", "สมุทรปราการ", "สมุทรสาคร",
+      "ชัยนาท", "นครนายก", "นครสวรรค์", "พระนครศรีอยุธยา", "พิจิตร", "พิษณุโลก", "ลพบุรี", "สมุทรสงคราม", "สระบุรี", "สิงห์บุรี", "สุโขทัย", "สุพรรณบุรี", "อ่างทอง", "อุทัยธานี", "กำแพงเพชร", "เพชรบูรณ์",
+      "เชียงราย", "เชียงใหม่", "น่าน", "พะเยา", "แพร่", "แม่ฮ่องสอน", "ลำปาง", "ลำพูน", "อุตรดิตถ์",
+      "กาฬสินธุ์", "ขอนแก่น", "ชัยภูมิ", "นครพนม", "นครราชสีมา", "บึงกาฬ", "บุรีรัมย์", "มหาสารคาม", "มุกดาหาร", "ยโสธร", "ร้อยเอ็ด", "เลย", "ศรีสะเกษ", "สกลนคร", "สุรินทร์", "หนองคาย", "หนองบัวลำภู", "อำนาจเจริญ", "อุดรธานี", "อุบลราชธานี",
+      "จันทบุรี", "ฉะเชิงเทรา", "ชลบุรี", "ตราด", "ปราจีนบุรี", "ระยอง", "สระแก้ว",
+      "กาญจนบุรี", "ตาก", "ประจวบคีรีขันธ์", "เพชรบุรี", "ราชบุรี",
+      "กระบี่", "ชุมพร", "ตรัง", "นครศรีธรรมราช", "นราธิวาส", "ปัตตานี", "พังงา", "พัทลุง", "ภูเก็ต", "ยะลา", "ระนอง", "สงขลา", "สตูล", "สุราษฎร์ธานี"
+    ];
+
+    db.transaction(() => {
+      for (const p of allProvinces) {
+        let wage = 350;
+        if (p === 'กรุงเทพมหานคร') wage = 363;
+        if (p === 'ภูเก็ต') wage = 370;
+        insertWage.run(p, wage);
+      }
+    })();
+  }
 
   // Seed PMS projects (3 examples)
   const pmsProjectCount = db.prepare('SELECT COUNT(*) as count FROM pms_projects').get();

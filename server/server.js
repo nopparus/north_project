@@ -8,6 +8,7 @@ const authRoutes = require('./routes/auth');
 const appsRoutes = require('./routes/apps');
 const pmsRoutes = require('./routes/pms');
 const app6Routes = require('./routes/app6');
+const app1Routes = require('./routes/app1');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -24,6 +25,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/apps', appsRoutes);
 app.use('/api/pms', pmsRoutes);
 app.use('/api/app6', app6Routes);
+app.use('/api/app1', app1Routes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
