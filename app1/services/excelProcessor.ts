@@ -102,6 +102,13 @@ export const processExcelFile = async (file: File, mode: RDMode, rules: GroupRul
 
             // Process rules in priority order
             for (const rule of sortedRules) {
+              // If "Only If Empty" is checked, skip this rule if the target field already has a non-default value
+              if (rule.onlyIfEmpty) {
+                const currentVal = rule.targetField === 'GroupConcession' ? obj.GroupConcession : obj.Group;
+                const isEmpty = !currentVal || currentVal === "ไม่พบกลุ่ม" || currentVal === "3.0";
+                if (!isEmpty) continue;
+              }
+
               if (matchesRule(obj, rule)) {
                 const finalValue = rule.resultValue || (rule.targetField === 'GroupConcession' ? (rule.name || rule.id) : rule.id);
 

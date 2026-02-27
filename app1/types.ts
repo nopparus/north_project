@@ -16,6 +16,7 @@ export interface GroupRule {
   conditions: Condition[];
   priority: number;
   targetField?: 'Group' | 'GroupConcession';
+  onlyIfEmpty?: boolean;
   description?: string; // User-facing description of the rule logic
 }
 

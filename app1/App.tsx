@@ -18,6 +18,8 @@ import {
   X,
   Search,
   Edit3,
+  Check,
+  ChevronRight,
   AlertTriangle,
 } from 'lucide-react';
 import { RDMode, SummaryData, GroupRule, Condition, Operator } from './types';
@@ -90,6 +92,12 @@ export default function App() {
 
   const [isExporting, setIsExporting] = useState(false);
   const exportLockRef = useRef(false);
+
+  // Authentication State
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -207,18 +215,6 @@ export default function App() {
     }
   };
 
-  const handleResetLocalStorage = () => {
-    setConfirmModal({
-      isOpen: true,
-      type: 'confirm',
-      title: 'Reset Cache',
-      message: 'คุณต้องการล้างข้อมูลใน Browser และดึงใหม่จาก Database ใช่หรือไม่?',
-      onConfirm: () => {
-        localStorage.clear();
-        window.location.reload();
-      }
-    });
-  };
 
   const startProcessing = async () => {
     if (!file) return;
@@ -262,7 +258,31 @@ export default function App() {
     }, 100);
   };
 
-  // ── Rule Handlers ──
+  const handleAuthSubmit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    if (authPassword === 'admin123') {
+      setIsAuthenticated(true);
+      setShowAuthModal(false);
+      setAuthPassword('');
+      setAuthError(false);
+      setView('settings');
+    } else {
+      setAuthError(true);
+      setAuthPassword('');
+    }
+  };
+
+  const handleToggleSettings = () => {
+    if (view === 'settings') {
+      setView('summary');
+    } else {
+      if (isAuthenticated) {
+        setView('settings');
+      } else {
+        setShowAuthModal(true);
+      }
+    }
+  };
   const handleAddRule = () => {
     const newRule: GroupRule = {
       id: configTab === 'mapping' ? `gc-${Date.now()}` : `group-${Date.now()}`,
@@ -298,6 +318,12 @@ export default function App() {
 
   const handleUpdateDescription = (ruleId: string, newDesc: string) => {
     const updater = (prev: GroupRule[]) => prev.map(r => r.id === ruleId ? { ...r, description: newDesc } : r);
+    if (settingsMode === 'RD03') safeSetRd03Rules(updater);
+    else safeSetRd05Rules(updater);
+  };
+
+  const handleToggleOnlyIfEmpty = (ruleId: string) => {
+    const updater = (prev: GroupRule[]) => prev.map(r => r.id === ruleId ? { ...r, onlyIfEmpty: !r.onlyIfEmpty } : r);
     if (settingsMode === 'RD03') safeSetRd03Rules(updater);
     else safeSetRd05Rules(updater);
   };
@@ -452,7 +478,7 @@ export default function App() {
             <RotateCcw size={20} className={isProcessing ? 'animate-spin' : ''} />
           </button>
           <button
-            onClick={() => setView(view === 'settings' ? 'summary' : 'settings')}
+            onClick={handleToggleSettings}
             className={`p-2.5 rounded-lg transition-all border ${view === 'settings'
               ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500/50 shadow-inner'
               : 'bg-slate-800 text-slate-400 hover:text-white border-slate-700 hover:bg-slate-700'
@@ -479,12 +505,6 @@ export default function App() {
                 </div>
               </div>
               <div className="flex gap-3">
-                <button
-                  onClick={handleResetLocalStorage}
-                  className="px-4 py-2 bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition-all flex items-center gap-2"
-                >
-                  <Trash2 size={14} /> Reset Cache
-                </button>
                 <div className="flex flex-col gap-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Configuration Mode</label>
                   <select
@@ -621,6 +641,15 @@ export default function App() {
                             placeholder="เพิ่มคำอธิบายเงื่อนไข..."
                             rows={1}
                           />
+                        </div>
+
+                        {/* Only If Empty Checkbox */}
+                        <div className="flex items-center gap-2 px-3 py-1 bg-slate-800/40 rounded-lg group/check cursor-pointer hover:bg-slate-800/60 transition-all border border-transparent hover:border-slate-700"
+                          onClick={() => handleToggleOnlyIfEmpty(rule.id)}>
+                          <div className={`w-4 h-4 rounded border flex items-center justify-center transition-all ${rule.onlyIfEmpty ? 'bg-indigo-500 border-indigo-500' : 'border-slate-600'}`}>
+                            {rule.onlyIfEmpty && <Check size={10} className="text-white" />}
+                          </div>
+                          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest whitespace-nowrap">ตรวจสอบเฉพาะช่องว่าง</span>
                         </div>
                         <button
                           onClick={() => handleDeleteRule(rule.id)}
@@ -1063,6 +1092,53 @@ export default function App() {
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+      {/* Auth Modal */}
+      {showAuthModal && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300" onClick={() => setShowAuthModal(false)} />
+          <div className="bg-slate-900 border border-slate-800 w-full max-w-sm rounded-[32px] overflow-hidden shadow-2xl relative animate-in zoom-in-95 fade-in duration-300">
+            <form onSubmit={handleAuthSubmit} className="p-8">
+              <div className="w-16 h-16 bg-indigo-500/10 rounded-2xl flex items-center justify-center mx-auto mb-6 border border-indigo-500/20">
+                <SettingsIcon size={32} className="text-indigo-400" />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2 text-center">เข้าสู่ส่วนการตั้งค่า</h3>
+              <p className="text-slate-400 text-sm mb-6 text-center">กรุณาใส่รหัสผ่านเพื่อดำเนินการต่อ</p>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest px-1">Password</label>
+                  <input
+                    type="password"
+                    value={authPassword}
+                    onChange={e => {
+                      setAuthPassword(e.target.value);
+                      if (authError) setAuthError(false);
+                    }}
+                    className={`w-full bg-slate-800 border ${authError ? 'border-red-500/50' : 'border-slate-700'} text-white rounded-xl px-4 py-3 focus:border-indigo-500 outline-none transition-all font-medium`}
+                    placeholder="••••••••"
+                    autoFocus
+                  />
+                  {authError && <p className="text-red-400 text-[10px] font-bold uppercase tracking-widest px-1">รหัสผ่านไม่ถูกต้อง</p>}
+                </div>
+
+                <button
+                  type="submit"
+                  className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-indigo-600/20 transition-all active:scale-95"
+                >
+                  เข้าสู่ระบบ
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAuthModal(false)}
+                  className="w-full py-3 text-slate-500 hover:text-slate-300 text-xs font-bold transition-all"
+                >
+                  ยกเลิก
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
