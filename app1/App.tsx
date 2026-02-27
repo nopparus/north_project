@@ -18,10 +18,11 @@ import {
   X,
   Search,
   Edit3,
+  AlertTriangle,
 } from 'lucide-react';
 import { RDMode, SummaryData, GroupRule, Condition, Operator } from './types';
 import { processExcelFile, exportProcessedExcel } from './services/excelProcessor';
-import { RD03_COLS, RD05_COLS, DEFAULT_RD03_RULES, DEFAULT_RD05_RULES } from './constants';
+import { RD03_COLS, RD05_COLS, DEFAULT_RD03_RULES, DEFAULT_RD05_RULES, COLUMN_NAMES_TH } from './constants';
 import { configService } from './services/configService';
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -32,8 +33,10 @@ const COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
 
 const OPERATORS: { label: string; value: Operator }[] = [
   { label: 'เท่ากับ (= equals)', value: 'equals' },
+  { label: 'ไม่เท่ากับ (!= not_equals)', value: 'not_equals' },
   { label: 'มีคำว่า (LIKE contains)', value: 'contains' },
   { label: 'อยู่ในรายการ (IN list)', value: 'in_list' },
+  { label: 'ไม่อยู่ในรายการ (NOT IN)', value: 'not_in_list' },
   { label: 'อยู่ระหว่าง (BETWEEN)', value: 'between' },
   { label: 'มากกว่า (> greater than)', value: 'gt' },
   { label: 'มากกว่าหรือเท่ากับ (>= gte)', value: 'gte' },
@@ -64,6 +67,7 @@ export default function App() {
   const [settingsMode, setSettingsMode] = useState<RDMode>(() => (localStorage.getItem('rd_settings_mode') as RDMode) || 'RD03');
   const [searchCol, setSearchCol] = useState('');
   const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
+  const [configTab, setConfigTab] = useState<'mapping' | 'grouping'>('mapping');
 
   // Drag & drop
   const [draggedCol, setDraggedCol] = useState<string | null>(null);
@@ -74,6 +78,18 @@ export default function App() {
   const [condOp, setCondOp] = useState<Operator>('equals');
   const [condValue, setCondValue] = useState('');
   const [condValue2, setCondValue2] = useState('');
+
+  // Confirmation modal
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    type: 'confirm' | 'info' | 'error';
+    title: string;
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  const [isExporting, setIsExporting] = useState(false);
+  const exportLockRef = useRef(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -87,14 +103,9 @@ export default function App() {
       const saved05 = localStorage.getItem('rd05_rules_v2');
       const savedProfiles = localStorage.getItem('rd_profiles');
 
-      setRd03Rules(dbConfigs.rd03_rules_v2 || (saved03 ? JSON.parse(saved03) : DEFAULT_RD03_RULES));
-      setRd05Rules(dbConfigs.rd05_rules_v2 || (saved05 ? JSON.parse(saved05) : DEFAULT_RD05_RULES));
-      setProfiles(dbConfigs.rd_profiles || (savedProfiles ? JSON.parse(savedProfiles) : []));
-
-      // Sync local storage if DB had data
-      if (dbConfigs.rd03_rules_v2) localStorage.setItem('rd03_rules_v2', JSON.stringify(dbConfigs.rd03_rules_v2));
-      if (dbConfigs.rd05_rules_v2) localStorage.setItem('rd05_rules_v2', JSON.stringify(dbConfigs.rd05_rules_v2));
-      if (dbConfigs.rd_profiles) localStorage.setItem('rd_profiles', JSON.stringify(dbConfigs.rd_profiles));
+      safeSetRd03Rules(dbConfigs.rd03_rules_v2 || DEFAULT_RD03_RULES);
+      safeSetRd05Rules(dbConfigs.rd05_rules_v2 || DEFAULT_RD05_RULES);
+      setProfiles(dbConfigs.rd_profiles || []);
     };
 
     loadConfigs();
@@ -104,24 +115,109 @@ export default function App() {
   useEffect(() => { localStorage.setItem('rd_mode', mode); }, [mode]);
   useEffect(() => { localStorage.setItem('rd_settings_mode', settingsMode); }, [settingsMode]);
 
-  // Active rules for current settings mode
-  const activeRules = settingsMode === 'RD03' ? rd03Rules : rd05Rules;
-  const setActiveRules = (rules: GroupRule[]) => {
-    if (settingsMode === 'RD03') setRd03Rules(rules);
-    else setRd05Rules(rules);
+  // ── Source of Truth Sanitization ──
+  const sanitizeRules = (rules: GroupRule[]): GroupRule[] => {
+    return rules.map(r => {
+      const groupingRegex = /^[0-9]+(\.[0-9]+)+/;
+      const isGroupingPattern =
+        groupingRegex.test(String(r.id)) ||
+        groupingRegex.test(String(r.name)) ||
+        (r.resultValue && groupingRegex.test(String(r.resultValue)));
+      const expectedTarget = isGroupingPattern ? 'Group' : 'GroupConcession';
+
+      if (r.targetField !== expectedTarget) {
+        return { ...r, targetField: expectedTarget as any };
+      }
+      return r;
+    });
+  };
+
+  const safeSetRd03Rules = (updater: GroupRule[] | ((prev: GroupRule[]) => GroupRule[])) => {
+    setRd03Rules(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      return sanitizeRules(next);
+    });
+  };
+
+  const safeSetRd05Rules = (updater: GroupRule[] | ((prev: GroupRule[]) => GroupRule[])) => {
+    setRd05Rules(prev => {
+      const next = typeof updater === 'function' ? updater(prev) : updater;
+      return sanitizeRules(next);
+    });
+  };
+
+  // Active rules for current settings mode & tab
+  const activeRules = (settingsMode === 'RD03' ? rd03Rules : rd05Rules)
+    .filter(r => configTab === 'mapping' ? r.targetField === 'GroupConcession' : (r.targetField !== 'GroupConcession'))
+    .sort((a, b) => a.priority - b.priority);
+
+  // Helper to update rules in the correct state list
+  const updateRuleInList = (ruleId: string, updater: (r: GroupRule) => GroupRule) => {
+    const listUpdater = (prev: GroupRule[]) => prev.map(r => r.id === ruleId ? updater(r) : r);
+    if (settingsMode === 'RD03') safeSetRd03Rules(listUpdater);
+    else safeSetRd05Rules(listUpdater);
   };
 
   const saveRules = async () => {
+    const sanitized03 = sanitizeRules(rd03Rules);
+    const sanitized05 = sanitizeRules(rd05Rules);
+
     // Save to LocalStorage
-    localStorage.setItem('rd03_rules_v2', JSON.stringify(rd03Rules));
-    localStorage.setItem('rd05_rules_v2', JSON.stringify(rd05Rules));
+    localStorage.setItem('rd03_rules_v2', JSON.stringify(sanitized03));
+    localStorage.setItem('rd05_rules_v2', JSON.stringify(sanitized05));
 
     // Save to DB
-    const p1 = configService.saveConfig('rd03_rules_v2', rd03Rules);
-    const p2 = configService.saveConfig('rd05_rules_v2', rd05Rules);
+    const p1 = configService.saveConfig('rd03_rules_v2', sanitized03);
+    const p2 = configService.saveConfig('rd05_rules_v2', sanitized05);
 
     await Promise.all([p1, p2]);
-    alert('บันทึกการตั้งค่าเรียบร้อยแล้ว (ตรวจสอบ Database และ LocalStorage)');
+    setConfirmModal({
+      isOpen: true,
+      type: 'info',
+      title: 'บันทึกสำเร็จ',
+      message: 'บันทึกการตั้งค่าเรียบร้อยแล้ว',
+      onConfirm: () => setConfirmModal(null)
+    });
+  };
+
+  const syncFromDB = async () => {
+    setIsProcessing(true);
+    try {
+      const dbConfigs = await configService.getConfigs();
+      safeSetRd03Rules(dbConfigs.rd03_rules_v2 || []);
+      safeSetRd05Rules(dbConfigs.rd05_rules_v2 || []);
+      setProfiles(dbConfigs.rd_profiles || []);
+      setConfirmModal({
+        isOpen: true,
+        type: 'info',
+        title: 'ซิงค์ข้อมูลสำเร็จ',
+        message: 'ดึงข้อมูลล่าสุดจาก Database เรียบร้อยแล้ว',
+        onConfirm: () => setConfirmModal(null)
+      });
+    } catch (err) {
+      setConfirmModal({
+        isOpen: true,
+        type: 'error',
+        title: 'เกิดข้อผิดพลาด',
+        message: 'ดึงข้อมูลล้มเหลว: โปรดตรวจสอบว่า Backend API พร้อมใช้งาน',
+        onConfirm: () => setConfirmModal(null)
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleResetLocalStorage = () => {
+    setConfirmModal({
+      isOpen: true,
+      type: 'confirm',
+      title: 'Reset Cache',
+      message: 'คุณต้องการล้างข้อมูลใน Browser และดึงใหม่จาก Database ใช่หรือไม่?',
+      onConfirm: () => {
+        localStorage.clear();
+        window.location.reload();
+      }
+    });
   };
 
   const startProcessing = async () => {
@@ -141,31 +237,85 @@ export default function App() {
     }
   };
 
+  const handleExport = async () => {
+    if (!file || !summary || isExporting || exportLockRef.current) return;
+
+    const prefix = Math.floor(1000 + Math.random() * 9000);
+    const baseName = file.name.split('.').slice(0, -1).join('.');
+    const fileName = `${prefix}_Processed_${mode}_${baseName}.xlsx`;
+
+    exportLockRef.current = true;
+    setIsExporting(true);
+    console.log("[App] Starting immediate export for:", fileName);
+
+    // Use setTimeout to allow UI to render the loading state first
+    setTimeout(async () => {
+      try {
+        await exportProcessedExcel(data, fileName, mode, summary);
+      } catch (err) {
+        console.error("Export failed:", err);
+      } finally {
+        setIsExporting(false);
+        exportLockRef.current = false;
+        console.log("[App] Export finished");
+      }
+    }, 100);
+  };
+
   // ── Rule Handlers ──
   const handleAddRule = () => {
     const newRule: GroupRule = {
-      id: `rule-${Date.now()}`,
-      name: 'กลุ่มใหม่',
+      id: configTab === 'mapping' ? `gc-${Date.now()}` : `group-${Date.now()}`,
+      name: configTab === 'mapping' ? 'ชื่อกลุ่มหลัก...' : '9.9.9 กลุ่มใหม่',
       conditions: [],
-      priority: activeRules.length + 1,
+      priority: activeRules.length > 0 ? Math.max(...activeRules.map(r => r.priority)) + 1 : 100,
+      targetField: configTab === 'mapping' ? 'GroupConcession' : 'Group'
     };
-    setActiveRules([...activeRules, newRule]);
+
+    if (settingsMode === 'RD03') safeSetRd03Rules(prev => [...prev, newRule]);
+    else safeSetRd05Rules(prev => [...prev, newRule]);
   };
 
   const handleDeleteRule = (id: string) => {
-    setActiveRules(activeRules.filter(r => r.id !== id));
+    setConfirmModal({
+      isOpen: true,
+      type: 'confirm',
+      title: 'ลบกลุ่มเป้าหมาย',
+      message: 'คุณแน่ใจหรือไม่ว่าต้องการลบกลุ่มนี้และเงื่อนไขทั้งหมดที่เกี่ยวข้อง?',
+      onConfirm: () => {
+        if (settingsMode === 'RD03') safeSetRd03Rules(prev => prev.filter(r => r.id !== id));
+        else safeSetRd05Rules(prev => prev.filter(r => r.id !== id));
+        setConfirmModal(null);
+      }
+    });
   };
 
-  const handleRenameRule = (id: string, name: string) => {
-    setActiveRules(activeRules.map(r => (r.id === id ? { ...r, name } : r)));
+  const handleRenameRule = (ruleId: string, newName: string) => {
+    const updater = (prev: GroupRule[]) => prev.map(r => r.id === ruleId ? { ...r, name: newName } : r);
+    if (settingsMode === 'RD03') safeSetRd03Rules(updater);
+    else safeSetRd05Rules(updater);
+  };
+
+  const handleUpdateDescription = (ruleId: string, newDesc: string) => {
+    const updater = (prev: GroupRule[]) => prev.map(r => r.id === ruleId ? { ...r, description: newDesc } : r);
+    if (settingsMode === 'RD03') safeSetRd03Rules(updater);
+    else safeSetRd05Rules(updater);
   };
 
   const handleDeleteCondition = (ruleId: string, idx: number) => {
-    setActiveRules(
-      activeRules.map(r =>
-        r.id === ruleId ? { ...r, conditions: r.conditions.filter((_, i) => i !== idx) } : r
-      )
-    );
+    setConfirmModal({
+      isOpen: true,
+      type: 'confirm',
+      title: 'ลบเงื่อนไข',
+      message: 'คุณต้องการลบเงื่อนไขนี้ใช่หรือไม่?',
+      onConfirm: () => {
+        updateRuleInList(ruleId, r => ({
+          ...r,
+          conditions: r.conditions.filter((_, i) => i !== idx)
+        }));
+        setConfirmModal(null);
+      }
+    });
   };
 
   const openCondModal = (ruleId: string, column: string, editIndex?: number) => {
@@ -174,7 +324,7 @@ export default function App() {
       if (!rule) return;
       const cond = rule.conditions[editIndex];
       setCondOp(cond.operator);
-      if (cond.operator === 'in_list') {
+      if (cond.operator === 'in_list' || cond.operator === 'not_in_list') {
         setCondValue(Array.isArray(cond.value) ? cond.value.join('\n') : String(cond.value));
         setCondValue2('');
       } else if (cond.operator === 'between') {
@@ -196,7 +346,7 @@ export default function App() {
   const handleSaveCondition = () => {
     if (!condModal) return;
     let value: any;
-    if (condOp === 'in_list') {
+    if (condOp === 'in_list' || condOp === 'not_in_list') {
       value = condValue.split('\n').map(s => s.trim()).filter(Boolean);
     } else if (condOp === 'between') {
       value = [parseFloat(condValue) || 0, parseFloat(condValue2) || 0];
@@ -204,21 +354,14 @@ export default function App() {
       value = condValue;
     }
     const newCond: Condition = { column: condModal.column, operator: condOp, value };
-    if (condModal.editIndex !== undefined) {
-      setActiveRules(
-        activeRules.map(r =>
-          r.id === condModal.ruleId
-            ? { ...r, conditions: r.conditions.map((c, i) => (i === condModal.editIndex ? newCond : c)) }
-            : r
-        )
-      );
-    } else {
-      setActiveRules(
-        activeRules.map(r =>
-          r.id === condModal.ruleId ? { ...r, conditions: [...r.conditions, newCond] } : r
-        )
-      );
-    }
+
+    updateRuleInList(condModal.ruleId, r => {
+      const newConditions = condModal.editIndex !== undefined
+        ? r.conditions.map((c, i) => (i === condModal.editIndex ? newCond : c))
+        : [...r.conditions, newCond];
+      return { ...r, conditions: newConditions };
+    });
+
     setCondModal(null);
   };
 
@@ -229,7 +372,6 @@ export default function App() {
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
-    // Only clear if leaving the rule card itself (not a child)
     if (!(e.currentTarget as HTMLElement).contains(e.relatedTarget as Node)) {
       setDropTarget(null);
     }
@@ -244,7 +386,7 @@ export default function App() {
   };
 
   const OP_SYMBOL: Partial<Record<Operator, string>> = {
-    equals: '=', contains: 'LIKE', in_list: 'IN', between: 'BETWEEN',
+    equals: '=', not_equals: '!=', contains: 'LIKE', in_list: 'IN', not_in_list: 'NOT IN', between: 'BETWEEN',
     gt: '>', gte: '>=', lt: '<', lte: '<=',
   };
 
@@ -293,17 +435,27 @@ export default function App() {
         <div className="flex items-center gap-3">
           {summary && view !== 'settings' && (
             <button
-              onClick={() => exportProcessedExcel(data, file!.name, mode, summary)}
-              className="flex items-center gap-2 px-5 py-2 bg-indigo-600 text-white hover:bg-indigo-500 rounded-lg transition-all font-bold text-sm shadow-lg shadow-indigo-600/20"
+              onClick={handleExport}
+              disabled={isExporting}
+              className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2.5 rounded-xl font-bold transition-all shadow-lg shadow-indigo-600/20 active:scale-95 disabled:opacity-50"
             >
-              <Download size={16} /> Export Excel
+              {isExporting ? <Loader2 className="animate-spin" size={18} /> : <Download size={18} />}
+              {isExporting ? 'Exporting...' : 'Export Excel'}
             </button>
           )}
           <button
+            onClick={syncFromDB}
+            disabled={isProcessing}
+            title="Sync from Database"
+            className="p-2.5 bg-slate-800 text-slate-400 hover:text-indigo-400 border border-slate-700 hover:bg-slate-700/50 rounded-lg transition-all"
+          >
+            <RotateCcw size={20} className={isProcessing ? 'animate-spin' : ''} />
+          </button>
+          <button
             onClick={() => setView(view === 'settings' ? 'summary' : 'settings')}
             className={`p-2.5 rounded-lg transition-all border ${view === 'settings'
-                ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500/50 shadow-inner'
-                : 'bg-slate-800 text-slate-400 hover:text-white border-slate-700 hover:bg-slate-700'
+              ? 'bg-indigo-600/10 text-indigo-400 border-indigo-500/50 shadow-inner'
+              : 'bg-slate-800 text-slate-400 hover:text-white border-slate-700 hover:bg-slate-700'
               }`}
           >
             <SettingsIcon size={20} />
@@ -328,11 +480,22 @@ export default function App() {
               </div>
               <div className="flex gap-3">
                 <button
-                  onClick={() => setSettingsMode(settingsMode === 'RD03' ? 'RD05' : 'RD03')}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold transition-all"
+                  onClick={handleResetLocalStorage}
+                  className="px-4 py-2 bg-red-600/10 hover:bg-red-600/20 text-red-400 border border-red-500/30 rounded-lg text-xs font-bold transition-all flex items-center gap-2"
                 >
-                  Switch to {settingsMode === 'RD03' ? 'RD05' : 'RD03'}
+                  <Trash2 size={14} /> Reset Cache
                 </button>
+                <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Configuration Mode</label>
+                  <select
+                    value={settingsMode}
+                    onChange={e => setSettingsMode(e.target.value as RDMode)}
+                    className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded-lg text-xs font-bold transition-all outline-none focus:border-indigo-500 min-w-[120px]"
+                  >
+                    <option value="RD03">RD03 Mode</option>
+                    <option value="RD05">RD05 Mode</option>
+                  </select>
+                </div>
                 <button
                   onClick={saveRules}
                   className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-indigo-600/20 transition-all flex items-center gap-2"
@@ -358,67 +521,110 @@ export default function App() {
                 </div>
                 <div className="flex-1 overflow-y-auto p-3 space-y-1.5 custom-scrollbar">
                   <div className="text-[10px] font-bold text-slate-600 uppercase tracking-widest px-2 mb-2">
-                    Available Columns
+                    Available Columns {configTab === 'mapping' ? '(Mapping)' : ''}
                   </div>
-                  {filteredCols.map(col => (
-                    <div
-                      key={col}
-                      draggable
-                      onDragStart={() => setDraggedCol(col)}
-                      onDragEnd={() => setDraggedCol(null)}
-                      className={`flex items-center gap-2 p-2.5 bg-slate-800/50 border rounded-lg transition-all cursor-grab active:cursor-grabbing group select-none ${draggedCol === col
-                          ? 'border-indigo-500/60 bg-indigo-950/30 opacity-60'
-                          : 'border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800'
-                        }`}
-                    >
-                      <GripVertical size={12} className="text-slate-600 group-hover:text-slate-400 shrink-0" />
-                      <span className="text-xs font-medium text-slate-400 group-hover:text-slate-200 truncate">{col}</span>
-                    </div>
-                  ))}
+                  {(settingsMode === 'RD03' ? RD03_COLS : RD05_COLS)
+                    .filter(c => configTab === 'mapping' ? c === 'Concession' : true)
+                    .filter(c => c.toLowerCase().includes(searchCol.toLowerCase()))
+                    .map(col => (
+                      <div
+                        key={col} draggable onDragStart={() => setDraggedCol(col)} onDragEnd={() => setDraggedCol(null)}
+                        className={`flex items-center gap-2 p-2.5 bg-slate-800/50 border rounded-lg transition-all cursor-grab active:cursor-grabbing group select-none ${draggedCol === col ? 'border-indigo-500/60 bg-indigo-950/30 opacity-60' : 'border-slate-800 hover:border-indigo-500/50 hover:bg-slate-800'}`}
+                      >
+                        <GripVertical size={12} className="text-slate-600 group-hover:text-slate-400 shrink-0" />
+                        <span className="text-xs font-medium text-slate-400 group-hover:text-slate-200 truncate">
+                          {col} {COLUMN_NAMES_TH[col] ? `(${COLUMN_NAMES_TH[col]})` : ''}
+                        </span>
+                      </div>
+                    ))}
                 </div>
                 <div className="p-3 border-t border-slate-800 bg-slate-800/10">
+                  <div className="bg-slate-950/50 p-3 rounded-xl border border-slate-800 mb-2">
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest mb-2">Data Integrity Status</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div className="bg-slate-900 p-2 rounded-lg border border-slate-800">
+                        <p className="text-[10px] text-amber-500 font-bold">Mapping</p>
+                        <p className="text-xl font-black text-white">
+                          {(settingsMode === 'RD03' ? rd03Rules : rd05Rules).filter(r => r.targetField === 'GroupConcession').length}
+                        </p>
+                      </div>
+                      <div className="bg-slate-900 p-2 rounded-lg border border-slate-800">
+                        <p className="text-[10px] text-indigo-400 font-bold">Groups</p>
+                        <p className="text-xl font-black text-white">
+                          {(settingsMode === 'RD03' ? rd03Rules : rd05Rules).filter(r => r.targetField === 'Group').length}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
                   <p className="text-[10px] text-slate-600 text-center">ลากคอลัมน์ไปวางบนกลุ่มเพื่อเพิ่มเงื่อนไข</p>
                 </div>
               </div>
 
               {/* Rules Canvas */}
               <div className="col-span-9 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl flex flex-col overflow-hidden">
-                <div className="p-4 border-b border-slate-800 bg-slate-800/30 flex justify-between items-center">
-                  <h4 className="text-sm font-bold text-slate-300">Rules Canvas ({settingsMode})</h4>
-                  <button
-                    onClick={handleAddRule}
-                    className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-indigo-600/10 transition-all border border-transparent hover:border-indigo-500/30"
-                  >
-                    <Plus size={12} /> New Group Rule
-                  </button>
+                <div className="p-0 border-b border-slate-800 bg-slate-800/30 flex flex-col">
+                  <div className="flex bg-slate-900/50 p-1">
+                    <button
+                      onClick={() => setConfigTab('mapping')}
+                      className={`flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${configTab === 'mapping' ? 'bg-amber-500 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                      1. Concession Mapping
+                    </button>
+                    <button
+                      onClick={() => setConfigTab('grouping')}
+                      className={`flex-1 py-2.5 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all ${configTab === 'grouping' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                    >
+                      2. Group Classification
+                    </button>
+                  </div>
+                  <div className="p-4 flex justify-between items-center border-t border-slate-800">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-300">
+                        {configTab === 'mapping' ? 'จัดการเงื่อนไขผู้รับสัมปทาน' : `จัดการเงื่อนไขการจัดกลุ่ม (${settingsMode})`}
+                      </h4>
+                      <p className="text-[10px] text-slate-500 font-medium">
+                        {configTab === 'mapping' ? 'แปลงข้อมูลจากคอลัมน์ Concession ให้เป็นกลุ่มหลัก' : 'นำกลุ่มหลักมาจัดเลขกลุ่มตามเงื่อนไขอื่นๆ'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={handleAddRule}
+                      className="text-[10px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-indigo-600/10 transition-all border border-transparent hover:border-indigo-500/30"
+                    >
+                      <Plus size={12} /> {configTab === 'mapping' ? 'New Mapping Rule' : 'New Group Rule'}
+                    </button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar bg-slate-950/20">
                   {activeRules.map(rule => (
                     <div
-                      key={rule.id}
-                      onDragOver={e => handleDragOver(e, rule.id)}
-                      onDragLeave={handleDragLeave}
-                      onDrop={e => handleDrop(e, rule.id)}
-                      className={`bg-slate-900 border rounded-xl p-5 transition-all shadow-sm ${dropTarget === rule.id
-                          ? 'border-indigo-500 bg-indigo-950/20 shadow-indigo-500/10 shadow-lg'
-                          : 'border-slate-800 hover:border-slate-700'
-                        }`}
+                      key={rule.id} onDragOver={e => handleDragOver(e, rule.id)} onDragLeave={handleDragLeave} onDrop={e => handleDrop(e, rule.id)}
+                      className={`bg-slate-900 border rounded-xl p-5 transition-all shadow-sm ${dropTarget === rule.id ? 'border-indigo-500 bg-indigo-950/20 shadow-indigo-500/10 shadow-lg' : 'border-slate-800 hover:border-slate-700'}`}
                     >
-                      {/* Rule header */}
                       <div className="flex items-center gap-3 mb-4">
-                        <div className="bg-slate-800 px-3 py-1 rounded text-xs font-bold text-indigo-400 shrink-0">
-                          {rule.id}
+                        <div className="bg-slate-800 px-3 py-1 rounded text-xs font-bold text-indigo-400 shrink-0" title={`Internal ID: ${rule.id}`}>
+                          {rule.resultValue || rule.id}
                         </div>
-                        <input
-                          className="bg-transparent border-none text-white font-bold text-sm focus:ring-0 focus:outline-none w-full hover:bg-slate-800/40 focus:bg-slate-800/60 rounded px-2 py-0.5 transition-all"
-                          value={rule.name}
-                          onChange={e => handleRenameRule(rule.id, e.target.value)}
-                          placeholder="ชื่อกลุ่ม..."
-                        />
+                        {rule.targetField === 'GroupConcession' && (
+                          <div className="bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-tighter shrink-0">
+                            Concession Mapping
+                          </div>
+                        )}
+                        <div className="flex flex-col gap-1 flex-1">
+                          <input
+                            className="bg-transparent border-none text-white font-bold text-sm focus:ring-0 focus:outline-none w-full hover:bg-slate-800/40 focus:bg-slate-800/60 rounded px-2 py-0.5 transition-all"
+                            value={rule.name} onChange={e => handleRenameRule(rule.id, e.target.value)} placeholder="ชื่อกลุ่ม..."
+                          />
+                          <textarea
+                            className="bg-transparent border-none text-slate-400 text-[10px] focus:ring-0 focus:outline-none w-full hover:bg-slate-800/40 focus:bg-slate-800/60 rounded px-2 py-1 transition-all resize-none min-h-[32px] font-medium placeholder:italic"
+                            value={rule.description || ''}
+                            onChange={e => handleUpdateDescription(rule.id, e.target.value)}
+                            placeholder="เพิ่มคำอธิบายเงื่อนไข..."
+                            rows={1}
+                          />
+                        </div>
                         <button
                           onClick={() => handleDeleteRule(rule.id)}
-                          className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all shrink-0"
-                          title="ลบกลุ่มนี้"
+                          className="p-1.5 text-slate-600 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all shrink-0 ml-auto"
                         >
                           <Trash2 size={14} />
                         </button>
@@ -592,7 +798,7 @@ export default function App() {
                     <div className="space-y-6">
                       <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest px-2">Group Distribution</h4>
                       <div className="h-[350px]">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                           <PieChart>
                             <Pie
                               data={groupChartData}
@@ -616,7 +822,7 @@ export default function App() {
                     <div className="space-y-6">
                       <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest px-2">Concession Analytics</h4>
                       <div className="h-[350px]">
-                        <ResponsiveContainer width="100%" height="100%">
+                        <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                           <BarChart data={concessionChartData} layout="vertical">
                             <XAxis type="number" hide />
                             <YAxis dataKey="name" type="category" width={120} tick={{ fontSize: 10, fill: '#94a3b8' }} />
@@ -804,6 +1010,58 @@ export default function App() {
               >
                 {condModal.editIndex !== undefined ? 'บันทึกการแก้ไข' : 'เพิ่มเงื่อนไข'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Confirmation Modal */}
+      {confirmModal?.isOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-300" onClick={() => setConfirmModal(null)} />
+          <div className={`bg-slate-900 border border-slate-800 w-full max-w-sm rounded-[32px] overflow-hidden shadow-2xl relative animate-in zoom-in-95 fade-in duration-300`}>
+            <div className="p-8 text-center">
+              <div className={`w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-6 border ${confirmModal.type === 'confirm' ? 'bg-red-500/10 border-red-500/20' :
+                confirmModal.type === 'error' ? 'bg-amber-500/10 border-amber-500/20' :
+                  'bg-indigo-500/10 border-indigo-500/20'
+                }`}>
+                {confirmModal.type === 'confirm' ? <Trash2 size={32} className="text-red-500" /> :
+                  confirmModal.type === 'error' ? <AlertTriangle size={32} className="text-amber-500" /> :
+                    <CheckCircle2 size={32} className="text-indigo-500" />
+                }
+              </div>
+              <h3 className="text-xl font-bold text-white mb-2">{confirmModal.title}</h3>
+              <p className="text-slate-400 text-sm leading-relaxed">{confirmModal.message}</p>
+            </div>
+            <div className="flex gap-3 p-6 pt-0">
+              {confirmModal.type === 'confirm' ? (
+                <>
+                  <button
+                    onClick={() => setConfirmModal(null)}
+                    className="flex-1 py-3 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-xl text-sm font-bold transition-all"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    onClick={() => {
+                      confirmModal.onConfirm();
+                      setConfirmModal(null);
+                    }}
+                    className="flex-1 py-3 bg-red-600 hover:bg-red-500 text-white rounded-xl text-sm font-bold shadow-lg shadow-red-600/20 transition-all"
+                  >
+                    ยืนยันการลบ
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => {
+                    confirmModal.onConfirm();
+                    setConfirmModal(null);
+                  }}
+                  className={`flex-1 py-3 rounded-xl text-sm font-bold shadow-lg transition-all ${confirmModal.type === 'error' ? 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/20' : 'bg-indigo-600 hover:bg-indigo-500 shadow-indigo-600/20'} text-white`}
+                >
+                  ตกลง
+                </button>
+              )}
             </div>
           </div>
         </div>

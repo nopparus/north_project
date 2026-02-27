@@ -13,7 +13,7 @@ export const configService = {
         try {
             const response = await fetch(`${API_BASE}/configs`);
             if (!response.ok) throw new Error('Failed to fetch configs');
-            return await response.ok ? response.json() : {};
+            return await response.json();
         } catch (error) {
             console.error('Error fetching configs:', error);
             return {};

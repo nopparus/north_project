@@ -1,7 +1,7 @@
 
 export type RDMode = 'RD03' | 'RD05';
 
-export type Operator = 'equals' | 'contains' | 'between' | 'in_list' | 'gt' | 'gte' | 'lt' | 'lte';
+export type Operator = 'equals' | 'not_equals' | 'contains' | 'between' | 'in_list' | 'not_in_list' | 'gt' | 'gte' | 'lt' | 'lte';
 
 export interface Condition {
   column: string;
@@ -12,8 +12,11 @@ export interface Condition {
 export interface GroupRule {
   id: string;
   name: string;
+  resultValue?: string; // Explicit value to assign in Excel, defaults to id if missing
   conditions: Condition[];
   priority: number;
+  targetField?: 'Group' | 'GroupConcession';
+  description?: string; // User-facing description of the rule logic
 }
 
 export interface SummaryData {

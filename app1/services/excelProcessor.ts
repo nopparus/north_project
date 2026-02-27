@@ -1,14 +1,9 @@
 
 import * as XLSX from 'xlsx';
 import { SummaryData, RDMode, GroupRule, Condition } from '../types';
-import { 
-  RD03_COLS, 
-  RD05_COLS, 
-  DIGI_LIST, 
-  NBTC_LIST, 
-  NT_LIST, 
-  CON_NT_LIST, 
-  NON_NT_LIST 
+import {
+  RD03_COLS,
+  RD05_COLS
 } from '../constants';
 
 const checkCondition = (rowValue: any, condition: Condition): boolean => {
@@ -18,13 +13,20 @@ const checkCondition = (rowValue: any, condition: Condition): boolean => {
   switch (condition.operator) {
     case 'equals':
       return val === String(target).trim();
+    case 'not_equals':
+      return val !== String(target).trim();
     case 'contains':
       return val.toLowerCase().includes(String(target).toLowerCase().trim());
     case 'in_list':
-      const list = Array.isArray(target) 
-        ? target 
+      const list = Array.isArray(target)
+        ? target
         : String(target).split(',').map(s => s.trim());
       return list.some(item => String(item).trim() === val);
+    case 'not_in_list':
+      const list2 = Array.isArray(target)
+        ? target
+        : String(target).split(',').map(s => s.trim());
+      return !list2.some(item => String(item).trim() === val);
     case 'between':
       const num = parseFloat(val) || 0;
       const [min, max] = Array.isArray(target) ? target.map(v => parseFloat(v)) : [0, 0];
@@ -73,7 +75,7 @@ export const processExcelFile = async (file: File, mode: RDMode, rules: GroupRul
         const uniqueConcessions = new Set<string>();
 
         const processedRows = rawRows
-          .filter(row => row[1] !== undefined && row[1] !== null && String(row[1]).trim() !== "") 
+          .filter(row => row[1] !== undefined && row[1] !== null && String(row[1]).trim() !== "")
           .map(row => {
             const obj: any = {};
             // Mapping raw excel columns to our named columns
@@ -94,28 +96,24 @@ export const processExcelFile = async (file: File, mode: RDMode, rules: GroupRul
               if (col === 'Concession') uniqueConcessions.add(String(val));
             });
 
-            const concession = String(obj.Concession || "").trim();
-            
-            // Logic derived from Python script to categorize GroupConcession
-            let groupConcession = "ไม่พบกลุ่ม";
-            if (DIGI_LIST.includes(concession)) groupConcession = "กระทรวงดิจิทัล";
-            else if (NBTC_LIST.includes(concession)) groupConcession = "กสทช";
-            else if (NT_LIST.includes(concession)) groupConcession = "NT";
-            else if (CON_NT_LIST.includes(concession)) groupConcession = "สัมปทาน NT";
-            else if (NON_NT_LIST.includes(concession)) groupConcession = "ไม่ใช่สัมปทาน NT";
+            // Reset fields
+            obj.GroupConcession = "ไม่พบกลุ่ม";
+            obj.Group = mode === 'RD03' ? "ไม่พบกลุ่ม" : "3.0";
 
-            obj.GroupConcession = groupConcession;
-
-            // Determine Group based on defined rules (Sequential Priority)
-            let matchedGroupId = mode === 'RD03' ? "ไม่พบกลุ่ม" : "3.0";
+            // Process rules in priority order
             for (const rule of sortedRules) {
               if (matchesRule(obj, rule)) {
-                matchedGroupId = rule.id;
-                break;
+                const finalValue = rule.resultValue || (rule.targetField === 'GroupConcession' ? (rule.name || rule.id) : rule.id);
+
+                if (rule.targetField === 'GroupConcession') {
+                  obj.GroupConcession = finalValue;
+                } else {
+                  obj.Group = finalValue;
+                  break; // Stop evaluating for this row once Group is assigned
+                }
               }
             }
-            
-            obj.Group = matchedGroupId;
+
             return obj;
           });
 
@@ -148,14 +146,14 @@ export const processExcelFile = async (file: File, mode: RDMode, rules: GroupRul
   });
 };
 
-export const exportProcessedExcel = (rows: any[], fileName: string, mode: RDMode, summary: SummaryData) => {
+export const exportProcessedExcel = async (rows: any[], fileName: string, mode: RDMode, summary: SummaryData) => {
   const wb = XLSX.utils.book_new();
-  
-  // Sheet 1: Main Processed Data (Matches Python's random-prefixed output)
+
+  // Sheet 1: Main Processed Data
   const wsData = XLSX.utils.json_to_sheet(rows);
   XLSX.utils.book_append_sheet(wb, wsData, "Processed_Data");
 
-  // Unique Values Sheets (Matches Python's data_summary.xlsx requirement)
+  // Unique Values Sheets
   const wsLineType = XLSX.utils.json_to_sheet(summary.uniqueValues.Line_Type.map(v => ({ Line_Type: v })));
   XLSX.utils.book_append_sheet(wb, wsLineType, "Line_Type");
 
@@ -168,6 +166,7 @@ export const exportProcessedExcel = (rows: any[], fileName: string, mode: RDMode
   const wsConcession = XLSX.utils.json_to_sheet(summary.uniqueValues.Concession.map(v => ({ Concession: v })));
   XLSX.utils.book_append_sheet(wb, wsConcession, "Concession");
 
-  const prefix = Math.floor(1000 + Math.random() * 9000);
-  XLSX.writeFile(wb, `${prefix}_Processed_${mode}_${fileName}`);
+  // 1. Immediate Download using XLSX.writeFile (Optimized for large datasets)
+  console.log("[ExcelProcessor] Triggering optimized download via XLSX.writeFile.");
+  XLSX.writeFile(wb, fileName);
 };
