@@ -32,3 +32,10 @@ export interface SummaryData {
     Concession: string[];
   };
 }
+
+export interface RDProfile {
+  id: string;
+  name: string;
+  rd03Rules: GroupRule[];
+  rd05Rules: GroupRule[];
+}

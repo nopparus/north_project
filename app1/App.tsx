@@ -21,8 +21,9 @@ import {
   Check,
   ChevronRight,
   AlertTriangle,
+  Copy,
 } from 'lucide-react';
-import { RDMode, SummaryData, GroupRule, Condition, Operator } from './types';
+import { RDMode, SummaryData, GroupRule, Condition, Operator, RDProfile } from './types';
 import { processExcelFile, exportProcessedExcel } from './services/excelProcessor';
 import { RD03_COLS, RD05_COLS, DEFAULT_RD03_RULES, DEFAULT_RD05_RULES, COLUMN_NAMES_TH } from './constants';
 import { configService } from './services/configService';
@@ -46,12 +47,7 @@ const OPERATORS: { label: string; value: Operator }[] = [
   { label: 'น้อยกว่าหรือเท่ากับ (<= lte)', value: 'lte' },
 ];
 
-interface ConfigProfile {
-  name: string;
-  rd03: GroupRule[];
-  rd05: GroupRule[];
-  timestamp: number;
-}
+// Removed local ConfigProfile in favor of RDProfile from types.ts
 
 export default function App() {
   const [mode, setMode] = useState<RDMode>(() => (localStorage.getItem('rd_mode') as RDMode) || 'RD03');
@@ -66,9 +62,10 @@ export default function App() {
 
   const [rd03Rules, setRd03Rules] = useState<GroupRule[]>([]);
   const [rd05Rules, setRd05Rules] = useState<GroupRule[]>([]);
+  const [rdProfiles, setRdProfiles] = useState<RDProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string>('default');
   const [settingsMode, setSettingsMode] = useState<RDMode>(() => (localStorage.getItem('rd_settings_mode') as RDMode) || 'RD03');
   const [searchCol, setSearchCol] = useState('');
-  const [profiles, setProfiles] = useState<ConfigProfile[]>([]);
   const [configTab, setConfigTab] = useState<'mapping' | 'grouping'>('mapping');
 
   // Drag & drop
@@ -100,20 +97,37 @@ export default function App() {
   const [authError, setAuthError] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const loadConfigs = async () => {
       // 1. Load from DB
       const dbConfigs = await configService.getConfigs();
 
-      // 2. Load from LocalStorage (Fallback/Legacy)
-      const saved03 = localStorage.getItem('rd03_rules_v2');
-      const saved05 = localStorage.getItem('rd05_rules_v2');
-      const savedProfiles = localStorage.getItem('rd_profiles');
+      let loadedProfiles: RDProfile[] = dbConfigs.rd_profiles_v2 || [];
+      let activeId = localStorage.getItem('rd_active_profile_id') || 'default';
 
-      safeSetRd03Rules(dbConfigs.rd03_rules_v2 || DEFAULT_RD03_RULES);
-      safeSetRd05Rules(dbConfigs.rd05_rules_v2 || DEFAULT_RD05_RULES);
-      setProfiles(dbConfigs.rd_profiles || []);
+      // Migration/Initialization: If no profiles exist, create Default from existing rules or constants
+      if (loadedProfiles.length === 0) {
+        const defaultProfile: RDProfile = {
+          id: 'default',
+          name: 'Default Settings',
+          rd03Rules: dbConfigs.rd03_rules_v2 || DEFAULT_RD03_RULES,
+          rd05Rules: dbConfigs.rd05_rules_v2 || DEFAULT_RD05_RULES
+        };
+        loadedProfiles = [defaultProfile];
+      }
+
+      setRdProfiles(loadedProfiles);
+      setActiveProfileId(activeId);
+
+      // Set current rules based on active profile
+      const activeProfile = loadedProfiles.find(p => p.id === activeId) || loadedProfiles[0];
+      if (activeProfile) {
+        safeSetRd03Rules(activeProfile.rd03Rules);
+        safeSetRd05Rules(activeProfile.rd05Rules);
+        if (activeProfile.id !== activeId) setActiveProfileId(activeProfile.id);
+      }
     };
 
     loadConfigs();
@@ -167,34 +181,57 @@ export default function App() {
   };
 
   const saveRules = async () => {
-    const sanitized03 = sanitizeRules(rd03Rules);
-    const sanitized05 = sanitizeRules(rd05Rules);
+    setIsProcessing(true);
+    // 1. Update the active profile in the rdProfiles list (with sanitization)
+    const updatedProfiles = rdProfiles.map(p =>
+      p.id === activeProfileId ? {
+        ...p,
+        rd03Rules: sanitizeRules(rd03Rules),
+        rd05Rules: sanitizeRules(rd05Rules)
+      } : p
+    );
 
-    // Save to LocalStorage
-    localStorage.setItem('rd03_rules_v2', JSON.stringify(sanitized03));
-    localStorage.setItem('rd05_rules_v2', JSON.stringify(sanitized05));
+    setRdProfiles(updatedProfiles);
 
-    // Save to DB
-    const p1 = configService.saveConfig('rd03_rules_v2', sanitized03);
-    const p2 = configService.saveConfig('rd05_rules_v2', sanitized05);
+    const success = await configService.saveConfig('rd_profiles_v2', updatedProfiles);
+    const successId = await configService.saveConfig('rd_active_profile_id', activeProfileId);
 
-    await Promise.all([p1, p2]);
-    setConfirmModal({
-      isOpen: true,
-      type: 'info',
-      title: 'บันทึกสำเร็จ',
-      message: 'บันทึกการตั้งค่าเรียบร้อยแล้ว',
-      onConfirm: () => setConfirmModal(null)
-    });
+    setIsProcessing(false);
+
+    if (success && successId) {
+      setConfirmModal({
+        isOpen: true,
+        type: 'info',
+        title: 'บันทึกสำเร็จ',
+        message: 'บันทึก Profile และเงื่อนไขเรียบร้อยแล้ว',
+        onConfirm: () => setConfirmModal(null)
+      });
+    } else {
+      setConfirmModal({
+        isOpen: true,
+        type: 'error',
+        title: 'บันทึกล้มเหลว',
+        message: 'ไม่สามารถเชื่อมต่อกับ Database ได้',
+        onConfirm: () => setConfirmModal(null)
+      });
+    }
   };
 
   const syncFromDB = async () => {
     setIsProcessing(true);
     try {
       const dbConfigs = await configService.getConfigs();
-      safeSetRd03Rules(dbConfigs.rd03_rules_v2 || []);
-      safeSetRd05Rules(dbConfigs.rd05_rules_v2 || []);
-      setProfiles(dbConfigs.rd_profiles || []);
+      const loadedProfiles: RDProfile[] = dbConfigs.rd_profiles_v2 || [];
+      const activeId = dbConfigs.rd_active_profile_id || 'default';
+
+      if (loadedProfiles.length > 0) {
+        setRdProfiles(loadedProfiles);
+        setActiveProfileId(activeId);
+        const activeProfile = loadedProfiles.find(p => p.id === activeId) || loadedProfiles[0];
+        safeSetRd03Rules(activeProfile.rd03Rules);
+        safeSetRd05Rules(activeProfile.rd05Rules);
+      }
+
       setConfirmModal({
         isOpen: true,
         type: 'info',
@@ -283,6 +320,156 @@ export default function App() {
       }
     }
   };
+
+  const handleProfileChange = (newProfileId: string) => {
+    // Save current rules to the profile list before switching
+    setRdProfiles(prev => prev.map(p =>
+      p.id === activeProfileId ? { ...p, rd03Rules, rd05Rules } : p
+    ));
+
+    const newProfile = rdProfiles.find(p => p.id === newProfileId);
+    if (newProfile) {
+      setActiveProfileId(newProfileId);
+      localStorage.setItem('rd_active_profile_id', newProfileId);
+      safeSetRd03Rules(newProfile.rd03Rules);
+      safeSetRd05Rules(newProfile.rd05Rules);
+    }
+  };
+
+  const handleAddProfile = () => {
+    const name = prompt('กรุณาระบุชื่อ Profile ใหม่:');
+    if (!name) return;
+
+    const newProfile: RDProfile = {
+      id: `profile-${Date.now()}`,
+      name,
+      rd03Rules: DEFAULT_RD03_RULES,
+      rd05Rules: DEFAULT_RD05_RULES
+    };
+
+    setRdProfiles(prev => [...prev, newProfile]);
+    handleProfileChange(newProfile.id);
+  };
+
+  const handleDuplicateProfile = () => {
+    const currentProfile = rdProfiles.find(p => p.id === activeProfileId);
+    if (!currentProfile) return;
+
+    const name = prompt('ชื่อ Profile (สำเนา):', `${currentProfile.name} (Copy)`);
+    if (!name) return;
+
+    const newProfile: RDProfile = {
+      id: `profile-${Date.now()}`,
+      name,
+      rd03Rules: JSON.parse(JSON.stringify(rd03Rules)),
+      rd05Rules: JSON.parse(JSON.stringify(rd05Rules))
+    };
+
+    setRdProfiles(prev => [...prev, newProfile]);
+    handleProfileChange(newProfile.id);
+  };
+
+  const handleDeleteProfile = () => {
+    if (activeProfileId === 'default') {
+      alert('ไม่สามารถลบ Default Profile ได้');
+      return;
+    }
+
+    if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการลบ Profile นี้?')) return;
+
+    const nextProfiles = rdProfiles.filter(p => p.id !== activeProfileId);
+    setRdProfiles(nextProfiles);
+    handleProfileChange('default');
+  };
+
+  const handleExportBackup = () => {
+    const backupData = {
+      version: '2.0',
+      timestamp: new Date().toISOString(),
+      activeProfileId,
+      profiles: rdProfiles.map(p => p.id === activeProfileId ? { ...p, rd03Rules, rd05Rules } : p)
+    };
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nexus_app1_backup_v2_${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const json = JSON.parse(event.target?.result as string);
+
+        // Check for v2 (Multi-Profile)
+        if (json.version === '2.0' && Array.isArray(json.profiles)) {
+          setConfirmModal({
+            isOpen: true,
+            type: 'confirm',
+            title: 'ยืนยันการนำเข้า Backup (Multi-Profile)',
+            message: 'การนำเข้าไฟล์นี้จะเขียนทับ Profile ทั้งหมดในระบบ ต้องการดำเนินการต่อหรือไม่?',
+            onConfirm: () => {
+              setRdProfiles(json.profiles);
+              const targetId = json.activeProfileId || 'default';
+              const targetProfile = json.profiles.find((p: any) => p.id === targetId) || json.profiles[0];
+              setActiveProfileId(targetProfile.id);
+              safeSetRd03Rules(targetProfile.rd03Rules);
+              safeSetRd05Rules(targetProfile.rd05Rules);
+              setConfirmModal({
+                isOpen: true,
+                type: 'info',
+                title: 'นำเข้าสำเร็จ',
+                message: 'นำเข้าข้อมูลโปรไฟล์ทั้งหมดเรียบร้อยแล้ว (อย่าลืมกด Save Rules เพื่อบันทึกลง Database)',
+                onConfirm: () => setConfirmModal(null)
+              });
+            }
+          });
+        }
+        // Check for v1 (Single Profile)
+        else if (json.rd03Rules && Array.isArray(json.rd03Rules) && json.rd05Rules && Array.isArray(json.rd05Rules)) {
+          const name = prompt('พบไฟล์ Backup รุ่นเก่า คุณต้องการตั้งชื่อ Profile ใหม่นี้ว่าอะไร?', 'Imported Rules');
+          if (!name) return;
+
+          const newProfile: RDProfile = {
+            id: `profile-${Date.now()}`,
+            name: name,
+            rd03Rules: json.rd03Rules,
+            rd05Rules: json.rd05Rules
+          };
+
+          setRdProfiles(prev => [...prev, newProfile]);
+          handleProfileChange(newProfile.id);
+          setConfirmModal({
+            isOpen: true,
+            type: 'info',
+            title: 'นำเข้าสำเร็จ',
+            message: `นำเข้าเงื่อนไขรุ่นเก่าเป็น Profile ใหม่ชื่อ "${name}" เรียบร้อยแล้ว`,
+            onConfirm: () => setConfirmModal(null)
+          });
+        } else {
+          throw new Error('Invalid file structure');
+        }
+      } catch (err) {
+        setConfirmModal({
+          isOpen: true,
+          type: 'error',
+          title: 'นำเข้าล้มเหลว',
+          message: 'รูปแบบไฟล์ Backup ไม่ถูกต้อง หรือไฟล์มีความเสียหาย',
+          onConfirm: () => setConfirmModal(null)
+        });
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = ''; // Reset input
+  };
   const handleAddRule = () => {
     const newRule: GroupRule = {
       id: configTab === 'mapping' ? `gc-${Date.now()}` : `group-${Date.now()}`,
@@ -303,8 +490,8 @@ export default function App() {
       title: 'ลบกลุ่มเป้าหมาย',
       message: 'คุณแน่ใจหรือไม่ว่าต้องการลบกลุ่มนี้และเงื่อนไขทั้งหมดที่เกี่ยวข้อง?',
       onConfirm: () => {
-        if (settingsMode === 'RD03') safeSetRd03Rules(prev => prev.filter(r => r.id !== id));
-        else safeSetRd05Rules(prev => prev.filter(r => r.id !== id));
+        safeSetRd03Rules(prev => prev.filter(r => r.id !== id));
+        safeSetRd05Rules(prev => prev.filter(r => r.id !== id));
         setConfirmModal(null);
       }
     });
@@ -504,8 +691,69 @@ export default function App() {
                   <p className="text-xs text-slate-500">จัดการเงื่อนไขการจัดกลุ่มข้อมูล {settingsMode}</p>
                 </div>
               </div>
-              <div className="flex gap-3">
+              <div className="flex gap-3 items-center">
+                {/* Profile Selector */}
                 <div className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Selected Profile</label>
+                  <div className="flex items-center gap-1">
+                    <select
+                      value={activeProfileId}
+                      onChange={e => handleProfileChange(e.target.value)}
+                      className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded-lg text-xs font-bold transition-all outline-none focus:border-indigo-500 min-w-[160px]"
+                    >
+                      {rdProfiles.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                    <button
+                      onClick={handleAddProfile}
+                      title="เพิ่มโปรไฟล์ใหม่"
+                      className="p-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded-lg transition-all"
+                    >
+                      <Plus size={14} />
+                    </button>
+                    <button
+                      onClick={handleDuplicateProfile}
+                      title="คัดลอกโปรไฟล์ปัจจุบัน"
+                      className="p-2 bg-slate-800 hover:bg-slate-700 text-indigo-400 border border-slate-700 rounded-lg transition-all"
+                    >
+                      <Copy size={14} />
+                    </button>
+                    {activeProfileId !== 'default' && (
+                      <button
+                        onClick={handleDeleteProfile}
+                        title="ลบโปรไฟล์ปัจจุบัน"
+                        className="p-2 bg-slate-800 hover:bg-red-900/40 text-red-400 border border-slate-700 rounded-lg transition-all"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="h-10 w-px bg-slate-800 mx-2 self-end mb-1" />
+
+                <input
+                  type="file"
+                  ref={backupInputRef}
+                  onChange={handleImportBackup}
+                  className="hidden"
+                  accept=".json"
+                />
+                <button
+                  onClick={() => backupInputRef.current?.click()}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold transition-all flex items-center gap-2 self-end mb-1"
+                >
+                  <FileUp size={14} /> Import Backup
+                </button>
+                <button
+                  onClick={handleExportBackup}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 rounded-lg text-xs font-bold transition-all flex items-center gap-2 self-end mb-1"
+                >
+                  <Download size={14} /> Export Backup
+                </button>
+                <div className="h-8 w-px bg-slate-800 mx-1 self-center self-end mb-1" />
+                <div className="flex flex-col gap-1 self-end mb-1">
                   <label className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Configuration Mode</label>
                   <select
                     value={settingsMode}
@@ -518,7 +766,7 @@ export default function App() {
                 </div>
                 <button
                   onClick={saveRules}
-                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-indigo-600/20 transition-all flex items-center gap-2"
+                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-bold shadow-lg shadow-indigo-600/20 transition-all flex items-center gap-2 self-end mb-1"
                 >
                   <Save size={14} /> Save Rules
                 </button>
@@ -705,79 +953,132 @@ export default function App() {
             </div>
           </div>
         ) : !summary ? (
-          /* ── Upload / Landing ── */
-          <div className="max-w-3xl mx-auto mt-20 animate-in fade-in duration-500">
-            <div className="text-center mb-10">
-              <h2 className="text-3xl font-bold text-white mb-2">RD Data Processor</h2>
-              <p className="text-slate-500 font-medium">คัดแยกและวิเคราะห์ข้อมูลโครงสร้างพื้นฐานโดยอัตโนมัติ</p>
-            </div>
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-3 shadow-2xl mb-8 flex gap-2">
-              <button
-                onClick={() => setMode('RD03')}
-                className={`flex-1 py-4 rounded-2xl font-bold transition-all ${mode === 'RD03' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-              >
-                RD03 Mode
-              </button>
-              <button
-                onClick={() => setMode('RD05')}
-                className={`flex-1 py-4 rounded-2xl font-bold transition-all ${mode === 'RD05' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-              >
-                RD05 Mode
-              </button>
-            </div>
-            <div
-              className={`bg-slate-900/50 border-2 border-dashed rounded-[2.5rem] p-16 text-center transition-all ${file ? 'border-emerald-500/50 bg-emerald-500/5' : 'border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900'
-                }`}
-            >
-              {!file ? (
-                <div className="space-y-6">
-                  <div className="w-20 h-20 bg-slate-800 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
-                    <FileUp size={40} />
-                  </div>
-                  <div>
-                    <h3 className="text-xl font-bold text-white">Upload your data</h3>
-                    <p className="text-slate-500 text-sm mt-1">ลากไฟล์ Excel มาวาง หรือคลิกเพื่อเลือกไฟล์</p>
-                  </div>
-                  <label className="cursor-pointer inline-block px-10 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-indigo-600/20">
-                    เลือกไฟล์ XLSX
-                    <input
-                      type="file"
-                      accept=".xlsx"
-                      className="hidden"
-                      onChange={e => setFile(e.target.files?.[0] || null)}
-                    />
-                  </label>
-                </div>
-              ) : (
-                <div className="space-y-8">
-                  <div className="flex items-center justify-center gap-4 bg-slate-800/50 p-6 rounded-2xl border border-slate-700 max-w-md mx-auto">
-                    <CheckCircle2 size={32} className="text-emerald-500" />
-                    <div className="text-left truncate">
-                      <p className="text-white font-bold truncate">{file.name}</p>
-                      <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">
-                        {Math.round(file.size / 1024)} KB • Ready to process
-                      </p>
-                    </div>
-                    <button onClick={() => setFile(null)} className="ml-2 text-slate-500 hover:text-red-400">
-                      <X size={20} />
-                    </button>
-                  </div>
-                  {error && <p className="text-red-400 text-sm">{error}</p>}
+          <>
+            {/* ── Upload / Landing ── */}
+            <div className="max-w-4xl mx-auto mt-16 animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <div className="text-center mb-12">
+                <h2 className="text-4xl font-extrabold text-white mb-3 tracking-tight">RD Data Processor</h2>
+                <p className="text-slate-500 font-medium text-lg">คัดแยกและวิเคราะห์ข้อมูลโครงสร้างพื้นฐานโดยอัตโนมัติ</p>
+              </div>
+
+              <div className="flex flex-col gap-6">
+                {/* Mode Selection */}
+                <div className="bg-slate-900 border border-slate-800 rounded-3xl p-3 shadow-2xl flex gap-3">
                   <button
-                    onClick={startProcessing}
-                    disabled={isProcessing}
-                    className="px-16 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold text-lg shadow-xl shadow-emerald-600/20 transition-all flex items-center justify-center gap-3 mx-auto disabled:opacity-50"
+                    onClick={() => setMode('RD03')}
+                    className={`flex-1 py-5 rounded-2xl font-bold text-lg transition-all ${mode === 'RD03' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
                   >
-                    {isProcessing ? (
-                      <><Loader2 className="animate-spin" /> Processing...</>
-                    ) : (
-                      <><ArrowRight /> Start Processing</>
-                    )}
+                    RD03 Mode
+                  </button>
+                  <button
+                    onClick={() => setMode('RD05')}
+                    className={`flex-1 py-5 rounded-2xl font-bold text-lg transition-all ${mode === 'RD05' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-600/30' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800/50'}`}
+                  >
+                    RD05 Mode
                   </button>
                 </div>
-              )}
+
+                {/* Profile & Rule Summary Row */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Active Profile Info */}
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-5 shadow-xl flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                      <div className="p-3 bg-indigo-500/10 text-indigo-400 rounded-2xl border border-indigo-500/20">
+                        <Layers size={22} />
+                      </div>
+                      <div className="text-left">
+                        <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-0.5">Active Profile</p>
+                        <p className="text-base font-bold text-white leading-tight truncate max-w-[150px]">
+                          {rdProfiles.find(p => p.id === activeProfileId)?.name || 'Default'}
+                        </p>
+                      </div>
+                    </div>
+                    <select
+                      value={activeProfileId}
+                      onChange={e => handleProfileChange(e.target.value)}
+                      className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 rounded-xl text-xs font-bold transition-all outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 min-w-[200px]"
+                    >
+                      {rdProfiles.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {/* Data Integrity Status / Rule Counts */}
+                  <div className="bg-slate-900/60 border border-slate-800 rounded-3xl p-5 shadow-xl flex flex-col gap-2">
+                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest pl-1">Data Integrity Status</p>
+                    <div className="flex gap-3 h-full">
+                      {/* Mapping Count Card */}
+                      <div className="flex-1 bg-slate-800/40 border border-slate-700/50 rounded-2xl p-3 flex flex-col justify-between">
+                        <p className="text-xs font-bold text-amber-500">Mapping</p>
+                        <p className="text-2xl font-black text-white">{(mode === 'RD03' ? rd03Rules : rd05Rules).filter(r => r.targetField === 'GroupConcession').length}</p>
+                      </div>
+                      {/* Groups Count Card */}
+                      <div className="flex-1 bg-slate-800/40 border border-slate-700/50 rounded-2xl p-3 flex flex-col justify-between">
+                        <p className="text-xs font-bold text-indigo-400">Groups</p>
+                        <p className="text-2xl font-black text-white">{(mode === 'RD03' ? rd03Rules : rd05Rules).filter(r => r.targetField === 'Group').length}</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-8">
+                <div
+                  className={`bg-slate-900/30 border-2 border-dashed rounded-[3rem] p-16 text-center transition-all ${file ? 'border-emerald-500/50 bg-emerald-500/5 shadow-2xl shadow-emerald-500/10' : 'border-slate-800 hover:border-indigo-500/50 hover:bg-slate-900/50'
+                    }`}
+                >
+                  {!file ? (
+                    <div className="space-y-6">
+                      <div className="w-20 h-20 bg-slate-800 rounded-2xl flex items-center justify-center mx-auto text-indigo-400">
+                        <FileUp size={40} />
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-white">Upload your data</h3>
+                        <p className="text-slate-500 text-sm mt-1">ลากไฟล์ Excel มาวาง หรือคลิกเพื่อเลือกไฟล์</p>
+                      </div>
+                      <label className="cursor-pointer inline-block px-10 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl font-bold text-sm transition-all shadow-lg shadow-indigo-600/20">
+                        เลือกไฟล์ XLSX
+                        <input
+                          type="file"
+                          accept=".xlsx"
+                          className="hidden"
+                          onChange={e => setFile(e.target.files?.[0] || null)}
+                        />
+                      </label>
+                    </div>
+                  ) : (
+                    <div className="space-y-8">
+                      <div className="flex items-center justify-center gap-4 bg-slate-800/50 p-6 rounded-2xl border border-slate-700 max-w-md mx-auto">
+                        <CheckCircle2 size={32} className="text-emerald-500" />
+                        <div className="text-left truncate">
+                          <p className="text-white font-bold truncate">{file.name}</p>
+                          <p className="text-[10px] text-slate-500 uppercase font-bold tracking-widest">
+                            {Math.round(file.size / 1024)} KB • Ready to process
+                          </p>
+                        </div>
+                        <button onClick={() => setFile(null)} className="ml-2 text-slate-500 hover:text-red-400">
+                          <X size={20} />
+                        </button>
+                      </div>
+                      {error && <p className="text-red-400 text-sm">{error}</p>}
+                      <button
+                        onClick={startProcessing}
+                        disabled={isProcessing}
+                        className="px-16 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl font-bold text-lg shadow-xl shadow-emerald-600/20 transition-all flex items-center justify-center gap-3 mx-auto disabled:opacity-50"
+                      >
+                        {isProcessing ? (
+                          <><Loader2 className="animate-spin" /> Processing...</>
+                        ) : (
+                          <><ArrowRight /> Start Processing</>
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
+          </>
         ) : (
           /* ── Analysis Dashboard ── */
           <div className="space-y-8 animate-in fade-in duration-500">
@@ -860,8 +1161,7 @@ export default function App() {
                               contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: '12px', color: '#fff' }}
                             />
                             <Bar dataKey="value" fill="#6366f1" radius={[0, 10, 10, 0]} barSize={30} />
-                          </BarChart>
-                        </ResponsiveContainer>
+                          </BarChart></ResponsiveContainer>
                       </div>
                     </div>
                   </div>
