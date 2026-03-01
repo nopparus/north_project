@@ -1,0 +1,22 @@
+{
+    "name": "app7-backend",
+    "version": "1.0.0",
+    "description": "App7 Backend Server",
+    "main": "server.ts",
+    "scripts": {
+        "start": "tsx server.ts",
+        "dev": "tsx watch server.ts"
+    },
+    "dependencies": {
+        "better-sqlite3": "^12.4.1",
+        "csv-parser": "^3.2.0",
+        "express": "^4.21.2"
+    },
+    "devDependencies": {
+        "@types/better-sqlite3": "^7.6.13",
+        "@types/express": "^4.17.25",
+        "@types/node": "^22.19.13",
+        "tsx": "^4.21.0",
+        "typescript": "~5.8.2"
+    }
+}

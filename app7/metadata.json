@@ -1,0 +1,5 @@
+{
+  "name": "WiFi Site Electricity Meter Survey",
+  "description": "แอปพลิเคชันสำหรับสำรวจค่าใช้จ่ายในการเปลี่ยนมิเตอร์ไฟฟ้าสำหรับจุดให้บริการ WiFi ทั่วประเทศ พร้อมระบบแผนที่และตารางข้อมูล",
+  "requestFramePermissions": ["geolocation"]
+}
