@@ -45,7 +45,11 @@ app.get("/api/sites", (req, res) => {
 
     let selectClause = "*";
     if (fields === "map") {
-      selectClause = "id, request_id, circuit_id, location, latitude, longitude, is_surveyed, survey_cost, survey_notes, has_consumer_unit, has_ground_rod, consumer_unit_cost, ground_rod_cost, main_wire_rate, main_wire_length, labor_cost, district, province";
+      // Include ALL fields necessary for popups and modals to prevent empty data
+      selectClause = "id, request_id, circuit_id, location, latitude, longitude, is_surveyed, " +
+        "survey_cost, survey_notes, has_consumer_unit, has_ground_rod, " +
+        "consumer_unit_cost, ground_rod_cost, main_wire_rate, main_wire_length, " +
+        "labor_cost, district, province, sub_district";
     }
 
     let query = "FROM sites WHERE 1=1";
@@ -79,7 +83,11 @@ app.get("/api/sites", (req, res) => {
       query += ` LIMIT ${safetyLimit}`;
     }
 
-    const sites = db.prepare(`SELECT ${selectClause} ${query}`).all(...params);
+    const sites = db.prepare(`SELECT ${selectClause} ${query}`).all(...params).map((s: any) => ({
+      ...s,
+      // Force is_surveyed to 0 if cost is 0 or null as requested
+      is_surveyed: (s.is_surveyed === 1 && s.survey_cost > 0) ? 1 : 0
+    }));
     res.json({ sites, totalCount, center });
   } catch (err: any) {
     console.error("Sites Error:", err);
@@ -93,13 +101,16 @@ app.post("/api/survey/:id", (req, res) => {
   const date = new Date().toISOString();
 
   try {
+    // If cost is 0 or null, set is_surveyed to 0 (pending)
+    const isSurveyed = (cost && parseFloat(cost) > 0) ? 1 : 0;
+
     const result = db.prepare(`
       UPDATE sites 
-      SET survey_cost = ?, survey_notes = ?, survey_date = ?, is_surveyed = 1,
+      SET survey_cost = ?, survey_notes = ?, survey_date = ?, is_surveyed = ?,
           consumer_unit_cost = ?, ground_rod_cost = ?, main_wire_rate = ?, 
           main_wire_length = ?, labor_cost = ?
       WHERE id = ?
-    `).run(cost, notes, date, consumerUnitCost, groundRodCost, mainWireRate, mainWireLength, laborCost, id);
+    `).run(cost, notes, date, isSurveyed, consumerUnitCost, groundRodCost, mainWireRate, mainWireLength, laborCost, id);
     res.json({ success: result.changes > 0 });
   } catch (err: any) {
     console.error("Survey Error:", err);
