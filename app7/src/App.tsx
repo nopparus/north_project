@@ -268,6 +268,42 @@ export default function App() {
     return total;
   }, [mainWireLength, laborCost, consumerUnitRate, groundRodRate, mainWireRate]);
 
+  const handleSelectSite = (site: Site) => {
+    setSelectedSite(site);
+    setSurveyNotes(site.survey_notes || "");
+
+    if (site.is_surveyed) {
+      setMainWireLength(site.main_wire_length?.toString() || "");
+      setLaborCost(site.labor_cost?.toString() || "");
+      setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
+      setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
+      setMainWireRate(site.main_wire_rate ?? 20);
+    } else {
+      // Load last used values from localStorage if available
+      try {
+        const saved = localStorage.getItem('app7_last_survey_values');
+        if (saved) {
+          const defaults = JSON.parse(saved);
+          setMainWireLength(defaults.mainWireLength || "");
+          setLaborCost(defaults.laborCost?.toString() || "");
+          setConsumerUnitRate(defaults.consumerUnitRate ?? 2200);
+          setGroundRodRate(defaults.groundRodRate ?? 600);
+          setMainWireRate(defaults.mainWireRate ?? 20);
+          return;
+        }
+      } catch (e) {
+        console.error("Failed to load stored defaults", e);
+      }
+
+      // Fallback to absolute defaults
+      setMainWireLength("");
+      setLaborCost("");
+      setConsumerUnitRate(2200);
+      setGroundRodRate(600);
+      setMainWireRate(20);
+    }
+  };
+
   const isDirty = useMemo(() => {
     if (!selectedSite) return false;
 
@@ -403,6 +439,15 @@ export default function App() {
       });
 
       if (res.ok) {
+        // Save to localStorage
+        localStorage.setItem('app7_last_survey_values', JSON.stringify({
+          consumerUnitRate,
+          groundRodRate,
+          mainWireRate,
+          laborCost: laborCost ? parseFloat(laborCost) : 0,
+          mainWireLength: mainWireLength || ""
+        }));
+
         setDynamicCenter(editedLocation);
         setSelectedSite(null);
         setSurveyCost("");
@@ -618,26 +663,8 @@ export default function App() {
                 >
                   <SiteMarkers
                     sites={filteredSites}
-                    onMarkerClick={(site) => {
-                      setSelectedSite(site);
-                      setSurveyCost(site.survey_cost?.toString() || "");
-                      setSurveyNotes(site.survey_notes || "");
-                      setMainWireLength(site.main_wire_length?.toString() || "");
-                      setLaborCost(site.labor_cost?.toString() || "");
-                      setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
-                      setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
-                      setMainWireRate(site.main_wire_rate ?? 20);
-                    }}
-                    onSurveyButtonClick={(site) => {
-                      setSelectedSite(site);
-                      setSurveyCost(site.survey_cost?.toString() || "");
-                      setSurveyNotes(site.survey_notes || "");
-                      setMainWireLength(site.main_wire_length?.toString() || "");
-                      setLaborCost(site.labor_cost?.toString() || "");
-                      setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
-                      setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
-                      setMainWireRate(site.main_wire_rate ?? 20);
-                    }}
+                    onMarkerClick={(site) => handleSelectSite(site)}
+                    onSurveyButtonClick={(site) => handleSelectSite(site)}
                     surveyedIcon={SurveyedIcon}
                     pendingIcon={PendingIcon}
                   />
@@ -645,26 +672,8 @@ export default function App() {
               ) : (
                 <SiteMarkers
                   sites={filteredSites}
-                  onMarkerClick={(site) => {
-                    setSelectedSite(site);
-                    setSurveyCost(site.survey_cost?.toString() || "");
-                    setSurveyNotes(site.survey_notes || "");
-                    setMainWireLength(site.main_wire_length?.toString() || "");
-                    setLaborCost(site.labor_cost?.toString() || "");
-                    setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
-                    setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
-                    setMainWireRate(site.main_wire_rate ?? 20);
-                  }}
-                  onSurveyButtonClick={(site) => {
-                    setSelectedSite(site);
-                    setSurveyCost(site.survey_cost?.toString() || "");
-                    setSurveyNotes(site.survey_notes || "");
-                    setMainWireLength(site.main_wire_length?.toString() || "");
-                    setLaborCost(site.labor_cost?.toString() || "");
-                    setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
-                    setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
-                    setMainWireRate(site.main_wire_rate ?? 20);
-                  }}
+                  onMarkerClick={(site) => handleSelectSite(site)}
+                  onSurveyButtonClick={(site) => handleSelectSite(site)}
                   surveyedIcon={SurveyedIcon}
                   pendingIcon={PendingIcon}
                 />
@@ -709,16 +718,7 @@ export default function App() {
                       </td>
                       <td className="px-6 py-4">
                         <button
-                          onClick={() => {
-                            setSelectedSite(site);
-                            setSurveyCost(site.survey_cost?.toString() || "");
-                            setSurveyNotes(site.survey_notes || "");
-                            setMainWireLength(site.main_wire_length?.toString() || "");
-                            setLaborCost(site.labor_cost?.toString() || "");
-                            setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
-                            setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
-                            setMainWireRate(site.main_wire_rate ?? 20);
-                          }}
+                          onClick={() => handleSelectSite(site)}
                           className="text-indigo-600 hover:text-indigo-900 text-sm font-bold"
                         >
                           แก้ไข
