@@ -57,8 +57,8 @@ app.get("/api/sites", (req, res) => {
 
     if (province) { query += " AND province = ?"; params.push(province); }
     if (district) { query += " AND district = ?"; params.push(district); }
-    if (status === "surveyed") { query += " AND is_surveyed = 1"; }
-    else if (status === "pending") { query += " AND is_surveyed = 0"; }
+    if (status === "surveyed") { query += " AND is_surveyed = 1 AND survey_cost > 0"; }
+    else if (status === "pending") { query += " AND (is_surveyed = 0 OR survey_cost IS NULL OR survey_cost = 0)"; }
 
     if (search) {
       query += " AND (location LIKE ? OR request_id LIKE ? OR circuit_id LIKE ?)";

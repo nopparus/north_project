@@ -202,7 +202,9 @@ function SiteMarkers({
 }
 
 export default function App() {
-  const [view, setView] = useState<"map" | "table">("map");
+  const [view, setView] = useState<"map" | "table">(() => {
+    return (localStorage.getItem('app7_view') as "map" | "table") || "map";
+  });
   const [sites, setSites] = useState<Site[]>([]);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({ provinces: [], districts: [] });
   const [selectedProvince, setSelectedProvince] = useState("");
@@ -249,6 +251,10 @@ export default function App() {
     }, 400); // 400ms debounce
     return () => clearTimeout(timer);
   }, [mapBounds]);
+
+  useEffect(() => {
+    localStorage.setItem('app7_view', view);
+  }, [view]);
 
   const isInitialLoad = useRef(true);
   const prevFilters = useRef({ province: "", district: "", search: "" });
