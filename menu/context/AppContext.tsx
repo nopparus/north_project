@@ -77,6 +77,17 @@ const DEFAULT_APPS: SubApp[] = [
     appType: 'iframe',
     iframeSrc: '/app6/',
     component: IframeApp
+  },
+  {
+    id: 'app7-prototype',
+    name: 'App 7 Prototype',
+    description: 'New Application Module',
+    icon: 'AppWindow',
+    color: 'text-blue-400',
+    path: '/app7',
+    appType: 'iframe',
+    iframeSrc: '/app7/',
+    component: IframeApp
   }
 ];
 

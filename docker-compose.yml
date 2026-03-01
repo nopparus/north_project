@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # Gateway / Proxy (Menu App serving logic moved here? No, separate menu container)
   # Actually, user said "web proxy network... menu as proxy of every web"
@@ -20,6 +18,7 @@ services:
       - app4-frontend
       - app5-frontend
       - app6-frontend
+      - app7-frontend
       - main-api
       - app4-backend
     networks:
@@ -149,6 +148,29 @@ services:
     container_name: nexus-app6
     networks:
       - nexus-network
+
+  app7-backend:
+    build:
+      context: ./app7/server
+      dockerfile: Dockerfile
+    container_name: nexus-app7-backend
+    restart: always
+    environment:
+      - PORT=3010
+    volumes:
+      - ./app7/server/survey.db:/app/survey.db
+    networks:
+      - nexus-network
+
+  app7-frontend:
+    build:
+      context: ./app7
+      dockerfile: ../Dockerfile.frontend
+    container_name: nexus-app7
+    networks:
+      - nexus-network
+    depends_on:
+      - app7-backend
 
 networks:
   nexus-network:

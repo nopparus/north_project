@@ -17,7 +17,8 @@ import {
   Merge,
   Network,
   ClipboardCheck,
-  Shield
+  Shield,
+  AppWindow
 } from 'lucide-react';
 
 export const COLORS = {
@@ -48,5 +49,6 @@ export const ICONS = {
   Merge: Merge,
   Network: Network,
   ClipboardCheck: ClipboardCheck,
-  Shield: Shield
+  Shield: Shield,
+  AppWindow: AppWindow
 };
