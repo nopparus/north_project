@@ -93,14 +93,15 @@ interface FilterOptions {
   districts: { province: string; district: string }[];
 }
 
-// Map component to handle center updates programmatically
-function ChangeView({ center }: { center: [number, number] | null }) {
+// Map component to handle center and zoom updates programmatically
+function ChangeView({ center, zoom }: { center: [number, number] | null, zoom: number | null }) {
   const map = useMap();
   useEffect(() => {
     if (center) {
-      map.setView(center, map.getZoom());
+      const targetZoom = zoom || map.getZoom();
+      map.setView(center, targetZoom);
     }
-  }, [center?.[0], center?.[1], map]);
+  }, [center?.[0], center?.[1], zoom, map]);
   return null;
 }
 
@@ -119,19 +120,85 @@ function MapStateTracker() {
   return null;
 }
 
-// Map component to track visible bounds
-function MapBoundsTracker({ onBoundsChange }: { onBoundsChange: (bounds: L.LatLngBounds) => void }) {
+// Map component to track visible bounds and zoom
+function MapBoundsTracker({ onBoundsChange, onZoomChange }: { onBoundsChange: (bounds: L.LatLngBounds) => void, onZoomChange: (zoom: number) => void }) {
   const map = useMapEvents({
-    moveend: () => onBoundsChange(map.getBounds()),
-    zoomend: () => onBoundsChange(map.getBounds()),
+    moveend: () => {
+      onBoundsChange(map.getBounds());
+      onZoomChange(map.getZoom());
+    },
+    zoomend: () => {
+      onBoundsChange(map.getBounds());
+      onZoomChange(map.getZoom());
+    },
   });
 
-  // Set initial bounds
+  // Set initial state
   useEffect(() => {
     onBoundsChange(map.getBounds());
+    onZoomChange(map.getZoom());
   }, [map]);
 
   return null;
+}
+
+function SiteMarkers({
+  sites,
+  onMarkerClick,
+  onSurveyButtonClick,
+  surveyedIcon,
+  pendingIcon
+}: {
+  sites: any[],
+  onMarkerClick: (site: any) => void,
+  onSurveyButtonClick: (site: any) => void,
+  surveyedIcon: L.Icon,
+  pendingIcon: L.Icon
+}) {
+  return (
+    <>
+      {sites.map(site => (
+        <Marker
+          key={site.id}
+          position={[site.latitude, site.longitude]}
+          icon={site.is_surveyed ? surveyedIcon : pendingIcon}
+          eventHandlers={{
+            click: () => onMarkerClick(site)
+          }}
+        >
+          <Popup>
+            <div className="p-1">
+              <h3 className="font-bold text-indigo-600 mb-1">{site.location}</h3>
+              <p className="text-xs text-slate-500 mb-2">{site.district}, {site.province}</p>
+              <div className="flex items-center gap-1 text-xs mb-1">
+                <span className="font-semibold">Request ID:</span> {site.request_id}
+              </div>
+              <div className="flex items-center gap-1 text-xs mb-2">
+                <span className="font-semibold">Circuit ID:</span> {site.circuit_id}
+              </div>
+              {site.is_surveyed ? (
+                <div className="bg-green-50 text-green-700 px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1">
+                  <CheckCircle2 size={12} /> สำรวจแล้ว: {site.survey_cost} บาท
+                </div>
+              ) : (
+                <div className="bg-amber-50 text-amber-700 px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1">
+                  <AlertCircle size={12} /> ยังไม่ได้สำรวจ
+                </div>
+              )}
+              {!site.is_surveyed && (
+                <button
+                  onClick={() => onSurveyButtonClick(site)}
+                  className="w-full mt-2 py-1.5 bg-indigo-600 text-white rounded text-xs font-semibold hover:bg-indigo-700 transition-colors"
+                >
+                  บันทึกผลสำรวจ
+                </button>
+              )}
+            </div>
+          </Popup>
+        </Marker>
+      ))}
+    </>
+  );
 }
 
 export default function App() {
@@ -149,13 +216,9 @@ export default function App() {
   const [laborCost, setLaborCost] = useState("");
   const [loading, setLoading] = useState(true);
   const [dynamicCenter, setDynamicCenter] = useState<[number, number] | null>(null);
+  const [dynamicZoom, setDynamicZoom] = useState<number | null>(null);
 
   // Pagination & Volume state
-  const [totalCount, setTotalCount] = useState(0);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(100);
-  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
-
   const initialMapState = useMemo(() => {
     try {
       const saved = localStorage.getItem('app7_map_state');
@@ -169,7 +232,25 @@ export default function App() {
     return { center: [13.7367, 100.5231] as [number, number], zoom: 6 };
   }, []);
 
+  // Pagination & Volume state
+  const [totalCount, setTotalCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(100);
+  const [mapBounds, setMapBounds] = useState<L.LatLngBounds | null>(null);
+  const [zoomLevel, setZoomLevel] = useState(initialMapState.zoom);
+
+  // Debounced bounds for API calls
+  const [debouncedBounds, setDebouncedBounds] = useState<L.LatLngBounds | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedBounds(mapBounds);
+    }, 400); // 400ms debounce
+    return () => clearTimeout(timer);
+  }, [mapBounds]);
+
   const isInitialLoad = useRef(true);
+  const prevFilters = useRef({ province: "", district: "", search: "" });
 
   // Default rates for calculation
   const [consumerUnitRate, setConsumerUnitRate] = useState(2200);
@@ -217,25 +298,17 @@ export default function App() {
 
   useEffect(() => {
     fetchSites();
-  }, [selectedProvince, selectedDistrict, selectedStatus, currentPage, itemsPerPage, view, mapBounds]);
+  }, [selectedProvince, selectedDistrict, selectedStatus, currentPage, itemsPerPage, view, debouncedBounds]);
 
+  // Auto-centering effect
   useEffect(() => {
-    if (sites.length === 0) return;
-
     if (isInitialLoad.current) {
       isInitialLoad.current = false;
       if (localStorage.getItem('app7_map_state')) {
         return;
       }
     }
-
-    // Only re-center if we have a filter active that needs centering
-    if (selectedProvince || selectedDistrict || searchTerm) {
-      const lat = sites.reduce((sum, s) => sum + s.latitude, 0) / sites.length;
-      const lng = sites.reduce((sum, s) => sum + s.longitude, 0) / sites.length;
-      setDynamicCenter([lat, lng]);
-    }
-  }, [selectedProvince, selectedDistrict, searchTerm]); // Removed 'sites' to prevent feedback loop from map pans
+  }, []); // Only handles initial load logic now, centering is done in fetchSites
 
   const fetchFilters = async () => {
     try {
@@ -256,11 +329,21 @@ export default function App() {
       if (selectedStatus) params.append("status", selectedStatus);
       if (searchTerm) params.append("search", searchTerm);
 
-      if (view === "map" && mapBounds) {
-        params.append("minLat", mapBounds.getSouth().toString());
-        params.append("maxLat", mapBounds.getNorth().toString());
-        params.append("minLng", mapBounds.getWest().toString());
-        params.append("maxLng", mapBounds.getEast().toString());
+      const filtersChanged =
+        selectedProvince !== prevFilters.current.province ||
+        selectedDistrict !== prevFilters.current.district ||
+        searchTerm !== prevFilters.current.search;
+
+      if (view === "map") {
+        params.append("fields", "map");
+        // Skip bounds filter if we just changed a major filter (province/district/search)
+        // because we want to find the center of the NEW filter set.
+        if (debouncedBounds && !filtersChanged) {
+          params.append("minLat", debouncedBounds.getSouth().toString());
+          params.append("maxLat", debouncedBounds.getNorth().toString());
+          params.append("minLng", debouncedBounds.getWest().toString());
+          params.append("maxLng", debouncedBounds.getEast().toString());
+        }
       } else if (view === "table") {
         params.append("page", currentPage.toString());
         params.append("limit", itemsPerPage.toString());
@@ -268,8 +351,29 @@ export default function App() {
 
       const res = await fetch(`/app7/api/sites?${params.toString()}`);
       const data = await res.json();
-      setSites(data.sites);
+
+      // If too many sites, don't show markers to prevent crash
+      if (view === "map" && data.totalCount > 4000) {
+        setSites([]);
+      } else {
+        setSites(data.sites);
+      }
+
       setTotalCount(data.totalCount);
+
+      if (data.center && filtersChanged) {
+        setDynamicCenter(data.center);
+        // If zooming is required to pass the constraint
+        if (zoomLevel < 11) {
+          setDynamicZoom(11);
+          setZoomLevel(11);
+        } else {
+          setDynamicZoom(null);
+        }
+      }
+
+      // Update prev filters ref
+      prevFilters.current = { province: selectedProvince, district: selectedDistrict, search: searchTerm };
     } catch (err) {
       console.error("Failed to fetch sites", err);
     } finally {
@@ -492,57 +596,79 @@ export default function App() {
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
-              <ChangeView center={dynamicCenter} />
+              <ChangeView center={dynamicCenter} zoom={dynamicZoom} />
               <MapStateTracker />
-              <MapBoundsTracker onBoundsChange={setMapBounds} />
-              <MarkerClusterGroup
-                chunkedLoading
-                maxClusterRadius={120} // Increase radius to cluster more aggressively
-                spiderfyOnMaxZoom={true}
-                showCoverageOnHover={false}
-              >
-                {filteredSites.map(site => (
-                  <Marker
-                    key={site.id}
-                    position={[site.latitude, site.longitude]}
-                    icon={site.is_surveyed ? SurveyedIcon : PendingIcon}
-                    eventHandlers={{
-                      click: () => {
-                        setSelectedSite(site);
-                        setSurveyCost(site.survey_cost?.toString() || "");
-                        setSurveyNotes(site.survey_notes || "");
-                        setMainWireLength(site.main_wire_length?.toString() || "");
-                        setLaborCost(site.labor_cost?.toString() || "");
-                        setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
-                        setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
-                        setMainWireRate(site.main_wire_rate ?? 20);
-                      }
+              <MapBoundsTracker onBoundsChange={(b) => setMapBounds(b)} onZoomChange={(z) => setZoomLevel(z)} />
+
+              {totalCount > 4000 && (
+                <div className="absolute inset-0 z-[400] flex items-center justify-center pointer-events-none">
+                  <div className="bg-white/80 backdrop-blur-sm px-6 py-3 rounded-full shadow-lg border border-indigo-100 flex items-center gap-2 animate-bounce">
+                    <Info className="text-indigo-600 w-5 h-5" />
+                    <span className="text-sm font-bold text-slate-800">กรุณาซูมเข้าเพื่อดูตำแหน่งจุดสำรวจ (จำนวนจุดหนาแน่นเกินไป: {totalCount.toLocaleString()} จุด)</span>
+                  </div>
+                </div>
+              )}
+
+              {filteredSites.length > 20 ? (
+                <MarkerClusterGroup
+                  chunkedLoading
+                  maxClusterRadius={150} // Increase radius to cluster more aggressively
+                  spiderfyOnMaxZoom={true}
+                  showCoverageOnHover={false}
+                >
+                  <SiteMarkers
+                    sites={filteredSites}
+                    onMarkerClick={(site) => {
+                      setSelectedSite(site);
+                      setSurveyCost(site.survey_cost?.toString() || "");
+                      setSurveyNotes(site.survey_notes || "");
+                      setMainWireLength(site.main_wire_length?.toString() || "");
+                      setLaborCost(site.labor_cost?.toString() || "");
+                      setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
+                      setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
+                      setMainWireRate(site.main_wire_rate ?? 20);
                     }}
-                  >
-                    <Popup>
-                      <div className="p-1">
-                        <h3 className="font-bold text-indigo-600 mb-1">{site.location}</h3>
-                        <p className="text-xs text-slate-500 mb-2">{site.district}, {site.province}</p>
-                        <div className="flex items-center gap-1 text-xs mb-1">
-                          <span className="font-semibold">Request ID:</span> {site.request_id}
-                        </div>
-                        <div className="flex items-center gap-1 text-xs mb-2">
-                          <span className="font-semibold">Circuit ID:</span> {site.circuit_id}
-                        </div>
-                        {site.is_surveyed ? (
-                          <div className="bg-green-50 text-green-700 px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1">
-                            <CheckCircle2 size={12} /> สำรวจแล้ว: {site.survey_cost} บาท
-                          </div>
-                        ) : (
-                          <div className="bg-amber-50 text-amber-700 px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1">
-                            <AlertCircle size={12} /> ยังไม่ได้สำรวจ
-                          </div>
-                        )}
-                      </div>
-                    </Popup>
-                  </Marker>
-                ))}
-              </MarkerClusterGroup>
+                    onSurveyButtonClick={(site) => {
+                      setSelectedSite(site);
+                      setSurveyCost(site.survey_cost?.toString() || "");
+                      setSurveyNotes(site.survey_notes || "");
+                      setMainWireLength(site.main_wire_length?.toString() || "");
+                      setLaborCost(site.labor_cost?.toString() || "");
+                      setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
+                      setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
+                      setMainWireRate(site.main_wire_rate ?? 20);
+                    }}
+                    surveyedIcon={SurveyedIcon}
+                    pendingIcon={PendingIcon}
+                  />
+                </MarkerClusterGroup>
+              ) : (
+                <SiteMarkers
+                  sites={filteredSites}
+                  onMarkerClick={(site) => {
+                    setSelectedSite(site);
+                    setSurveyCost(site.survey_cost?.toString() || "");
+                    setSurveyNotes(site.survey_notes || "");
+                    setMainWireLength(site.main_wire_length?.toString() || "");
+                    setLaborCost(site.labor_cost?.toString() || "");
+                    setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
+                    setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
+                    setMainWireRate(site.main_wire_rate ?? 20);
+                  }}
+                  onSurveyButtonClick={(site) => {
+                    setSelectedSite(site);
+                    setSurveyCost(site.survey_cost?.toString() || "");
+                    setSurveyNotes(site.survey_notes || "");
+                    setMainWireLength(site.main_wire_length?.toString() || "");
+                    setLaborCost(site.labor_cost?.toString() || "");
+                    setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
+                    setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
+                    setMainWireRate(site.main_wire_rate ?? 20);
+                  }}
+                  surveyedIcon={SurveyedIcon}
+                  pendingIcon={PendingIcon}
+                />
+              )}
             </MapContainer>
           </div>
         ) : (

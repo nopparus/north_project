@@ -40,8 +40,13 @@ app.get("/api/sites", (req, res) => {
     const {
       province, district, status, search,
       minLat, maxLat, minLng, maxLng,
-      page, limit
+      page, limit, fields
     } = req.query;
+
+    let selectClause = "*";
+    if (fields === "map") {
+      selectClause = "id, latitude, longitude, is_surveyed";
+    }
 
     let query = "FROM sites WHERE 1=1";
     const params: any[] = [];
@@ -61,17 +66,21 @@ app.get("/api/sites", (req, res) => {
       params.push(Number(minLat), Number(maxLat), Number(minLng), Number(maxLng));
     }
 
-    const totalCount = (db.prepare(`SELECT COUNT(*) as count ${query}`).get(...params) as any).count;
+    const totalCountResult = db.prepare(`SELECT COUNT(*) as count, AVG(latitude) as avgLat, AVG(longitude) as avgLng ${query}`).get(...params) as any;
+    const totalCount = totalCountResult.count;
+    const center = totalCount > 0 ? [totalCountResult.avgLat, totalCountResult.avgLng] : null;
 
     if (page && limit) {
       query += " LIMIT ? OFFSET ?";
       params.push(Number(limit), (Number(page) - 1) * Number(limit));
     } else if (!minLat) {
-      query += " LIMIT 500";
+      // Default safety limit for broad queries (higher for map view)
+      const safetyLimit = fields === "map" ? 4001 : 1000;
+      query += ` LIMIT ${safetyLimit}`;
     }
 
-    const sites = db.prepare(`SELECT * ${query}`).all(...params);
-    res.json({ sites, totalCount });
+    const sites = db.prepare(`SELECT ${selectClause} ${query}`).all(...params);
+    res.json({ sites, totalCount, center });
   } catch (err: any) {
     console.error("Sites Error:", err);
     res.status(500).json({ error: err.message });
