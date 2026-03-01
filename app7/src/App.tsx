@@ -215,6 +215,7 @@ export default function App() {
   const [mainWireLength, setMainWireLength] = useState("");
   const [laborCost, setLaborCost] = useState("");
   const [loading, setLoading] = useState(true);
+  const [showSurveyModal, setShowSurveyModal] = useState(false);
   const [dynamicCenter, setDynamicCenter] = useState<[number, number] | null>(null);
   const [dynamicZoom, setDynamicZoom] = useState<number | null>(null);
 
@@ -454,6 +455,7 @@ export default function App() {
 
         setDynamicCenter(editedLocation);
         setSelectedSite(null);
+        setShowSurveyModal(false);
         setSurveyCost("");
         setSurveyNotes("");
         setMainWireLength("");
@@ -668,7 +670,10 @@ export default function App() {
                   <SiteMarkers
                     sites={filteredSites}
                     onMarkerClick={(site) => handleSelectSite(site)}
-                    onSurveyButtonClick={(site) => handleSelectSite(site)}
+                    onSurveyButtonClick={(site) => {
+                      handleSelectSite(site);
+                      setShowSurveyModal(true);
+                    }}
                     surveyedIcon={SurveyedIcon}
                     pendingIcon={PendingIcon}
                   />
@@ -677,7 +682,10 @@ export default function App() {
                 <SiteMarkers
                   sites={filteredSites}
                   onMarkerClick={(site) => handleSelectSite(site)}
-                  onSurveyButtonClick={(site) => handleSelectSite(site)}
+                  onSurveyButtonClick={(site) => {
+                    handleSelectSite(site);
+                    setShowSurveyModal(true);
+                  }}
                   surveyedIcon={SurveyedIcon}
                   pendingIcon={PendingIcon}
                 />
@@ -722,7 +730,10 @@ export default function App() {
                       </td>
                       <td className="px-6 py-4">
                         <button
-                          onClick={() => handleSelectSite(site)}
+                          onClick={() => {
+                            handleSelectSite(site);
+                            setShowSurveyModal(true);
+                          }}
                           className="text-indigo-600 hover:text-indigo-900 text-sm font-bold"
                         >
                           แก้ไข
@@ -781,7 +792,7 @@ export default function App() {
       </main>
 
       {/* Survey Modal */}
-      {selectedSite && (
+      {showSurveyModal && selectedSite && (
         <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[1000] flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
             <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between bg-indigo-50/50">
@@ -790,7 +801,10 @@ export default function App() {
                 <h2 className="text-base font-bold text-slate-900">บันทึกข้อมูลการสำรวจ</h2>
               </div>
               <button
-                onClick={() => setSelectedSite(null)}
+                onClick={() => {
+                  setSelectedSite(null);
+                  setShowSurveyModal(false);
+                }}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <X size={18} />
@@ -878,7 +892,10 @@ export default function App() {
               <div className="pt-2 flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setSelectedSite(null)}
+                  onClick={() => {
+                    setSelectedSite(null);
+                    setShowSurveyModal(false);
+                  }}
                   className="flex-1 px-3 py-2 border border-red-200 text-red-600 bg-red-50 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors"
                 >
                   ยกเลิก
