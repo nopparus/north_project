@@ -272,14 +272,16 @@ export default function App() {
     setSelectedSite(site);
     setSurveyNotes(site.survey_notes || "");
 
-    if (site.is_surveyed) {
+    // If the site has already been surveyed (has a cost entry, even if 0)
+    // then show the specific recorded values of that site
+    if (site.survey_cost !== null) {
       setMainWireLength(site.main_wire_length?.toString() || "");
       setLaborCost(site.labor_cost?.toString() || "");
       setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
       setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
       setMainWireRate(site.main_wire_rate ?? 20);
     } else {
-      // Load last used values from localStorage if available
+      // For NEW sites (never surveyed before), load last used values from localStorage
       try {
         const saved = localStorage.getItem('app7_last_survey_values');
         if (saved) {
@@ -439,14 +441,16 @@ export default function App() {
       });
 
       if (res.ok) {
-        // Save to localStorage
-        localStorage.setItem('app7_last_survey_values', JSON.stringify({
-          consumerUnitRate,
-          groundRodRate,
-          mainWireRate,
-          laborCost: laborCost ? parseFloat(laborCost) : 0,
-          mainWireLength: mainWireLength || ""
-        }));
+        // Save to localStorage only if there is a valid cost to avoid 0 defaults
+        if (calculatedCost > 0) {
+          localStorage.setItem('app7_last_survey_values', JSON.stringify({
+            consumerUnitRate,
+            groundRodRate,
+            mainWireRate,
+            laborCost: laborCost ? parseFloat(laborCost) : 0,
+            mainWireLength: mainWireLength || ""
+          }));
+        }
 
         setDynamicCenter(editedLocation);
         setSelectedSite(null);
