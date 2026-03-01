@@ -13,7 +13,8 @@ import {
   AlertCircle,
   X,
   Save,
-  Info
+  Info,
+  Edit2
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { clsx, type ClassValue } from "clsx";
@@ -177,8 +178,17 @@ function SiteMarkers({
                 <span className="font-semibold">Circuit ID:</span> {site.circuit_id}
               </div>
               {site.is_surveyed ? (
-                <div className="bg-green-50 text-green-700 px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1">
-                  <CheckCircle2 size={12} /> สำรวจแล้ว: {site.survey_cost} บาท
+                <div className="bg-green-50 text-green-700 px-2 py-1 rounded text-[10px] font-bold flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-1">
+                    <CheckCircle2 size={12} /> สำรวจแล้ว: {site.survey_cost} บาท
+                  </div>
+                  <button
+                    onClick={() => onSurveyButtonClick(site)}
+                    className="p-1 hover:bg-green-100 rounded transition-colors text-green-600 hover:text-green-800"
+                    title="แก้ไขข้อมูล"
+                  >
+                    <Edit2 size={12} />
+                  </button>
                 </div>
               ) : (
                 <div className="bg-amber-50 text-amber-700 px-2 py-1 rounded text-[10px] font-bold flex items-center gap-1">
@@ -220,6 +230,12 @@ export default function App() {
   const [showSurveyModal, setShowSurveyModal] = useState(false);
   const [dynamicCenter, setDynamicCenter] = useState<[number, number] | null>(null);
   const [dynamicZoom, setDynamicZoom] = useState<number | null>(null);
+  const [totalCost, setTotalCost] = useState(0);
+  const [surveyedCount, setSurveyedCount] = useState(0);
+  const [sortField, setSortField] = useState<string>("id");
+  const [sortOrder, setSortOrder] = useState<"asc" | "desc">("asc");
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+  const [formBaseline, setFormBaseline] = useState<any>(null);
 
   // Pagination & Volume state
   const initialMapState = useMemo(() => {
@@ -277,60 +293,97 @@ export default function App() {
 
   const handleSelectSite = (site: Site) => {
     setSelectedSite(site);
-    setSurveyNotes(site.survey_notes || "");
 
-    // If the site has already been surveyed (has a cost entry, even if 0)
+    let initialNotes = site.survey_notes || "";
+    let initialWire = "";
+    let initialLabor = "";
+    let initialConsumer = 2200;
+    let initialGround = 600;
+    let initialWireRate = 20;
+
+    // If the site has already been surveyed (has a cost entry > 0)
     // then show the specific recorded values of that site
-    if (site.survey_cost !== null) {
-      setMainWireLength(site.main_wire_length?.toString() || "");
-      setLaborCost(site.labor_cost?.toString() || "");
-      setConsumerUnitRate(site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0));
-      setGroundRodRate(site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0));
-      setMainWireRate(site.main_wire_rate ?? 20);
+    if (site.survey_cost && site.survey_cost > 0) {
+      initialWire = site.main_wire_length?.toString() || "";
+      initialLabor = site.labor_cost?.toString() || "";
+      initialConsumer = site.consumer_unit_cost ?? (site.has_consumer_unit ? 2200 : 0);
+      initialGround = site.ground_rod_cost ?? (site.has_ground_rod ? 600 : 0);
+      initialWireRate = site.main_wire_rate ?? 20;
     } else {
-      // For NEW sites (never surveyed before), load last used values from localStorage
+      // For NEW or empty sites, load last used values from localStorage
       try {
         const saved = localStorage.getItem('app7_last_survey_values');
         if (saved) {
           const defaults = JSON.parse(saved);
-          setMainWireLength(defaults.mainWireLength || "");
-          setLaborCost(defaults.laborCost?.toString() || "");
-          setConsumerUnitRate(defaults.consumerUnitRate ?? 2200);
-          setGroundRodRate(defaults.groundRodRate ?? 600);
-          setMainWireRate(defaults.mainWireRate ?? 20);
-          return;
+          initialWire = defaults.mainWireLength || "";
+          initialLabor = defaults.laborCost?.toString() || "";
+          initialConsumer = defaults.consumerUnitRate ?? 2200;
+          initialGround = defaults.groundRodRate ?? 600;
+          initialWireRate = defaults.mainWireRate ?? 20;
         }
       } catch (e) {
         console.error("Failed to load stored defaults", e);
       }
+    }
 
-      // Fallback to absolute defaults
-      setMainWireLength("");
-      setLaborCost("");
-      setConsumerUnitRate(2200);
-      setGroundRodRate(600);
-      setMainWireRate(20);
+    // Set form states
+    setSurveyNotes(initialNotes);
+    setMainWireLength(initialWire);
+    setLaborCost(initialLabor);
+    setConsumerUnitRate(initialConsumer);
+    setGroundRodRate(initialGround);
+    setMainWireRate(initialWireRate);
+
+    // Capture baseline for isDirty check
+    setFormBaseline({
+      siteId: site.id,
+      notes: initialNotes,
+      wire: initialWire,
+      labor: initialLabor,
+      consumer: initialConsumer,
+      ground: initialGround,
+      wireRate: initialWireRate
+    });
+  };
+
+  const handleCloseModal = () => {
+    if (isDirty) {
+      setShowCloseConfirm(true);
+    } else {
+      setSelectedSite(null);
+      setShowSurveyModal(false);
+      setShowCloseConfirm(false);
+      setFormBaseline(null);
     }
   };
 
   const isDirty = useMemo(() => {
-    if (!selectedSite) return false;
+    if (!selectedSite || !formBaseline || formBaseline.siteId !== selectedSite.id) return false;
 
-    if (surveyNotes !== (selectedSite.survey_notes || "")) return true;
-    if (mainWireLength !== (selectedSite.main_wire_length?.toString() || "")) return true;
-    if (laborCost !== (selectedSite.labor_cost?.toString() || "")) return true;
+    if (surveyNotes !== formBaseline.notes) return true;
 
-    const baseConsumer = selectedSite.consumer_unit_cost ?? (selectedSite.has_consumer_unit ? 2200 : 0);
-    if (consumerUnitRate !== baseConsumer) return true;
+    // Compare numeric values to avoid "0.0" vs "0" issues
+    const currentWireLength = parseFloat(mainWireLength) || 0;
+    const baselineWireLength = parseFloat(formBaseline.wire) || 0;
+    if (currentWireLength !== baselineWireLength) return true;
 
-    const baseGround = selectedSite.ground_rod_cost ?? (selectedSite.has_ground_rod ? 600 : 0);
-    if (groundRodRate !== baseGround) return true;
+    const currentLabor = parseFloat(laborCost) || 0;
+    const baselineLabor = parseFloat(formBaseline.labor) || 0;
+    if (currentLabor !== baselineLabor) return true;
 
-    const baseWireRate = selectedSite.main_wire_rate ?? 20;
-    if (mainWireRate !== baseWireRate) return true;
+    if (consumerUnitRate !== formBaseline.consumer) return true;
+    if (groundRodRate !== formBaseline.ground) return true;
+    if (mainWireRate !== formBaseline.wireRate) return true;
 
     return false;
-  }, [selectedSite, surveyNotes, mainWireLength, laborCost, consumerUnitRate, groundRodRate, mainWireRate]);
+  }, [selectedSite, formBaseline, surveyNotes, mainWireLength, laborCost, consumerUnitRate, groundRodRate, mainWireRate]);
+
+  const canSave = useMemo(() => {
+    if (!selectedSite) return false;
+    // Allow saving if changes were made OR if the site is unsurveyed (so user can save the loaded defaults)
+    const isUnsurveyed = !selectedSite.survey_cost || selectedSite.survey_cost <= 0;
+    return isDirty || isUnsurveyed;
+  }, [isDirty, selectedSite]);
 
   useEffect(() => {
     fetchFilters();
@@ -374,6 +427,9 @@ export default function App() {
       if (selectedStatus) params.append("status", selectedStatus);
       if (searchTerm) params.append("search", searchTerm);
 
+      params.append("sort", sortField);
+      params.append("order", sortOrder);
+
       const filtersChanged =
         selectedProvince !== prevFilters.current.province ||
         selectedDistrict !== prevFilters.current.district ||
@@ -405,6 +461,8 @@ export default function App() {
       }
 
       setTotalCount(data.totalCount);
+      setSurveyedCount(data.surveyedCount);
+      setTotalCost(data.totalCost);
 
       if (data.center && filtersChanged) {
         setDynamicCenter(data.center);
@@ -462,6 +520,7 @@ export default function App() {
         setDynamicCenter(editedLocation);
         setSelectedSite(null);
         setShowSurveyModal(false);
+        setFormBaseline(null);
         setSurveyCost("");
         setSurveyNotes("");
         setMainWireLength("");
@@ -478,32 +537,54 @@ export default function App() {
   // Site data for display (already filtered by backend)
   const filteredSites = sites;
 
-  const exportToExcel = () => {
-    const exportData = filteredSites.map(site => ({
-      "Request ID": site.request_id,
-      "Circuit ID": site.circuit_id,
-      "สถานที่": site.location,
-      "ตำบล": site.sub_district,
-      "อำเภอ": site.district,
-      "จังหวัด": site.province,
-      "ละติจูด": site.latitude,
-      "ลองจิจูด": site.longitude,
-      "สถานะการสำรวจ": site.is_surveyed ? "สำรวจแล้ว" : "รอสำรวจ",
-      "ค่า Consumer Unit": site.consumer_unit_cost || 0,
-      "ค่า Ground Rod": site.ground_rod_cost || 0,
-      "ระยะสายไฟเมน (เมตร)": site.main_wire_length || 0,
-      "ค่าสายไฟ/เมตร": site.main_wire_rate || 0,
-      "รวมค่าสายไฟเมน (บาท)": (site.main_wire_length || 0) * (site.main_wire_rate || 0),
-      "ค่าจ้างแรงช่าง (บาท)": site.labor_cost || 0,
-      "ค่าใช้จ่ายรวม (บาท)": site.survey_cost || 0,
-      "หมายเหตุ": site.survey_notes || "",
-      "วันที่สำรวจ": site.survey_date ? new Date(site.survey_date).toLocaleString('th-TH') : ""
-    }));
+  const exportToExcel = async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (selectedProvince) params.append("province", selectedProvince);
+      if (selectedDistrict) params.append("district", selectedDistrict);
+      if (selectedStatus) params.append("status", selectedStatus);
+      if (searchTerm) params.append("search", searchTerm);
+      params.append("sort", sortField);
+      params.append("order", sortOrder);
+      // Large limit to get all records for export, ignoring pagination
+      params.append("limit", "10000");
 
-    const worksheet = XLSX.utils.json_to_sheet(exportData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "WiFi Sites Survey");
-    XLSX.writeFile(workbook, "wifi_sites_survey.xlsx");
+      const res = await fetch(`/app7/api/sites?${params.toString()}`);
+      const data = await res.json();
+      const allSites = data.sites || [];
+
+      const exportData = allSites.map((site: Site) => ({
+        "Request ID": site.request_id,
+        "Circuit ID": site.circuit_id,
+        "สถานที่": site.location,
+        "ตำบล": site.sub_district,
+        "อำเภอ": site.district,
+        "จังหวัด": site.province,
+        "ละติจูด": site.latitude,
+        "ลองจิจูด": site.longitude,
+        "สถานะการสำรวจ": site.is_surveyed ? "สำรวจแล้ว" : "รอสำรวจ",
+        "ค่า Consumer Unit": site.consumer_unit_cost || 0,
+        "ค่า Ground Rod": site.ground_rod_cost || 0,
+        "ระยะสายไฟเมน (เมตร)": site.main_wire_length || 0,
+        "ค่าสายไฟ/เมตร": site.main_wire_rate || 0,
+        "รวมค่าสายไฟเมน (บาท)": (site.main_wire_length || 0) * (site.main_wire_rate || 0),
+        "ค่าจ้างแรงช่าง (บาท)": site.labor_cost || 0,
+        "ค่าใช้จ่ายรวม (บาท)": site.survey_cost || 0,
+        "หมายเหตุ": site.survey_notes || "",
+        "วันที่สำรวจ": site.survey_date ? new Date(site.survey_date).toLocaleString('th-TH') : ""
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(exportData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "WiFi Sites Survey");
+      XLSX.writeFile(workbook, "wifi_sites_survey_all.xlsx");
+    } catch (err) {
+      console.error("Export failed", err);
+      alert("เกิดข้อผิดพลาดในการส่งออกข้อมูล");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const availableDistricts = useMemo(() => {
@@ -572,6 +653,22 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {/* Summary Dashboard */}
+      <div className="bg-indigo-900 text-white px-6 py-2 flex items-center justify-around text-sm font-medium">
+        <div className="flex items-center gap-2">
+          <span className="text-indigo-200">จุดทั้งหมด:</span>
+          <span className="text-lg">{totalCount.toLocaleString()}</span>
+        </div>
+        <div className="flex items-center gap-2 border-l border-indigo-700 pl-8">
+          <span className="text-indigo-200">สำรวจแล้ว:</span>
+          <span className="text-lg text-green-400">{surveyedCount.toLocaleString()}</span>
+        </div>
+        <div className="flex items-center gap-2 border-l border-indigo-700 pl-8">
+          <span className="text-indigo-200">งบประมาณรวม:</span>
+          <span className="text-lg text-amber-400">{totalCost.toLocaleString()} บาท</span>
+        </div>
+      </div>
 
       {/* Filters Bar */}
       <div className="bg-white border-b border-slate-200 px-6 py-4 flex flex-wrap items-center gap-4 z-10">
@@ -696,6 +793,18 @@ export default function App() {
                   pendingIcon={PendingIcon}
                 />
               )}
+              {/* Map Legend */}
+              <div className="absolute bottom-6 left-6 z-[400] bg-white/90 backdrop-blur-sm p-3 rounded-lg shadow-lg border border-slate-200 flex flex-col gap-2">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">สัญลักษณ์</p>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-[#10B981]"></div>
+                  <span className="text-xs font-semibold text-slate-700">สำรวจแล้ว</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-[#3B82F6]"></div>
+                  <span className="text-xs font-semibold text-slate-700">รอสำรวจ</span>
+                </div>
+              </div>
             </MapContainer>
           </div>
         ) : (
@@ -704,12 +813,27 @@ export default function App() {
               <table className="w-full border-collapse text-left">
                 <thead className="sticky top-0 bg-slate-50 border-b border-slate-200 z-10">
                   <tr>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">สถานะ</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Request ID</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Circuit ID</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">สถานที่ติดตั้ง</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600" onClick={() => {
+                      setSortOrder(sortField === 'is_surveyed' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc');
+                      setSortField('is_surveyed');
+                    }}>สถานะ {sortField === 'is_surveyed' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600" onClick={() => {
+                      setSortOrder(sortField === 'request_id' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc');
+                      setSortField('request_id');
+                    }}>Request ID {sortField === 'request_id' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600" onClick={() => {
+                      setSortOrder(sortField === 'circuit_id' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc');
+                      setSortField('circuit_id');
+                    }}>Circuit ID {sortField === 'circuit_id' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600" onClick={() => {
+                      setSortOrder(sortField === 'location' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'asc');
+                      setSortField('location');
+                    }}>สถานที่ติดตั้ง {sortField === 'location' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">อำเภอ/จังหวัด</th>
-                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">ค่าใช้จ่าย (บาท)</th>
+                    <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider cursor-pointer hover:text-indigo-600" onClick={() => {
+                      setSortOrder(sortField === 'survey_cost' ? (sortOrder === 'asc' ? 'desc' : 'asc') : 'desc');
+                      setSortField('survey_cost');
+                    }}>ค่าใช้จ่าย (บาท) {sortField === 'survey_cost' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
                     <th className="px-6 py-4 text-xs font-bold text-slate-500 uppercase tracking-wider">จัดการ</th>
                   </tr>
                 </thead>
@@ -807,10 +931,7 @@ export default function App() {
                 <h2 className="text-base font-bold text-slate-900">บันทึกข้อมูลการสำรวจ</h2>
               </div>
               <button
-                onClick={() => {
-                  setSelectedSite(null);
-                  setShowSurveyModal(false);
-                }}
+                onClick={handleCloseModal}
                 className="text-slate-400 hover:text-slate-600 transition-colors"
               >
                 <X size={18} />
@@ -898,20 +1019,17 @@ export default function App() {
               <div className="pt-2 flex gap-2">
                 <button
                   type="button"
-                  onClick={() => {
-                    setSelectedSite(null);
-                    setShowSurveyModal(false);
-                  }}
+                  onClick={handleCloseModal}
                   className="flex-1 px-3 py-2 border border-red-200 text-red-600 bg-red-50 rounded-lg text-sm font-bold hover:bg-red-100 transition-colors"
                 >
                   ยกเลิก
                 </button>
                 <button
                   type="submit"
-                  disabled={!isDirty}
+                  disabled={!canSave}
                   className={cn(
                     "flex-1 px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center justify-center gap-1.5 shadow-sm",
-                    isDirty
+                    canSave
                       ? "bg-indigo-600 text-white hover:bg-indigo-700"
                       : "bg-slate-200 text-slate-400 cursor-not-allowed"
                   )}
@@ -921,6 +1039,42 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Close Confirmation Modal */}
+      {showCloseConfirm && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[1100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-sm overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 text-center">
+              <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 mb-4">
+                <AlertCircle className="h-6 w-6 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-900 mb-2">ยืนยันการปิดโดยไม่บันทึก?</h3>
+              <p className="text-sm text-slate-500 mb-6">
+                คุณมีการแก้ไขข้อมูลที่ยังไม่ได้บันทึก หากปิดตอนนี้ข้อมูลที่คุณแก้ไขจะหายไปทั้งหมด
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowCloseConfirm(false)}
+                  className="flex-1 px-4 py-2 border border-slate-200 text-slate-600 bg-white rounded-lg text-sm font-bold hover:bg-slate-50 transition-colors"
+                >
+                  กลับไปแก้ไข
+                </button>
+                <button
+                  onClick={() => {
+                    setSelectedSite(null);
+                    setShowSurveyModal(false);
+                    setShowCloseConfirm(false);
+                    setFormBaseline(null);
+                  }}
+                  className="flex-1 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-bold hover:bg-red-700 transition-colors shadow-sm"
+                >
+                  ปิดโดยไม่บันทึก
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

@@ -40,7 +40,7 @@ app.get("/api/sites", (req, res) => {
     const {
       province, district, status, search,
       minLat, maxLat, minLng, maxLng,
-      page, limit, fields
+      page, limit, fields, sort, order
     } = req.query;
 
     let selectClause = "*";
@@ -70,9 +70,26 @@ app.get("/api/sites", (req, res) => {
       params.push(Number(minLat), Number(maxLat), Number(minLng), Number(maxLng));
     }
 
-    const totalCountResult = db.prepare(`SELECT COUNT(*) as count, AVG(latitude) as avgLat, AVG(longitude) as avgLng ${query}`).get(...params) as any;
-    const totalCount = totalCountResult.count;
-    const center = totalCount > 0 ? [totalCountResult.avgLat, totalCountResult.avgLng] : null;
+    const summaryResult = db.prepare(`
+      SELECT 
+        COUNT(*) as count, 
+        SUM(CASE WHEN is_surveyed = 1 AND survey_cost > 0 THEN 1 ELSE 0 END) as surveyedCount,
+        SUM(survey_cost) as totalCost, 
+        AVG(latitude) as avgLat, 
+        AVG(longitude) as avgLng 
+      ${query}
+    `).get(...params) as any;
+    const totalCount = summaryResult.count;
+    const surveyedCount = summaryResult.surveyedCount || 0;
+    const totalCost = summaryResult.totalCost || 0;
+    const center = totalCount > 0 ? [summaryResult.avgLat, summaryResult.avgLng] : null;
+
+    if (sort) {
+      const allowedFields = ["request_id", "circuit_id", "location", "district", "province", "survey_cost", "is_surveyed"];
+      const finalSort = allowedFields.includes(sort as string) ? sort : "id";
+      const finalOrder = order === "desc" ? "DESC" : "ASC";
+      query += ` ORDER BY ${finalSort} ${finalOrder}`;
+    }
 
     if (page && limit) {
       query += " LIMIT ? OFFSET ?";
@@ -88,7 +105,7 @@ app.get("/api/sites", (req, res) => {
       // Force is_surveyed to 0 if cost is 0 or null as requested
       is_surveyed: (s.is_surveyed === 1 && s.survey_cost > 0) ? 1 : 0
     }));
-    res.json({ sites, totalCount, center });
+    res.json({ sites, totalCount, surveyedCount, totalCost, center });
   } catch (err: any) {
     console.error("Sites Error:", err);
     res.status(500).json({ error: err.message });
