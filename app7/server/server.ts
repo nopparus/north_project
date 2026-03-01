@@ -45,7 +45,7 @@ app.get("/api/sites", (req, res) => {
 
     let selectClause = "*";
     if (fields === "map") {
-      selectClause = "id, latitude, longitude, is_surveyed";
+      selectClause = "id, request_id, circuit_id, location, latitude, longitude, is_surveyed, survey_cost, survey_notes, has_consumer_unit, has_ground_rod, consumer_unit_cost, ground_rod_cost, main_wire_rate, main_wire_length, labor_cost, district, province";
     }
 
     let query = "FROM sites WHERE 1=1";
