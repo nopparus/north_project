@@ -112,6 +112,93 @@ app.get("/api/sites", (req, res) => {
   }
 });
 
+app.get("/api/dashboard/summary", (req, res) => {
+  console.log("GET /api/dashboard/summary", req.query);
+  try {
+    const { province, district, status, search } = req.query;
+
+    let query = "FROM sites WHERE 1=1";
+    const params: any[] = [];
+
+    if (province) { query += " AND province = ?"; params.push(province); }
+    if (district) { query += " AND district = ?"; params.push(district); }
+    if (status === "surveyed") { query += " AND is_surveyed = 1 AND survey_cost > 0"; }
+    else if (status === "pending") { query += " AND (is_surveyed = 0 OR survey_cost IS NULL OR survey_cost = 0)"; }
+
+    if (search) {
+      query += " AND (location LIKE ? OR request_id LIKE ? OR circuit_id LIKE ?)";
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    // 1. Overview metrics
+    const summaryResult = db.prepare(`
+      SELECT 
+        COUNT(*) as totalSites, 
+        SUM(CASE WHEN is_surveyed = 1 AND survey_cost > 0 THEN 1 ELSE 0 END) as surveyedSites,
+        SUM(survey_cost) as totalBudget,
+        SUM(labor_cost) as totalLaborCost,
+        SUM(main_wire_length * main_wire_rate) as totalWireCost,
+        SUM(consumer_unit_cost) as totalConsumerCost,
+        SUM(ground_rod_cost) as totalGroundRodCost
+      ${query}
+    `).get(...params) as any;
+
+    // 2. Dynamic Grouping (Drill-down: District if Province is selected, otherwise Province)
+    const groupField = province ? "district" : "province";
+    const groupedData = db.prepare(`
+      SELECT 
+        ${groupField} as name,
+        COUNT(*) as count,
+        SUM(CASE WHEN is_surveyed = 1 AND survey_cost > 0 THEN 1 ELSE 0 END) as surveyed,
+        SUM(survey_cost) as totalCost,
+        SUM(survey_cost) / NULLIF(SUM(CASE WHEN is_surveyed = 1 AND survey_cost > 0 THEN 1 ELSE 0 END), 0) as avgCost
+      ${query}
+      GROUP BY ${groupField}
+      ORDER BY totalCost DESC
+    `).all(...params);
+
+    // 3. Time-Series Data (Survey progression over time)
+    const timeSeriesData = db.prepare(`
+      SELECT 
+        date(survey_date) as date,
+        COUNT(*) as count,
+        SUM(survey_cost) as cost
+      ${query} AND is_surveyed = 1 AND survey_date IS NOT NULL
+      GROUP BY date(survey_date)
+      ORDER BY date(survey_date) ASC
+    `).all(...params);
+
+    // 4. Top 5 Most Expensive Sites (Anomalies)
+    const expensiveSites = db.prepare(`
+      SELECT 
+        id, request_id, location, province, district, survey_cost, labor_cost, 
+        (main_wire_length * main_wire_rate) as wire_cost, consumer_unit_cost, ground_rod_cost
+      ${query} AND is_surveyed = 1 AND survey_cost > 0
+      ORDER BY survey_cost DESC
+      LIMIT 5
+    `).all(...params);
+
+    res.json({
+      metrics: {
+        totalSites: summaryResult.totalSites || 0,
+        surveyedSites: summaryResult.surveyedSites || 0,
+        totalBudget: summaryResult.totalBudget || 0,
+        totalLaborCost: summaryResult.totalLaborCost || 0,
+        totalWireCost: summaryResult.totalWireCost || 0,
+        totalConsumerCost: summaryResult.totalConsumerCost || 0,
+        totalGroundRodCost: summaryResult.totalGroundRodCost || 0,
+      },
+      groupedData,
+      timeSeriesData,
+      expensiveSites
+    });
+
+  } catch (err: any) {
+    console.error("Dashboard Summary Error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/survey/:id", (req, res) => {
   const { id } = req.params;
   const { cost, notes, consumerUnitCost, groundRodCost, mainWireRate, mainWireLength, laborCost } = req.body;

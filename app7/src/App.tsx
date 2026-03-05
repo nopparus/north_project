@@ -14,11 +14,14 @@ import {
   X,
   Save,
   Info,
-  Edit2
+  Edit2,
+  BarChart as BarChartIcon
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+
+import Dashboard from "./components/Dashboard";
 
 // Utility for tailwind classes
 function cn(...inputs: ClassValue[]) {
@@ -212,8 +215,8 @@ function SiteMarkers({
 }
 
 export default function App() {
-  const [view, setView] = useState<"map" | "table">(() => {
-    return (localStorage.getItem('app7_view') as "map" | "table") || "map";
+  const [view, setView] = useState<"dashboard" | "map" | "table">(() => {
+    return (localStorage.getItem('app7_view') as "dashboard" | "map" | "table") || "dashboard";
   });
   const [sites, setSites] = useState<Site[]>([]);
   const [filterOptions, setFilterOptions] = useState<FilterOptions>({ provinces: [], districts: [] });
@@ -623,6 +626,16 @@ export default function App() {
         <div className="flex items-center gap-4">
           <div className="flex bg-slate-100 p-1 rounded-lg">
             <button
+              onClick={() => setView("dashboard")}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-md transition-all",
+                view === "dashboard" ? "bg-white shadow-sm text-indigo-600" : "text-slate-600 hover:text-slate-900"
+              )}
+            >
+              <BarChartIcon size={18} />
+              <span className="text-sm font-medium">ภาพรวม</span>
+            </button>
+            <button
               onClick={() => setView("map")}
               className={cn(
                 "flex items-center gap-2 px-4 py-2 rounded-md transition-all",
@@ -739,7 +752,26 @@ export default function App() {
           </div>
         )}
 
-        {view === "map" ? (
+        {view === "dashboard" ? (
+          <Dashboard
+            onSiteClick={(site) => {
+              // Extract lat/lng from the site object and zoom in to map 
+              setDynamicCenter([site.latitude, site.longitude]);
+              setDynamicZoom(16);
+              setZoomLevel(16);
+              setView("map");
+              // Wait for map to render and then open modal
+              setTimeout(() => {
+                handleSelectSite(site);
+                setShowSurveyModal(true);
+              }, 500);
+            }}
+            filterOptions={filterOptions}
+            selectedProvince={selectedProvince}
+            selectedDistrict={selectedDistrict}
+            selectedStatus={selectedStatus}
+          />
+        ) : view === "map" ? (
           <div className="h-full w-full">
             <MapContainer
               center={initialMapState.center}
