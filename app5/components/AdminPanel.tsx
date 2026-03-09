@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Project, WorkType } from '../types';
-import { ShieldAlert, Lock, Trash2, Edit2, Plus, X, Briefcase, Save, MapPin } from 'lucide-react';
+import { ShieldAlert, Lock, Trash2, Edit2, Plus, X, Briefcase, Save, MapPin, Database } from 'lucide-react';
 import { projectsApi } from '../services/api';
 import ManageProjectSites from './ManageProjectSites';
+import AdminSiteMaster from './AdminSiteMaster';
 
 interface AdminPanelProps {
     projects: Project[];
@@ -20,6 +21,9 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ projects, setProjects, onProjec
     const [isAddOpen, setIsAddOpen] = useState(false);
     const [isEditOpen, setIsEditOpen] = useState(false);
     const [managingSitesForProject, setManagingSitesForProject] = useState<Project | null>(null);
+
+    // Tab State
+    const [activeTab, setActiveTab] = useState<'projects' | 'sites'>('projects');
 
     // Forms
     const [editingProject, setEditingProject] = useState<Project | null>(null);
@@ -130,82 +134,109 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ projects, setProjects, onProjec
                 <div>
                     <h1 className="text-2xl font-black text-white tracking-tight flex items-center gap-3">
                         <ShieldAlert className="text-rose-500" />
-                        การตั้งค่าระบบผู้ดูแล (Admin)
+                        ระบบจัดการผู้ดูแลระบบ (Admin)
                     </h1>
-                    <p className="text-sm text-slate-400 font-medium">จัดการ เพิ่ม, ลบ, หรือแก้ไขชื่อโครงการในระบบ</p>
+                    <p className="text-sm text-slate-400 font-medium">จัดการ เพิ่ม, ลบ, หรือแก้ไขข้อมูลสำคัญในระบบ</p>
                 </div>
+            </div>
+
+            {/* Admin Navigation Tabs */}
+            <div className="flex gap-2 overflow-x-auto pb-2 -mx-4 px-4 md:mx-0 md:px-0">
                 <button
-                    onClick={() => setIsAddOpen(true)}
-                    className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg flex items-center justify-center gap-2 transition-all"
+                    onClick={() => setActiveTab('projects')}
+                    className={`px-5 py-3 rounded-2xl font-black tracking-widest text-xs uppercase flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'projects' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'}`}
                 >
-                    <Plus size={16} /> สร้างโครงการใหม่
+                    <Briefcase size={16} /> โครงการแบะสิทธิ์สถานที่
+                </button>
+                <button
+                    onClick={() => setActiveTab('sites')}
+                    className={`px-5 py-3 rounded-2xl font-black tracking-widest text-xs uppercase flex items-center gap-2 transition-all whitespace-nowrap ${activeTab === 'sites' ? 'bg-blue-600 text-white shadow-lg shadow-blue-500/20' : 'bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800'}`}
+                >
+                    <Database size={16} /> ข้อมูลสถานที่หลัก (Map Sites)
                 </button>
             </div>
 
-            <div className="bg-slate-900 border border-slate-700/50 rounded-3xl overflow-hidden shadow-2xl">
-                <div className="overflow-x-auto">
-                    <table className="min-w-full text-left">
-                        <thead className="bg-slate-950/50 border-b border-slate-800">
-                            <tr>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Project Name</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Category</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">ID</th>
-                                <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/50">
-                            {projects.length > 0 ? projects.map(project => (
-                                <tr key={project.id} className="hover:bg-slate-800/30 transition-colors group">
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="w-3 h-3 rounded-full shadow-inner" style={{ backgroundColor: project.color }} />
-                                            <span className="font-bold text-slate-200">{project.name}</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full ${project.workType === 'PM' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
-                                            {project.workType}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 font-mono text-[10px] text-slate-500">{project.id}</td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button
-                                                onClick={() => setManagingSitesForProject(project)}
-                                                className="p-2 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-lg transition-colors border border-emerald-500/20"
-                                                title="จัดการสถานที่"
-                                            >
-                                                <MapPin size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => { setEditingProject(project); setIsEditOpen(true); }}
-                                                className="p-2 bg-slate-800 hover:bg-slate-700 text-blue-400 rounded-lg transition-colors border border-slate-700 hover:border-slate-600"
-                                                title="แก้ไขโครงการ"
-                                            >
-                                                <Edit2 size={14} />
-                                            </button>
-                                            <button
-                                                onClick={() => handleDelete(project.id, project.name)}
-                                                className="p-2 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white rounded-lg transition-colors border border-rose-500/20"
-                                                title="ลบโครงการ"
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            )) : (
-                                <tr>
-                                    <td colSpan={4} className="px-6 py-12 text-center text-slate-500 font-medium italic">
-                                        <Briefcase className="mx-auto mb-2 opacity-20" size={32} />
-                                        ยังไม่มีโปรเจกต์ในระบบ
-                                    </td>
-                                </tr>
-                            )}
-                        </tbody>
-                    </table>
+            {activeTab === 'projects' && (
+                <div className="space-y-6 animate-in fade-in duration-300">
+                    <div className="flex justify-end">
+                        <button
+                            onClick={() => setIsAddOpen(true)}
+                            className="bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-xl font-black uppercase tracking-widest text-xs shadow-lg flex items-center justify-center gap-2 transition-all"
+                        >
+                            <Plus size={16} /> สร้างโครงการใหม่
+                        </button>
+                    </div>
+
+                    <div className="bg-slate-900 border border-slate-700/50 rounded-3xl overflow-hidden shadow-2xl">
+                        <div className="overflow-x-auto">
+                            <table className="min-w-full text-left">
+                                <thead className="bg-slate-950/50 border-b border-slate-800">
+                                    <tr>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Project Name</th>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">Category</th>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500">ID</th>
+                                        <th className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-500 text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-800/50">
+                                    {projects.length > 0 ? projects.map(project => (
+                                        <tr key={project.id} className="hover:bg-slate-800/30 transition-colors group">
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-3 h-3 rounded-full shadow-inner" style={{ backgroundColor: project.color }} />
+                                                    <span className="font-bold text-slate-200">{project.name}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-4">
+                                                <span className={`px-3 py-1 text-[10px] font-black uppercase tracking-widest rounded-full ${project.workType === 'PM' ? 'bg-blue-500/10 text-blue-400 border border-blue-500/20' : 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'}`}>
+                                                    {project.workType}
+                                                </span>
+                                            </td>
+                                            <td className="px-6 py-4 font-mono text-[10px] text-slate-500">{project.id}</td>
+                                            <td className="px-6 py-4">
+                                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button
+                                                        onClick={() => setManagingSitesForProject(project)}
+                                                        className="p-2 bg-emerald-500/10 hover:bg-emerald-500 text-emerald-500 hover:text-white rounded-lg transition-colors border border-emerald-500/20"
+                                                        title="จัดการสถานที่"
+                                                    >
+                                                        <MapPin size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => { setEditingProject(project); setIsEditOpen(true); }}
+                                                        className="p-2 bg-slate-800 hover:bg-slate-700 text-blue-400 rounded-lg transition-colors border border-slate-700 hover:border-slate-600"
+                                                        title="แก้ไขโครงการ"
+                                                    >
+                                                        <Edit2 size={14} />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => handleDelete(project.id, project.name)}
+                                                        className="p-2 bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white rounded-lg transition-colors border border-rose-500/20"
+                                                        title="ลบโครงการ"
+                                                    >
+                                                        <Trash2 size={14} />
+                                                    </button>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )) : (
+                                        <tr>
+                                            <td colSpan={4} className="px-6 py-12 text-center text-slate-500 font-medium italic">
+                                                <Briefcase className="mx-auto mb-2 opacity-20" size={32} />
+                                                ยังไม่มีโปรเจกต์ในระบบ
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
-            </div>
+            )}
+
+            {activeTab === 'sites' && (
+                <AdminSiteMaster />
+            )}
 
             {/* Add Project Modal */}
             {isAddOpen && (

@@ -149,8 +149,18 @@ export const projectSitesApi = {
     await request('POST', '/project-sites', { projectId, siteId });
   },
 
+  addSitesToProjectBulk: async (projectId: string, siteIds: number[]): Promise<void> => {
+    if (siteIds.length === 0) return;
+    await request('POST', '/project-sites/bulk', { projectId, siteIds });
+  },
+
   removeSiteFromProject: async (projectId: string, siteId: number): Promise<void> => {
     await request('DELETE', '/project-sites', { projectId, siteId });
+  },
+
+  removeSitesFromProjectBulk: async (projectId: string, siteIds: number[]): Promise<void> => {
+    if (siteIds.length === 0) return;
+    await request('DELETE', '/project-sites/bulk', { projectId, siteIds });
   }
 };
 
@@ -226,6 +236,36 @@ export const locationsApi = {
       site_exists: res.site_exists,
     };
   },
+
+  createNT: async (data: Partial<NTLocation>): Promise<NTLocation> => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: any = await request('POST', '/nt-locations', {
+      type: data.type,
+      locationname: data.name,
+      province: data.province,
+      servicecenter: data.serviceCenter,
+      latitude: data.lat,
+      longitude: data.lng,
+      images: data.images,
+      site_exists: data.site_exists,
+    });
+    return {
+      id: res.id,
+      locationId: String(res.id),
+      name: res.locationname,
+      lat: parseFloat(res.latitude),
+      lng: parseFloat(res.longitude),
+      serviceCenter: res.servicecenter,
+      province: res.province,
+      type: res.type,
+      images: res.images || [],
+      olt_count: res.olt_count || 1,
+      site_exists: res.site_exists,
+    };
+  },
+
+  deleteNT: (id: number): Promise<{ success: boolean }> =>
+    request('DELETE', `/nt-locations/${id}`),
 
   uploadImage: async (file: File): Promise<string> => {
     const formData = new FormData();

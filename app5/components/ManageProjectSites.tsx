@@ -55,11 +55,11 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
             const addedIds = [...stagedSiteIds].filter(id => !initialSiteIds.has(id));
             const removedIds = [...initialSiteIds].filter(id => !stagedSiteIds.has(id));
 
-            for (const id of addedIds) {
-                await projectSitesApi.addSiteToProject(project.id, id);
+            if (addedIds.length > 0) {
+                await projectSitesApi.addSitesToProjectBulk(project.id, addedIds);
             }
-            for (const id of removedIds) {
-                await projectSitesApi.removeSiteFromProject(project.id, id);
+            if (removedIds.length > 0) {
+                await projectSitesApi.removeSitesFromProjectBulk(project.id, removedIds);
             }
 
             // Reload to ensure App.tsx and other components get fresh data

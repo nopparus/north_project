@@ -145,6 +145,40 @@ app.delete('/api/pms/project-sites', async (req, res) => {
     }
 });
 
+app.post('/api/pms/project-sites/bulk', async (req, res) => {
+    try {
+        const { projectId, siteIds } = req.body;
+        if (!siteIds || siteIds.length === 0) return res.status(201).json({ success: true });
+
+        await pool.query(
+            `INSERT INTO project_sites (project_id, site_id)
+             SELECT $1, unnest($2::int[])
+             ON CONFLICT DO NOTHING`,
+            [projectId, siteIds]
+        );
+        res.status(201).json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.delete('/api/pms/project-sites/bulk', async (req, res) => {
+    try {
+        const { projectId, siteIds } = req.body;
+        if (!siteIds || siteIds.length === 0) return res.json({ success: true });
+
+        await pool.query(
+            `DELETE FROM project_sites WHERE project_id = $1 AND site_id = ANY($2::int[])`,
+            [projectId, siteIds]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
 // ─── LOCATIONS ───────────────────────────────────────────────────────────────
 
 app.get('/api/pms/locations', async (req, res) => {
@@ -239,6 +273,48 @@ app.get('/api/pms/nt-locations', async (req, res) => {
     }
 });
 
+app.post('/api/pms/nt-locations', async (req, res) => {
+    try {
+        const { type, locationname, province, servicecenter, latitude, longitude, image_url, images, site_exists } = req.body;
+
+        let insertQuery = `
+            INSERT INTO nt_sites (site_name, province, latitude, longitude, service_center, type, site_exists)
+            VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *
+        `;
+        const values = [
+            locationname,
+            province || '',
+            latitude || 0,
+            longitude || 0,
+            servicecenter || '',
+            type || 'ตู้สาขา',
+            site_exists ?? true
+        ];
+
+        const { rows } = await pool.query(insertQuery, values);
+        const newSite = rows[0];
+
+        // Handle Images
+        let imageArray = [];
+        if (images && Array.isArray(images)) {
+            imageArray = images;
+        } else if (image_url) {
+            imageArray = [image_url];
+        }
+
+        if (imageArray.length > 0) {
+            for (const img of imageArray) {
+                await pool.query('INSERT INTO nt_site_images (site_id, image_url) VALUES ($1, $2)', [newSite.id, img]);
+            }
+        }
+
+        res.status(201).json(newSite);
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
 // Upload Endpoint
 app.post('/api/pms/upload', upload.single('image'), (req, res) => {
     try {
@@ -292,6 +368,35 @@ app.put('/api/pms/nt-locations/:id', async (req, res) => {
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.delete('/api/pms/nt-locations/:id', async (req, res) => {
+    const client = await pool.connect();
+    try {
+        const { id } = req.params;
+        await client.query('BEGIN');
+
+        // Delete dependencies first
+        await client.query('DELETE FROM nt_site_images WHERE site_id = $1', [id]);
+        await client.query('DELETE FROM project_sites WHERE site_id = $1', [id]);
+
+        // Remove mappings in nt_locations (we do not delete the OLTs, just remove their relation to this site)
+        await client.query('UPDATE nt_locations SET site_id = NULL WHERE site_id = $1', [id]);
+
+        // Delete the site itself
+        const { rowCount } = await client.query('DELETE FROM nt_sites WHERE id = $1', [id]);
+
+        await client.query('COMMIT');
+
+        if (rowCount === 0) return res.status(404).json({ error: 'Location not found' });
+        res.json({ success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    } finally {
+        client.release();
     }
 });
 
