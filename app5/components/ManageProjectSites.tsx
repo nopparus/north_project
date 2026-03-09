@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Search, Plus, Trash2, Loader2, MapPin } from 'lucide-react';
+import { X, Search, Plus, Trash2, Loader2, MapPin, CheckSquare, Save } from 'lucide-react';
 import { Project, NTLocation } from '../types';
 import { locationsApi, projectSitesApi } from '../services/api';
 
@@ -10,10 +10,11 @@ interface Props {
 
 const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
     const [allSites, setAllSites] = useState<NTLocation[]>([]);
-    const [projectSiteIds, setProjectSiteIds] = useState<Set<number>>(new Set());
+    const [initialSiteIds, setInitialSiteIds] = useState<Set<number>>(new Set());
+    const [stagedSiteIds, setStagedSiteIds] = useState<Set<number>>(new Set());
     const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
-    const [actionLoading, setActionLoading] = useState<number | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
 
     useEffect(() => {
         const load = async () => {
@@ -24,7 +25,9 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
                     projectSitesApi.getSitesForProject(project.id)
                 ]);
                 setAllSites(sites);
-                setProjectSiteIds(new Set(assignedIds));
+                const assignedSet = new Set(assignedIds);
+                setInitialSiteIds(new Set(assignedSet));
+                setStagedSiteIds(new Set(assignedSet));
             } catch (err) {
                 alert('โหลดข้อมูลสถานที่ล้มเหลว');
             } finally {
@@ -34,35 +37,36 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
         load();
     }, [project.id]);
 
-    const handleAdd = async (siteId: number) => {
-        setActionLoading(siteId);
-        try {
-            await projectSitesApi.addSiteToProject(project.id, siteId);
-            setProjectSiteIds(prev => {
-                const next = new Set(prev);
-                next.add(siteId);
-                return next;
-            });
-        } catch (err) {
-            alert('เพิ่มสถานที่ล้มเหลว');
-        } finally {
-            setActionLoading(null);
-        }
+    const handleAdd = (siteId: number) => {
+        setStagedSiteIds(prev => new Set(prev).add(siteId));
     };
 
-    const handleRemove = async (siteId: number) => {
-        setActionLoading(siteId);
+    const handleRemove = (siteId: number) => {
+        setStagedSiteIds(prev => {
+            const next = new Set(prev);
+            next.delete(siteId);
+            return next;
+        });
+    };
+
+    const handleSave = async () => {
+        setIsSaving(true);
         try {
-            await projectSitesApi.removeSiteFromProject(project.id, siteId);
-            setProjectSiteIds(prev => {
-                const next = new Set(prev);
-                next.delete(siteId);
-                return next;
-            });
+            const addedIds = [...stagedSiteIds].filter(id => !initialSiteIds.has(id));
+            const removedIds = [...initialSiteIds].filter(id => !stagedSiteIds.has(id));
+
+            for (const id of addedIds) {
+                await projectSitesApi.addSiteToProject(project.id, id);
+            }
+            for (const id of removedIds) {
+                await projectSitesApi.removeSiteFromProject(project.id, id);
+            }
+
+            // Reload to ensure App.tsx and other components get fresh data
+            window.location.reload();
         } catch (err) {
-            alert('ลบสถานที่ล้มเหลว');
-        } finally {
-            setActionLoading(null);
+            alert('บันทึกข้อมูลล้มเหลว กรุณาลองใหม่อีกครั้ง');
+            setIsSaving(false);
         }
     };
 
@@ -72,8 +76,23 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
         return allSites.filter(s => s.name.toLowerCase().includes(lower) || s.province.toLowerCase().includes(lower));
     }, [allSites, search]);
 
-    const assignedSites = filteredSites.filter(s => projectSiteIds.has(s.id));
-    const unassignedSites = filteredSites.filter(s => !projectSiteIds.has(s.id));
+    const assignedSites = filteredSites.filter(s => stagedSiteIds.has(s.id));
+    const unassignedSites = filteredSites.filter(s => !stagedSiteIds.has(s.id));
+
+    const handleAddAll = () => {
+        const next = new Set(stagedSiteIds);
+        unassignedSites.forEach(s => next.add(s.id));
+        setStagedSiteIds(next);
+    };
+
+    const handleRemoveAll = () => {
+        const next = new Set(stagedSiteIds);
+        assignedSites.forEach(s => next.delete(s.id));
+        setStagedSiteIds(next);
+    };
+
+    const hasChanges = Array.from(stagedSiteIds).some(id => !initialSiteIds.has(id)) ||
+        Array.from(initialSiteIds).some(id => !stagedSiteIds.has(id));
 
     return (
         <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-slate-950/90 backdrop-blur-md">
@@ -119,9 +138,16 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
                             {/* Assigned List */}
                             <div className="flex flex-col border border-slate-800 rounded-2xl overflow-hidden bg-slate-950/50">
                                 <div className="bg-blue-600/20 border-b border-blue-600/30 px-4 py-3">
-                                    <h4 className="font-black text-blue-400 text-sm uppercase tracking-widest flex justify-between">
-                                        สถานที่ในโครงการ
-                                        <span className="bg-blue-500 text-white px-2 py-0.5 rounded-full text-[10px]">{assignedSites.length}</span>
+                                    <h4 className="font-black text-blue-400 text-sm uppercase tracking-widest flex justify-between items-center w-full">
+                                        <span>สถานที่ในโครงการ <span className="ml-2 bg-blue-500 text-white px-2 py-0.5 rounded-full text-[10px]">{assignedSites.length}</span></span>
+                                        {assignedSites.length > 0 && (
+                                            <button
+                                                onClick={handleRemoveAll}
+                                                className="text-[10px] px-2 py-1 bg-rose-500/20 text-rose-400 hover:bg-rose-500 hover:text-white rounded-md transition-colors border border-rose-500/30 font-bold"
+                                            >
+                                                เอาออกทั้งหมด
+                                            </button>
+                                        )}
                                     </h4>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -133,11 +159,11 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
                                             </div>
                                             <button
                                                 onClick={() => handleRemove(site.id)}
-                                                disabled={actionLoading === site.id}
+                                                disabled={isSaving}
                                                 className="p-2 text-rose-500 hover:bg-rose-500 hover:text-white rounded-lg transition-all disabled:opacity-50"
                                                 title="เอาออกจากโครงการ"
                                             >
-                                                {actionLoading === site.id ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16} />}
+                                                <Trash2 size={16} />
                                             </button>
                                         </div>
                                     )) : (
@@ -149,9 +175,16 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
                             {/* Unassigned List */}
                             <div className="flex flex-col border border-slate-800 rounded-2xl overflow-hidden bg-slate-950/50">
                                 <div className="bg-slate-800/50 border-b border-slate-800 px-4 py-3">
-                                    <h4 className="font-black text-slate-400 text-sm uppercase tracking-widest flex justify-between">
-                                        สถานที่ที่สามารถเพิ่มได้
-                                        <span className="bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full text-[10px]">{unassignedSites.length}</span>
+                                    <h4 className="font-black text-slate-400 text-sm uppercase tracking-widest flex justify-between items-center w-full">
+                                        <span>สถานที่ที่เพิ่มได้ <span className="ml-2 bg-slate-700 text-slate-300 px-2 py-0.5 rounded-full text-[10px]">{unassignedSites.length}</span></span>
+                                        {unassignedSites.length > 0 && (
+                                            <button
+                                                onClick={handleAddAll}
+                                                className="text-[10px] px-2 py-1 bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-md transition-colors border border-emerald-500/30 font-bold flex items-center gap-1"
+                                            >
+                                                <CheckSquare size={12} /> เลือกทั้งหมด
+                                            </button>
+                                        )}
                                     </h4>
                                 </div>
                                 <div className="flex-1 overflow-y-auto p-2 space-y-1">
@@ -163,11 +196,11 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
                                             </div>
                                             <button
                                                 onClick={() => handleAdd(site.id)}
-                                                disabled={actionLoading === site.id}
+                                                disabled={isSaving}
                                                 className="p-2 text-emerald-500 hover:bg-emerald-500 hover:text-white rounded-lg transition-all disabled:opacity-50"
                                                 title="เพิ่มเข้าโครงการ"
                                             >
-                                                {actionLoading === site.id ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                                                <Plus size={16} />
                                             </button>
                                         </div>
                                     )) : (
@@ -178,6 +211,28 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
 
                         </div>
                     )}
+                </div>
+
+                {/* Footer Controls */}
+                <div className="p-4 border-t border-slate-800 bg-slate-900/80 rounded-b-3xl flex justify-end gap-3">
+                    <button
+                        onClick={onClose}
+                        disabled={isSaving}
+                        className="px-5 py-2.5 rounded-xl font-bold text-slate-400 hover:text-white hover:bg-slate-800 transition-colors disabled:opacity-50"
+                    >
+                        ยกเลิก
+                    </button>
+                    <button
+                        onClick={handleSave}
+                        disabled={!hasChanges || isSaving}
+                        className={`px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg ${hasChanges && !isSaving ? 'bg-blue-600 text-white hover:bg-blue-500 hover:shadow-blue-500/20' : 'bg-slate-800 text-slate-500 cursor-not-allowed'}`}
+                    >
+                        {isSaving ? (
+                            <><Loader2 size={18} className="animate-spin" /> กำลังบันทึก...</>
+                        ) : (
+                            <><Save size={18} /> บันทึกการเปลี่ยนแปลง</>
+                        )}
+                    </button>
                 </div>
             </div>
         </div>
