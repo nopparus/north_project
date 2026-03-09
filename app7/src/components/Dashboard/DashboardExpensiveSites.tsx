@@ -12,6 +12,8 @@ interface ExpensiveSite {
     wire_cost: number;
     consumer_unit_cost: number;
     ground_rod_cost: number;
+    latitude?: number;
+    longitude?: number;
 }
 
 export default function DashboardExpensiveSites({ sites, onSiteClick }: { sites: ExpensiveSite[], onSiteClick: (site: any) => void }) {

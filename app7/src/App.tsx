@@ -399,7 +399,7 @@ export default function App() {
 
   useEffect(() => {
     fetchSites();
-  }, [selectedProvince, selectedDistrict, selectedStatus, currentPage, itemsPerPage, view, debouncedBounds]);
+  }, [selectedProvince, selectedDistrict, selectedStatus, currentPage, itemsPerPage, view, debouncedBounds, sortField, sortOrder]);
 
   // Auto-centering effect
   useEffect(() => {

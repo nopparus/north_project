@@ -172,7 +172,8 @@ app.get("/api/dashboard/summary", (req, res) => {
     const expensiveSites = db.prepare(`
       SELECT 
         id, request_id, location, province, district, survey_cost, labor_cost, 
-        (main_wire_length * main_wire_rate) as wire_cost, consumer_unit_cost, ground_rod_cost
+        (main_wire_length * main_wire_rate) as wire_cost, consumer_unit_cost, ground_rod_cost,
+        latitude, longitude
       ${query} AND is_surveyed = 1 AND survey_cost > 0
       ORDER BY survey_cost DESC
       LIMIT 5
