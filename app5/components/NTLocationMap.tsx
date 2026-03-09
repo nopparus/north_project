@@ -4,7 +4,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents } from 're
 import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { locationsApi } from '../services/api';
+import { locationsApi, projectSitesApi } from '../services/api';
 import { NTLocation } from '../types';
 import { Loader2, Search, MapPin, ExternalLink, X, Settings } from 'lucide-react';
 
@@ -128,7 +128,7 @@ const CenterModal: React.FC<{
 // Main Map Component
 // ----------------------------------------------------
 
-const Component: React.FC = () => {
+const Component: React.FC<{ projectId?: string }> = ({ projectId }) => {
     const [locations, setLocations] = useState<NTLocation[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -168,12 +168,21 @@ const Component: React.FC = () => {
     // Ref to track if a marker was just clicked (to prevent map click from closing it)
     const isMarkerClick = useRef(false);
 
-    // Load locations
     useEffect(() => {
         const fetchLocations = async () => {
+            setLoading(true);
             try {
-                const data = await locationsApi.listNT();
-                setLocations(data);
+                const [data, assignedIds] = await Promise.all([
+                    locationsApi.listNT(),
+                    projectId ? projectSitesApi.getSitesForProject(projectId) : Promise.resolve(null)
+                ]);
+
+                if (assignedIds) {
+                    const assignedSet = new Set(assignedIds);
+                    setLocations(data.filter(loc => assignedSet.has(loc.id)));
+                } else {
+                    setLocations(data);
+                }
             } catch (err) {
                 console.error('Failed to load NT locations', err);
             } finally {
@@ -181,51 +190,23 @@ const Component: React.FC = () => {
             }
         };
         fetchLocations();
-    }, []);
+    }, [projectId]);
 
-    // Clustering Algorithm
-    useEffect(() => {
-        if (!currentBounds) return;
+    // Filtered Content (Instead of grouping, just filter)
+    const filteredLocations = useMemo(() => {
+        if (!currentBounds) return [];
+        return locations.filter(loc => {
+            const type = loc.type || 'D';
+            if (!selectedFilters.includes(type)) return false;
 
-        const getGridSize = (zoom: number) => {
-            if (zoom < 9) return 0.25;      // ~25km (Province/City view) - Aggressive grouping
-            if (zoom < 11) return 0.08;     // ~8km (District view)
-            if (zoom < 13) return 0.02;     // ~2km (Tambon view)
-            if (zoom < 15) return 0.003;    // ~300m (Village view)
-            return 0.0001;                  // ~10m (Street/Pole view) - Near exact stacking
-        };
+            if (imageFilter === 'has_image' && (!loc.images || loc.images.length === 0)) return false;
+            if (imageFilter === 'no_image' && (loc.images && loc.images.length > 0)) return false;
 
-        const size = getGridSize(currentZoom);
-        const groups = new Map<string, NTLocation[]>();
+            if (!currentBounds.contains([loc.lat, loc.lng])) return false;
 
-        locations.forEach(loc => {
-            // 0. Type Filter
-            // If location has no type, treat as 'D' or separate? Let's treat undefined as shown if 'D' is shown or maybe always shown?
-            // Current data mostly has types. Let's assume default mapping or strict check.
-            const type = loc.type || 'D'; // Default to D if missing
-            if (!selectedFilters.includes(type)) return;
-
-            // 0.1 Image Filter
-            if (imageFilter === 'has_image' && !loc.image_url) return;
-            if (imageFilter === 'no_image' && loc.image_url) return;
-
-            // 1. Viewport Filtering
-            if (!currentBounds.contains([loc.lat, loc.lng])) return;
-
-            // 2. Dynamic Grid Grouping
-            // Calculate grid cell indices
-            const latKey = Math.floor(loc.lat / size);
-            const lngKey = Math.floor(loc.lng / size);
-            const key = `${latKey},${lngKey}`;
-
-            if (!groups.has(key)) {
-                groups.set(key, []);
-            }
-            groups.get(key)?.push(loc);
+            return true;
         });
-
-        setVisibleGroups(groups);
-    }, [locations, currentBounds, currentZoom, selectedFilters, imageFilter]);
+    }, [locations, currentBounds, selectedFilters, imageFilter]);
 
     const handleMapChange = (bounds: L.LatLngBounds, zoom: number) => {
         setCurrentBounds(bounds);
@@ -234,7 +215,6 @@ const Component: React.FC = () => {
 
     const handleMapClick = () => {
         if (isMarkerClick.current) {
-            // Marker was clicked, ignore map click
             return;
         }
         setActiveGridKey(null);
@@ -248,9 +228,8 @@ const Component: React.FC = () => {
         );
         if (found) {
             setMapCenter([found.lat, found.lng]);
-            setMapZoom(16); // High zoom for search result
-            // MapEvents will trigger update
-            setActiveGridKey(null); // Clear active popup on search
+            setMapZoom(16);
+            setActiveGridKey(null);
             setEditingLocation(null);
         } else {
             alert('ไม่พบข้อมูล: ' + searchTerm);
@@ -259,7 +238,6 @@ const Component: React.FC = () => {
 
     const handleUpdateLocation = async (id: number, data: Partial<NTLocation>) => {
         try {
-            // Optimistic update
             setLocations(prev => prev.map(l => l.id === id ? { ...l, ...data } : l));
             if (editingLocation && editingLocation.id === id) {
                 setEditingLocation(prev => prev ? { ...prev, ...data } : null);
@@ -271,28 +249,12 @@ const Component: React.FC = () => {
         }
     };
 
-    // Helper to calculate center of a group for rendering marker
-    const getGroupCenter = (group: NTLocation[]): [number, number] => {
-        // Simple average (centroid)
-        const lat = group.reduce((sum, loc) => sum + loc.lat, 0) / group.length;
-        const lng = group.reduce((sum, loc) => sum + loc.lng, 0) / group.length;
-        return [lat, lng];
-    };
-
     if (loading) {
         return (
             <div className="flex items-center justify-center h-full text-slate-400">
                 <Loader2 className="animate-spin mr-2" /> กำลังโหลดข้อมูลพิกัด ({locations.length})...
             </div>
         );
-    }
-
-    // Determine Active Popup Props
-    let activeGroup: NTLocation[] | null = null;
-    let activePopupPosition: [number, number] | null = null;
-    if (activeGridKey && visibleGroups.has(activeGridKey)) {
-        activeGroup = visibleGroups.get(activeGridKey)!;
-        activePopupPosition = getGroupCenter(activeGroup);
     }
 
     return (
@@ -381,61 +343,33 @@ const Component: React.FC = () => {
                     onClickMap={handleMapClick}
                 />
 
-                {/* Direct rendering of grouped markers */}
-                {Array.from(visibleGroups.entries()).map(([key, group]) => {
-                    const center = getGroupCenter(group);
-                    const firstLoc = group[0];
-                    const icon = getIcon(firstLoc.type || 'default', group.length);
-                    // Standard Cluster logic
-                    const isCluster = currentZoom < 15 && group.length > 3;
-
-                    return (
+                <MarkerClusterGroup
+                    chunkedLoading
+                    maxClusterRadius={60}
+                    spiderfyOnMaxZoom={true}
+                    disableClusteringAtZoom={15}
+                    showCoverageOnHover={false}
+                    iconCreateFunction={(cluster) => {
+                        const count = cluster.getChildCount();
+                        return createCustomIcon('#64748b', count); // 64748b is slate color
+                    }}
+                >
+                    {filteredLocations.map((loc) => (
                         <Marker
-                            key={key}
-                            position={center}
-                            icon={icon}
+                            key={loc.id}
+                            position={[loc.lat, loc.lng]}
+                            icon={getIcon(loc.type || 'default', 1)}
                             eventHandlers={{
                                 click: (e) => {
-                                    // Set flag to ignore subsequent map click
                                     isMarkerClick.current = true;
                                     setTimeout(() => { isMarkerClick.current = false; }, 200);
-
                                     L.DomEvent.stopPropagation(e.originalEvent);
-                                    if (isCluster) {
-                                        const map = e.target._map;
-                                        map.setView(center, map.getZoom() + 2);
-                                    } else {
-                                        // If single item, open EDIT modal directly
-                                        if (group.length === 1) {
-                                            setEditingLocation(group[0]);
-                                            setActiveGridKey(null);
-                                        } else {
-                                            // If multiple, open LIST popup
-                                            setActiveGridKey(key);
-                                            setEditingLocation(null);
-                                        }
-                                    }
+                                    setEditingLocation(loc);
                                 }
                             }}
                         />
-                    );
-                })}
-
-                {/* LIST POPUP: Only shows for stacks > 1 */}
-                {activeGroup && activeGroup.length > 1 && activePopupPosition && (
-                    <Popup
-                        position={activePopupPosition}
-                        onClose={() => setActiveGridKey(null)}
-                    >
-                        <StackedListContent
-                            group={activeGroup}
-                            onSelect={(loc) => {
-                                setEditingLocation(loc);
-                                setActiveGridKey(null); // Close popup
-                            }}
-                        />
-                    </Popup>
-                )}
+                    ))}
+                </MarkerClusterGroup>
             </MapContainer>
 
             {/* CENTER MODAL: Independent Overlay */}
@@ -577,8 +511,9 @@ const EditLocationContent: React.FC<{
         lat: loc.lat,
         lng: loc.lng,
         type: loc.type,
-        image_url: loc.image_url,
+        images: loc.images || [],
         site_exists: loc.site_exists,
+        olt_count: loc.olt_count,
     });
     const [isSaving, setIsSaving] = useState(false);
     const [isUploading, setIsUploading] = useState(false);
@@ -595,8 +530,9 @@ const EditLocationContent: React.FC<{
             lat: loc.lat,
             lng: loc.lng,
             type: loc.type,
-            image_url: loc.image_url,
+            images: loc.images || [],
             site_exists: loc.site_exists,
+            olt_count: loc.olt_count,
         });
     }, [loc]);
 
@@ -608,7 +544,7 @@ const EditLocationContent: React.FC<{
             formData.serviceCenter !== loc.serviceCenter ||
             formData.lat !== loc.lat ||
             formData.lng !== loc.lng ||
-            formData.image_url !== loc.image_url ||
+            JSON.stringify(formData.images) !== JSON.stringify(loc.images) ||
             formData.site_exists !== loc.site_exists;
     }, [formData, loc]);
 
@@ -638,7 +574,7 @@ const EditLocationContent: React.FC<{
                     try {
                         const compressed = await compressImage(file, imgSettings);
                         const url = await locationsApi.uploadImage(compressed);
-                        setFormData(prev => ({ ...prev, image_url: url }));
+                        setFormData(prev => ({ ...prev, images: [...(prev.images || []), url] }));
                     } catch (err) {
                         console.error('Upload failed', err);
                         alert('อัปโหลดรูปภาพไม่สำเร็จ');
@@ -714,32 +650,31 @@ const EditLocationContent: React.FC<{
             </div>
 
             <div className="space-y-4">
-                {/* Image Preview */}
-                {(formData.image_url || isUploading) && (
-                    <div className="relative w-full h-48 bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
-                        {isUploading ? (
-                            <div className="absolute inset-0 flex items-center justify-center text-slate-400">
-                                <Loader2 className="animate-spin mr-2" /> กำลังอัปโหลด...
-                            </div>
-                        ) : (
-                            <img
-                                src={formData.image_url}
-                                alt="Location"
-                                className="w-full h-full object-cover"
-                            />
-                        )}
-                        <button
-                            onClick={() => handleChange('image_url', '')}
-                            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 shadow-sm"
-                            title="ลบรูปภาพ"
-                        >
-                            <X size={14} />
-                        </button>
-                    </div>
-                )}
+                <div className="grid grid-cols-2 gap-2">
+                    {/* Image Previews */}
+                    {(formData.images || []).map((img, idx) => (
+                        <div key={idx} className="relative w-full h-32 bg-slate-100 rounded-lg overflow-hidden border border-slate-200">
+                            <img src={img} alt={`Location ${idx}`} className="w-full h-full object-cover" />
+                            <button
+                                onClick={() => setFormData(prev => ({ ...prev, images: prev.images?.filter((_, i) => i !== idx) }))}
+                                className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded-full hover:bg-red-600 shadow-sm"
+                                title="ลบรูปภาพ"
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    ))}
+                    {isUploading && (
+                        <div className="flex items-center justify-center w-full h-32 bg-slate-100/50 rounded-lg border border-slate-200 border-dashed text-slate-400">
+                            <Loader2 className="animate-spin mr-2" />
+                        </div>
+                    )}
+                </div>
 
                 <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">ชื่อ Location</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">
+                        ชื่อชุมสาย <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-700 text-[10px] rounded-full">มี {formData.olt_count || 1} OLTs</span>
+                    </label>
                     <input
                         type="text"
                         value={formData.name || ''}

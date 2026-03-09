@@ -10,7 +10,8 @@ import {
   Calendar,
   MapPin,
   Map,
-  History
+  History,
+  ShieldAlert
 } from 'lucide-react';
 
 export const PROVINCES = [
@@ -54,4 +55,5 @@ export const NAVIGATION = [
   { name: 'จัดการพื้นที่/ชุมสาย', icon: <MapPin size={20} />, id: 'locations' },
   { name: 'แผนที่จุดติดตั้ง (Map)', icon: <Map size={20} />, id: 'nt-map' },
   { name: 'ประวัติการทำงาน', icon: <History size={20} />, id: 'history' },
+  { name: 'ตั้งค่าระบบผู้ดูแล (Admin)', icon: <ShieldAlert size={20} />, id: 'admin' },
 ];

@@ -6,10 +6,11 @@ import Schedule from './components/Schedule';
 import LocationManager from './components/LocationManager';
 import NTLocationMap from './components/NTLocationMap';
 import MaintenanceForm from './components/MaintenanceForm';
+import AdminPanel from './components/AdminPanel';
 import { MaintenanceRecord, EquipmentType, LocationInfo, ScheduleItem, Project, WorkType } from './types';
 import { NAVIGATION } from './constants';
 import { Menu, X, Loader2, Briefcase } from 'lucide-react';
-import { projectsApi, recordsApi, scheduleApi, locationsApi } from './services/api';
+import { projectsApi, recordsApi, scheduleApi, locationsApi, projectSitesApi } from './services/api';
 
 const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('pms_active_tab') || 'dashboard');
@@ -23,12 +24,11 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
+  const [assignedSiteIds, setAssignedSiteIds] = useState<Set<number>>(new Set());
   const [selectedLocation, setSelectedLocation] = useState<LocationInfo | null>(null);
   const [selectedEquipment, setSelectedEquipment] = useState<EquipmentType | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobile, setIsMobile] = useState(false);
-  const [isProjectModalOpen, setIsProjectModalOpen] = useState(false);
-  const [newProject, setNewProject] = useState({ name: '', status: 'active' as const, color: '#3b82f6' });
 
   // ── Load all data from API on mount ─────────────────────────────────────────
   const loadAll = useCallback(async () => {
@@ -77,6 +77,17 @@ const App: React.FC = () => {
     }
   }, [workMode, projects]);
 
+  // ── Fetch Assigned Sites when Project Changes ─────────────────────────────────
+  useEffect(() => {
+    if (selectedProjectId) {
+      projectSitesApi.getSitesForProject(selectedProjectId)
+        .then(ids => setAssignedSiteIds(new Set(ids)))
+        .catch(err => console.error("Failed to load project sites", err));
+    } else {
+      setAssignedSiteIds(new Set());
+    }
+  }, [selectedProjectId]);
+
   // ── Responsive sidebar ───────────────────────────────────────────────────────
   useEffect(() => {
     const handleResize = () => {
@@ -93,6 +104,7 @@ const App: React.FC = () => {
   const currentProject = projects.find(p => p.id === selectedProjectId) || filteredProjects[0] || null;
   const projectRecords = records.filter(r => r.projectId === selectedProjectId);
   const projectScheduleItems = scheduleItems.filter(s => s.projectId === selectedProjectId);
+  const assignedLocations = locations.filter(loc => assignedSiteIds.has(Number(loc.id)));
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -173,25 +185,6 @@ const App: React.FC = () => {
     }
   };
 
-  const handleAddProject = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      const created = await projectsApi.create({
-        name: newProject.name,
-        status: newProject.status,
-        color: workMode === 'PM' ? '#3b82f6' : '#10b981',
-        workType: workMode,
-        equipmentTypes: workMode === 'PM' ? ['AC', 'Battery', 'Generator'] : ['Infrastructure', 'Security'],
-      });
-      setProjects(prev => [...prev, created]);
-      setSelectedProjectId(created.id);
-      setIsProjectModalOpen(false);
-      setNewProject({ name: '', status: 'active', color: '#3b82f6' });
-    } catch (e: unknown) {
-      alert('สร้างโครงการไม่สำเร็จ: ' + (e instanceof Error ? e.message : String(e)));
-    }
-  };
-
   // ── Loading / Error states ───────────────────────────────────────────────────
   if (loading) {
     return (
@@ -219,13 +212,13 @@ const App: React.FC = () => {
   }
 
   const renderContent = () => {
-    if (!currentProject) {
+    if (!currentProject && activeTab !== 'admin') {
       return (
         <div className="flex flex-col items-center justify-center min-h-[60vh] text-slate-400">
           <Briefcase size={64} className="mb-4 opacity-20" />
           <p className="font-bold">ยังไม่มีโครงการในหมวด {workMode}</p>
-          <button onClick={() => setIsProjectModalOpen(true)} className="mt-4 text-blue-400 font-black uppercase text-xs hover:underline">
-            สร้างโครงการใหม่ในหมวดนี้
+          <button onClick={() => setActiveTab('admin')} className="mt-4 text-rose-400 font-black uppercase text-xs hover:underline">
+            ไปยังหน้าผู้ดูแล (Admin) เพื่อสร้างโครงการ
           </button>
         </div>
       );
@@ -275,7 +268,7 @@ const App: React.FC = () => {
           <LocationManager
             projectId={selectedProjectId}
             currentProject={currentProject}
-            locations={locations}
+            locations={assignedLocations}
             onSelectSite={(loc) => setSelectedLocation(loc)}
             onStartMaintenance={(loc, eq) => {
               setSelectedLocation(loc);
@@ -284,7 +277,7 @@ const App: React.FC = () => {
           />
         );
       case 'nt-map':
-        return <NTLocationMap />;
+        return <NTLocationMap projectId={selectedProjectId} />;
       case 'history':
         return (
           <div className="p-4 md:p-8 text-white">
@@ -328,6 +321,15 @@ const App: React.FC = () => {
             </div>
           </div>
         );
+      case 'admin':
+        return (
+          <AdminPanel
+            projects={projects}
+            setProjects={setProjects}
+            onProjectChange={setSelectedProjectId}
+            selectedProjectId={selectedProjectId}
+          />
+        );
       default:
         return null;
     }
@@ -350,7 +352,7 @@ const App: React.FC = () => {
         projects={filteredProjects}
         selectedProjectId={selectedProjectId}
         onProjectChange={setSelectedProjectId}
-        onOpenAddProject={() => setIsProjectModalOpen(true)}
+        onOpenAddProject={() => setActiveTab('admin')}
       />
 
       <main className="flex-1 overflow-y-auto flex flex-col w-full">
@@ -380,35 +382,6 @@ const App: React.FC = () => {
           </div>
         </div>
       </main>
-
-      {isProjectModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md">
-          <div className="bg-slate-900 border border-slate-700 rounded-[2.5rem] w-full max-w-lg shadow-2xl overflow-hidden animate-in zoom-in duration-300">
-            <div className="bg-slate-800 p-8 text-white relative border-b border-slate-700">
-              <h4 className="text-xl font-black uppercase tracking-tight">Create New {workMode} Project</h4>
-              <p className="text-slate-400 text-xs font-bold mt-1">โครงการใหม่จะถูกสร้างภายใต้หมวด {workMode} โดยอัตโนมัติ</p>
-              <button onClick={() => setIsProjectModalOpen(false)} className="absolute top-6 right-6 p-2 hover:bg-white/10 rounded-xl transition-colors">
-                <X size={24} />
-              </button>
-            </div>
-            <form onSubmit={handleAddProject} className="p-8 space-y-6">
-              <div className="space-y-2">
-                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Project Name</label>
-                <input
-                  type="text" required
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-200 rounded-2xl px-6 py-4 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-600"
-                  value={newProject.name}
-                  onChange={e => setNewProject({ ...newProject, name: e.target.value })}
-                  placeholder={`ชื่อโครงการ ${workMode} ใหม่`}
-                />
-              </div>
-              <button type="submit" className={`w-full text-white py-4 rounded-2xl font-black uppercase shadow-xl transition-all ${workMode === 'PM' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}>
-                Create {workMode} Project
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

@@ -18,13 +18,13 @@ interface SidebarProps {
   onOpenAddProject: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ 
-  activeTab, 
-  setActiveTab, 
+const Sidebar: React.FC<SidebarProps> = ({
+  activeTab,
+  setActiveTab,
   workMode,
   setWorkMode,
-  isOpen, 
-  isMobile, 
+  isOpen,
+  isMobile,
   onClose,
   projects,
   selectedProjectId,
@@ -32,7 +32,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   onOpenAddProject
 }) => {
   return (
-    <aside 
+    <aside
       className={`
         ${isMobile ? 'fixed inset-y-0 left-0 z-50' : 'relative'}
         ${isOpen ? 'translate-x-0 w-64 md:w-72' : '-translate-x-full w-0'}
@@ -60,20 +60,20 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="px-6 py-4 border-b border-slate-800/50">
         <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-3">Work Category</p>
         <div className="flex p-1 bg-slate-950 rounded-xl">
-           <button 
+          <button
             onClick={() => setWorkMode('PM')}
             className={`flex-1 flex items-center justify-center space-x-2 py-2 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest ${workMode === 'PM' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-           >
-             <Calendar size={14} />
-             <span>PM</span>
-           </button>
-           <button 
+          >
+            <Calendar size={14} />
+            <span>PM</span>
+          </button>
+          <button
             onClick={() => setWorkMode('Survey')}
             className={`flex-1 flex items-center justify-center space-x-2 py-2 rounded-lg transition-all text-[10px] font-black uppercase tracking-widest ${workMode === 'Survey' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-           >
-             <Map size={14} />
-             <span>Survey</span>
-           </button>
+          >
+            <Map size={14} />
+            <span>Survey</span>
+          </button>
         </div>
       </div>
 
@@ -81,16 +81,9 @@ const Sidebar: React.FC<SidebarProps> = ({
       <div className="px-6 py-5 border-b border-slate-800">
         <div className="flex items-center justify-between mb-2">
           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block">Active Project</label>
-          <button 
-            onClick={onOpenAddProject}
-            className="p-1.5 bg-slate-800 hover:bg-blue-600 rounded-lg text-slate-400 hover:text-white transition-all hover:scale-105"
-            title="Create New Project"
-          >
-            <Plus size={14} />
-          </button>
         </div>
         <div className="relative">
-          <select 
+          <select
             className="w-full bg-slate-800 border border-slate-700 rounded-xl px-3 py-2.5 text-xs font-bold text-slate-200 outline-none focus:ring-1 focus:ring-blue-500 appearance-none pr-8 cursor-pointer"
             value={selectedProjectId}
             onChange={(e) => onProjectChange(e.target.value)}
@@ -102,17 +95,16 @@ const Sidebar: React.FC<SidebarProps> = ({
           <Briefcase className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" size={14} />
         </div>
       </div>
-      
+
       <nav className="flex-1 mt-6 px-4 space-y-1.5 overflow-y-auto">
         {NAVIGATION.map((item) => (
           <button
             key={item.id}
             onClick={() => setActiveTab(item.id)}
-            className={`w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl transition-all ${
-              activeTab === item.id 
+            className={`w-full flex items-center space-x-3 px-4 py-3.5 rounded-xl transition-all ${activeTab === item.id
                 ? workMode === 'PM' ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/40' : 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/40'
                 : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            }`}
+              }`}
           >
             <div className={`flex-shrink-0 ${activeTab === item.id ? 'text-white' : 'text-slate-500'}`}>
               {item.icon}

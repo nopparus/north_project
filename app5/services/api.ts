@@ -136,6 +136,24 @@ export const projectsApi = {
     request('DELETE', `/projects/${id}`),
 };
 
+// ─── PROJECT SITES ───────────────────────────────────────────────────────────
+
+export const projectSitesApi = {
+  getSitesForProject: async (projectId: string): Promise<number[]> => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = await request('GET', `/project-sites?projectId=${projectId}`);
+    return rows;
+  },
+
+  addSiteToProject: async (projectId: string, siteId: number): Promise<void> => {
+    await request('POST', '/project-sites', { projectId, siteId });
+  },
+
+  removeSiteFromProject: async (projectId: string, siteId: number): Promise<void> => {
+    await request('DELETE', '/project-sites', { projectId, siteId });
+  }
+};
+
 // ─── LOCATIONS ───────────────────────────────────────────────────────────────
 
 export const locationsApi = {
@@ -172,7 +190,8 @@ export const locationsApi = {
       serviceCenter: r.servicecenter || '',
       province: r.province || '',
       type: r.type || '',
-      image_url: r.image_url || '',
+      images: r.images || [],
+      olt_count: r.olt_count || 1,
       site_exists: r.site_exists,
     }));
   },
@@ -190,7 +209,7 @@ export const locationsApi = {
       servicecenter: data.serviceCenter,
       latitude: data.lat,
       longitude: data.lng,
-      image_url: data.image_url,
+      images: data.images,
       site_exists: data.site_exists,
     });
     return {
@@ -202,7 +221,8 @@ export const locationsApi = {
       serviceCenter: res.servicecenter,
       province: res.province,
       type: res.type,
-      image_url: res.image_url,
+      images: res.images || [],
+      olt_count: res.olt_count || 1,
       site_exists: res.site_exists,
     };
   },

@@ -19,7 +19,8 @@ export interface NTLocation {
   type: string;
   serviceCenter: string;
   province: string;
-  image_url?: string;
+  images?: string[];
+  olt_count?: number;
   site_exists?: boolean;
 }
 

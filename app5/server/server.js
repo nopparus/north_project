@@ -99,6 +99,52 @@ app.delete('/api/pms/projects/:id', async (req, res) => {
     }
 });
 
+// ─── PROJECT SITES MAPPING ───────────────────────────────────────────────────
+
+app.get('/api/pms/project-sites', async (req, res) => {
+    try {
+        const { projectId } = req.query;
+        if (!projectId) return res.status(400).json({ error: 'Project ID is required' });
+
+        const { rows } = await pool.query(
+            `SELECT site_id FROM project_sites WHERE project_id = $1`,
+            [projectId]
+        );
+        res.json(rows.map(r => r.site_id));
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.post('/api/pms/project-sites', async (req, res) => {
+    try {
+        const { projectId, siteId } = req.body;
+        await pool.query(
+            `INSERT INTO project_sites (project_id, site_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
+            [projectId, siteId]
+        );
+        res.status(201).json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
+app.delete('/api/pms/project-sites', async (req, res) => {
+    try {
+        const { projectId, siteId } = req.body;
+        await pool.query(
+            `DELETE FROM project_sites WHERE project_id = $1 AND site_id = $2`,
+            [projectId, siteId]
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: 'Database error' });
+    }
+});
+
 // ─── LOCATIONS ───────────────────────────────────────────────────────────────
 
 app.get('/api/pms/locations', async (req, res) => {
@@ -171,7 +217,21 @@ app.delete('/api/pms/locations/:id', async (req, res) => {
 
 app.get('/api/pms/nt-locations', async (req, res) => {
     try {
-        const { rows } = await pool.query('SELECT * FROM nt_locations ORDER BY id ASC');
+        const query = `
+            SELECT 
+              s.id, s.site_name as locationname, s.latitude, s.longitude, 
+              s.service_center as servicecenter, s.province, s.type, s.site_exists,
+              COUNT(l.id)::int as olt_count,
+              COALESCE(
+                  (SELECT json_agg(i.image_url) FROM nt_site_images i WHERE i.site_id = s.id),
+                  '[]'::json
+              ) as images
+            FROM nt_sites s
+            LEFT JOIN nt_locations l ON s.id = l.site_id
+            GROUP BY s.id
+            ORDER BY s.id ASC
+        `;
+        const { rows } = await pool.query(query);
         res.json(rows);
     } catch (err) {
         console.error(err);
@@ -196,25 +256,38 @@ app.post('/api/pms/upload', upload.single('image'), (req, res) => {
 app.put('/api/pms/nt-locations/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        const { type, locationname, province, servicecenter, latitude, longitude, image_url, site_exists } = req.body;
+        const { type, locationname, province, servicecenter, latitude, longitude, image_url, images, site_exists } = req.body;
 
-        // Dynamic Update Query
-        // We only update fields that are provided in the body (COALESCE logic handled in query or by building dynamic query)
-        // Here we use COALESCE in SQL for simplicity
+        // Dynamic Update Query for nt_sites
         const { rows } = await pool.query(
-            `UPDATE nt_locations 
-             SET Type = COALESCE($1, Type),
-                 LocationName = COALESCE($2, LocationName),
-                 Province = COALESCE($3, Province),
-                 ServiceCenter = COALESCE($4, ServiceCenter),
-                 Latitude = COALESCE($5, Latitude),
-                 Longitude = COALESCE($6, Longitude),
-                 image_url = COALESCE($7, image_url),
-                 site_exists = $8
-             WHERE id = $9 RETURNING *`,
-            [type, locationname, province, servicecenter, latitude, longitude, image_url, site_exists, id]
+            `UPDATE nt_sites 
+             SET type = COALESCE($1, type),
+                 site_name = COALESCE($2, site_name),
+                 province = COALESCE($3, province),
+                 service_center = COALESCE($4, service_center),
+                 latitude = COALESCE($5, latitude),
+                 longitude = COALESCE($6, longitude),
+                 site_exists = $7
+             WHERE id = $8 RETURNING *`,
+            [type, locationname, province, servicecenter, latitude, longitude, site_exists, id]
         );
         if (rows.length === 0) return res.status(404).json({ error: 'Location not found' });
+
+        // Handle Images
+        let imageArray = [];
+        if (images && Array.isArray(images)) {
+            imageArray = images;
+        } else if (image_url) {
+            imageArray = [image_url];
+        }
+
+        if (imageArray.length > 0 || Array.isArray(images)) {
+            await pool.query('DELETE FROM nt_site_images WHERE site_id = $1', [id]);
+            for (const img of imageArray) {
+                await pool.query('INSERT INTO nt_site_images (site_id, image_url) VALUES ($1, $2)', [id, img]);
+            }
+        }
+
         res.json(rows[0]);
     } catch (err) {
         console.error(err);
