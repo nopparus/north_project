@@ -1,4 +1,4 @@
-import { Project, MaintenanceRecord, ScheduleItem, LocationInfo, WorkType, NTLocation } from '../types';
+import { MapLayer, NTLocation, Project, ProjectSiteRecord, MaintenanceRecord, ScheduleItem, LocationInfo, WorkType } from '../types';
 
 const BASE = '/api/pms';
 
@@ -26,6 +26,8 @@ function toProject(r: any): Project {
     color: r.color,
     equipmentTypes: Array.isArray(r.equipment_types) ? r.equipment_types : JSON.parse(r.equipment_types || '[]'),
     workType: r.work_type,
+    filterConfig: r.filter_config ? (typeof r.filter_config === 'string' ? JSON.parse(r.filter_config) : r.filter_config) : undefined,
+    fieldsSchema: r.fields_schema ? (typeof r.fields_schema === 'string' ? JSON.parse(r.fields_schema) : r.fields_schema) : [],
   };
 }
 function fromProject(p: Partial<Project> & { workType?: WorkType }) {
@@ -35,6 +37,8 @@ function fromProject(p: Partial<Project> & { workType?: WorkType }) {
     color: p.color,
     equipment_types: p.equipmentTypes,
     work_type: p.workType,
+    filter_config: p.filterConfig,
+    fields_schema: p.fieldsSchema,
   };
 }
 
@@ -113,6 +117,21 @@ function fromScheduleItem(s: Partial<ScheduleItem>) {
 
 // ─── PROJECTS ────────────────────────────────────────────────────────────────
 
+export const mapsApi = {
+  list: async (): Promise<MapLayer[]> => {
+    return await request('GET', '/maps');
+  },
+  create: async (data: Partial<MapLayer>): Promise<MapLayer> => {
+    return await request('POST', '/maps', data);
+  },
+  update: async (id: string, data: Partial<MapLayer>): Promise<MapLayer> => {
+    return await request('PUT', `/maps/${id}`, data);
+  },
+  delete: async (id: string): Promise<void> => {
+    await request('DELETE', `/maps/${id}`);
+  }
+};
+
 export const projectsApi = {
   list: async (workType?: WorkType): Promise<Project[]> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -164,7 +183,43 @@ export const projectSitesApi = {
   }
 };
 
+// ─── PROJECT SITE RECORDS ─────────────────────────────────────────────────────
+
+export const projectRecordsApi = {
+  getForProject: async (projectId: string): Promise<ProjectSiteRecord[]> => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = await request('GET', `/project-records?projectId=${projectId}`);
+    return rows.map(r => ({
+      id: r.id,
+      projectId: r.project_id,
+      siteId: r.site_id,
+      customData: typeof r.custom_data === 'string' ? JSON.parse(r.custom_data) : (r.custom_data || {}),
+      images: typeof r.images === 'string' ? JSON.parse(r.images) : (r.images || []),
+      updatedAt: r.updated_at,
+    }));
+  },
+
+  upsert: async (record: Pick<ProjectSiteRecord, 'projectId' | 'siteId' | 'customData' | 'images'>): Promise<ProjectSiteRecord> => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row: any = await request('PUT', '/project-records', {
+      projectId: record.projectId,
+      siteId: record.siteId,
+      customData: record.customData,
+      images: record.images,
+    });
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      siteId: row.site_id,
+      customData: typeof row.custom_data === 'string' ? JSON.parse(row.custom_data) : (row.custom_data || {}),
+      images: typeof row.images === 'string' ? JSON.parse(row.images) : (row.images || []),
+      updatedAt: row.updated_at,
+    };
+  },
+};
+
 // ─── LOCATIONS ───────────────────────────────────────────────────────────────
+
 
 export const locationsApi = {
   list: async (province?: string): Promise<LocationInfo[]> => {
@@ -188,9 +243,10 @@ export const locationsApi = {
   delete: (id: string): Promise<{ success: boolean }> =>
     request('DELETE', `/locations/${id}`),
 
-  listNT: async (): Promise<NTLocation[]> => {
+  listNT: async (mapId?: string): Promise<NTLocation[]> => {
+    const url = mapId ? `/nt-locations?mapId=${mapId}` : '/nt-locations';
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows: any[] = await request('GET', '/nt-locations');
+    const rows: any[] = await request('GET', url);
     return rows.map((r: any) => ({
       id: r.id,
       locationId: String(r.id), // DB has no location_id, using id
@@ -203,6 +259,8 @@ export const locationsApi = {
       images: r.images || [],
       olt_count: r.olt_count || 1,
       site_exists: r.site_exists,
+      map_id: r.map_id,
+      custom_data: r.custom_data,
     }));
   },
 
@@ -221,19 +279,23 @@ export const locationsApi = {
       longitude: data.lng,
       images: data.images,
       site_exists: data.site_exists,
+      map_id: data.map_id,
+      custom_data: data.custom_data,
     });
     return {
       id: res.id,
       locationId: String(res.id),
-      name: res.locationname,
+      name: res.site_name || res.locationname,
       lat: parseFloat(res.latitude),
       lng: parseFloat(res.longitude),
-      serviceCenter: res.servicecenter,
+      serviceCenter: res.service_center || res.servicecenter,
       province: res.province,
       type: res.type,
       images: res.images || [],
       olt_count: res.olt_count || 1,
       site_exists: res.site_exists,
+      map_id: res.map_id,
+      custom_data: res.custom_data,
     };
   },
 
@@ -248,30 +310,108 @@ export const locationsApi = {
       longitude: data.lng,
       images: data.images,
       site_exists: data.site_exists,
+      map_id: data.map_id,
+      custom_data: data.custom_data,
     });
     return {
       id: res.id,
       locationId: String(res.id),
-      name: res.locationname,
+      name: res.site_name || res.locationname,
       lat: parseFloat(res.latitude),
       lng: parseFloat(res.longitude),
-      serviceCenter: res.servicecenter,
+      serviceCenter: res.service_center || res.servicecenter,
       province: res.province,
       type: res.type,
       images: res.images || [],
       olt_count: res.olt_count || 1,
       site_exists: res.site_exists,
+      map_id: res.map_id,
+      custom_data: res.custom_data,
     };
+  },
+
+  createNTBulk: async (data: Partial<NTLocation>[]): Promise<NTLocation[]> => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const payload = data.map(d => ({
+      type: d.type,
+      locationname: d.name,
+      province: d.province,
+      servicecenter: d.serviceCenter,
+      latitude: d.lat,
+      longitude: d.lng,
+      images: d.images,
+      site_exists: d.site_exists,
+      map_id: d.map_id,
+      custom_data: d.custom_data,
+    }));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const res: any[] = await request('POST', '/nt-locations/bulk', payload);
+    return res.map(r => ({
+      id: r.id,
+      locationId: String(r.id),
+      name: r.site_name || r.locationname,
+      lat: parseFloat(r.latitude),
+      lng: parseFloat(r.longitude),
+      serviceCenter: r.service_center || r.servicecenter,
+      province: r.province,
+      type: r.type,
+      images: r.images || [],
+      olt_count: r.olt_count || 1,
+      site_exists: r.site_exists,
+      map_id: r.map_id,
+      custom_data: r.custom_data,
+    }));
+  },
+
+  advancedBulkImport: async (payload: { mode: 'append' | 'sync', mapId: string | number, locations: Partial<NTLocation>[], deleteMissing?: boolean }): Promise<{ success: boolean, message: string, results: { inserted: number, updated: number, deleted: number, skipped: number } }> => {
+    const normalizeType = (t?: string) => {
+      if (!t) return 'ทั่วไป';
+      const s = String(t).trim();
+      const lower = s.toLowerCase();
+      if (lower.includes('type a') || s === 'A') return 'A';
+      if (lower.includes('type b') || s === 'B') return 'B';
+      if (lower.includes('type c') || s === 'C') return 'C';
+      if (lower.includes('type d') || s === 'D') return 'D';
+      return s;
+    };
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const formattedLocations = payload.locations.map(d => ({
+      system_id: d.id || d.locationId, // Capture system ID for sync mode
+      type: normalizeType(d.type),
+      locationname: d.name,
+      province: d.province,
+      servicecenter: d.serviceCenter,
+      latitude: d.lat,
+      longitude: d.lng,
+      images: d.images,
+      site_exists: d.site_exists,
+      map_id: d.map_id,
+      custom_data: d.custom_data,
+    }));
+
+    const res: any = await request('POST', '/nt-locations/advanced-bulk', {
+      mode: payload.mode,
+      mapId: payload.mapId,
+      deleteMissing: payload.deleteMissing,
+      locations: formattedLocations
+    });
+    return res;
   },
 
   deleteNT: (id: number): Promise<{ success: boolean }> =>
     request('DELETE', `/nt-locations/${id}`),
 
-  uploadImage: async (file: File): Promise<string> => {
+  uploadImage: async (file: File, siteName?: string, siteId?: string | number): Promise<string> => {
     const formData = new FormData();
     formData.append('image', file);
 
-    const res = await fetch(`${BASE}/upload`, {
+    const params = new URLSearchParams();
+    if (siteName) params.append('siteName', siteName);
+    if (siteId) params.append('siteId', String(siteId));
+
+    const url = `${BASE}/upload${params.toString() ? `?${params.toString()}` : ''}`;
+    const res = await fetch(url, {
       method: 'POST',
       body: formData
     });

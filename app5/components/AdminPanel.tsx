@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Project, WorkType } from '../types';
-import { ShieldAlert, Lock, Trash2, Edit2, Plus, X, Briefcase, Save, MapPin, Database } from 'lucide-react';
+import { Project, WorkType, ProjectFieldSchema, ProjectFieldType } from '../types';
+import { ShieldAlert, Lock, Trash2, Edit2, Plus, X, Briefcase, Save, MapPin, Database, GripVertical } from 'lucide-react';
 import { projectsApi } from '../services/api';
 import ManageProjectSites from './ManageProjectSites';
 import AdminSiteMaster from './AdminSiteMaster';
@@ -79,6 +79,8 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ projects, setProjects, onProjec
             const updated = await projectsApi.update(editingProject.id, {
                 name: editingProject.name,
                 color: editingProject.color,
+                filterConfig: editingProject.filterConfig,
+                fieldsSchema: editingProject.fieldsSchema,
             });
             setProjects(prev => prev.map(p => p.id === updated.id ? updated : p));
             setIsEditOpen(false);
@@ -86,6 +88,39 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ projects, setProjects, onProjec
         } catch (err) {
             alert('อัปเดตโครงการไม่สำเร็จ');
         }
+    };
+
+    const toggleProjectFilter = (type: string) => {
+        if (!editingProject) return;
+        const current = editingProject.filterConfig?.allowedTypes ?? ['A', 'B', 'C', 'D', 'pending'];
+        const updated = current.includes(type)
+            ? current.filter(t => t !== type)
+            : [...current, type];
+        setEditingProject({ ...editingProject, filterConfig: { allowedTypes: updated } });
+    };
+
+    const addSchemaField = () => {
+        if (!editingProject) return;
+        const newField: ProjectFieldSchema = {
+            id: `field_${Date.now()}`,
+            label: '',
+            type: 'text',
+            required: false,
+        };
+        setEditingProject({ ...editingProject, fieldsSchema: [...(editingProject.fieldsSchema || []), newField] });
+    };
+
+    const updateSchemaField = (idx: number, patch: Partial<ProjectFieldSchema>) => {
+        if (!editingProject) return;
+        const schema = [...(editingProject.fieldsSchema || [])];
+        schema[idx] = { ...schema[idx], ...patch };
+        setEditingProject({ ...editingProject, fieldsSchema: schema });
+    };
+
+    const removeSchemaField = (idx: number) => {
+        if (!editingProject) return;
+        const schema = (editingProject.fieldsSchema || []).filter((_, i) => i !== idx);
+        setEditingProject({ ...editingProject, fieldsSchema: schema });
     };
 
     if (!isAuthenticated) {
@@ -320,6 +355,116 @@ const AdminPanel: React.FC<AdminPanelProps> = ({ projects, setProjects, onProjec
                                     <span className="text-xs text-slate-400 font-mono uppercase w-full text-center">{editingProject.color}</span>
                                 </div>
                             </div>
+                            <div>
+                                <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">ตัวกรองแผนที่ (MAP FILTER)</label>
+                                <p className="text-[10px] text-slate-500 mb-3">
+                                    กำหนดค่า <b className="text-slate-300">"type"</b> ของสถานที่ที่จะแสดงบนแผนที่ เช่น <b className="text-slate-300">A, B, C, D</b> หรือ <b className="text-slate-300">ทั่วไป</b><br />
+                                    (พิมพ์บรรทัดละ 1 ประเภท — ปล่อยว่างเพื่อแสดงทุกประเภท)
+                                </p>
+                                {!editingProject.filterConfig ? (
+                                    <button
+                                        type="button"
+                                        onClick={() => setEditingProject({ ...editingProject, filterConfig: { allowedTypes: [] } })}
+                                        className="w-full py-2 border border-dashed border-slate-700 rounded-lg text-[10px] text-slate-500 hover:text-slate-300 hover:border-slate-500 transition-all"
+                                    >
+                                        + กำหนดตัวกรอง (ปัจจุบัน: แสดงทุกประเภท)
+                                    </button>
+                                ) : (
+                                    <div>
+                                        <textarea
+                                            rows={4}
+                                            placeholder={"A\nB\nC\nD\npending"}
+                                            value={(editingProject.filterConfig.allowedTypes || []).join('\n')}
+                                            onChange={e => setEditingProject({
+                                                ...editingProject,
+                                                filterConfig: { allowedTypes: e.target.value.split('\n').map(s => s.trim()).filter(Boolean) }
+                                            })}
+                                            className="w-full text-xs bg-slate-950 border border-slate-700 text-white rounded-lg px-3 py-2 focus:ring-1 focus:ring-blue-500 outline-none resize-none font-mono"
+                                        />
+                                        <div className="flex items-center justify-between mt-1.5">
+                                            <p className="text-[10px] text-slate-600">{(editingProject.filterConfig.allowedTypes || []).length} ประเภทที่กำหนด</p>
+                                            <button
+                                                type="button"
+                                                onClick={() => setEditingProject({ ...editingProject, filterConfig: undefined })}
+                                                className="text-[10px] text-rose-400 hover:text-rose-300 font-bold"
+                                            >
+                                                ✕ ล้างตัวกรอง (แสดงทุกประเภท)
+                                            </button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+
+                            {/* ── Schema Builder ── */}
+                            <div>
+                                <div className="flex items-center justify-between mb-3">
+                                    <div>
+                                        <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest">ฟิลด์เก็บข้อมูลต่อโครงการ</label>
+                                        <p className="text-[10px] text-slate-500 mt-0.5">ข้อมูลที่เก็บเพิ่มเติมต่อสถานที่ในโครงการนี้ (เช่น สภาพ, จำนวน, หมายเหตุ)</p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={addSchemaField}
+                                        className="flex-shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black uppercase rounded-lg flex items-center gap-1"
+                                    >
+                                        <Plus size={12} /> เพิ่มฟิลด์
+                                    </button>
+                                </div>
+                                {(!editingProject.fieldsSchema || editingProject.fieldsSchema.length === 0) ? (
+                                    <p className="text-[10px] text-slate-600 italic text-center py-4 border border-dashed border-slate-700 rounded-lg">ยังไม่มีฟิลด์ กด "+ เพิ่มฟิลด์" เพื่อสร้าง</p>
+                                ) : (
+                                    <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                                        {editingProject.fieldsSchema.map((field, idx) => (
+                                            <div key={field.id} className="flex items-start gap-2 p-2 bg-slate-950/50 rounded-lg border border-slate-800">
+                                                <GripVertical size={14} className="text-slate-600 mt-2 flex-shrink-0" />
+                                                <div className="flex-1 min-w-0 space-y-1.5">
+                                                    <input
+                                                        type="text"
+                                                        placeholder="ชื่อฟิลด์ เช่น สภาพสาย, จำนวน OLT"
+                                                        value={field.label}
+                                                        onChange={e => updateSchemaField(idx, { label: e.target.value })}
+                                                        className="w-full text-xs bg-slate-900 border border-slate-700 text-white rounded-md px-2 py-1.5 focus:ring-1 focus:ring-blue-500 outline-none"
+                                                    />
+                                                    <div className="flex gap-2">
+                                                        <select
+                                                            value={field.type}
+                                                            onChange={e => updateSchemaField(idx, { type: e.target.value as ProjectFieldType, options: e.target.value === 'dropdown' ? [''] : undefined })}
+                                                            className="flex-1 text-xs bg-slate-900 border border-slate-700 text-white rounded-md px-2 py-1.5 focus:ring-1 focus:ring-blue-500 outline-none"
+                                                        >
+                                                            <option value="text">ข้อความ (Text)</option>
+                                                            <option value="number">ตัวเลข (Number)</option>
+                                                            <option value="dropdown">ตัวเลือก (Dropdown)</option>
+                                                            <option value="checkbox">Checkbox</option>
+                                                        </select>
+                                                        <label className="flex items-center gap-1 text-[10px] text-slate-400 flex-shrink-0">
+                                                            <input type="checkbox" checked={!!field.required} onChange={e => updateSchemaField(idx, { required: e.target.checked })} className="rounded" />
+                                                            จำเป็น
+                                                        </label>
+                                                    </div>
+                                                    {field.type === 'dropdown' && (
+                                                        <textarea
+                                                            placeholder="ตัวเลือก (บรรทัดละ 1 ตัวเลือก)"
+                                                            value={(field.options || []).join('\n')}
+                                                            onChange={e => updateSchemaField(idx, { options: e.target.value.split('\n').filter(Boolean) })}
+                                                            rows={3}
+                                                            className="w-full text-xs bg-slate-900 border border-slate-700 text-white rounded-md px-2 py-1.5 focus:ring-1 focus:ring-blue-500 outline-none resize-none"
+                                                        />
+                                                    )}
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => removeSchemaField(idx)}
+                                                    className="text-rose-400 hover:text-rose-300 p-1 flex-shrink-0 mt-1"
+                                                >
+                                                    <X size={14} />
+                                                </button>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+
                             <button type="submit" className="w-full py-3 bg-amber-600 hover:bg-amber-500 text-white font-black uppercase text-xs tracking-widest rounded-xl transition-all shadow-lg flex justify-center items-center gap-2 mt-4">
                                 <Edit2 size={16} /> บันทึกการแก้ไข
                             </button>

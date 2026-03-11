@@ -277,7 +277,7 @@ const App: React.FC = () => {
           />
         );
       case 'nt-map':
-        return <NTLocationMap projectId={selectedProjectId} />;
+        return <NTLocationMap projectId={selectedProjectId} project={currentProject} />;
       case 'history':
         return (
           <div className="p-4 md:p-8 text-white">

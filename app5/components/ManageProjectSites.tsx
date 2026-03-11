@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Search, Plus, Trash2, Loader2, MapPin, CheckSquare, Save } from 'lucide-react';
-import { Project, NTLocation } from '../types';
-import { locationsApi, projectSitesApi } from '../services/api';
+import { X, Search, Plus, Trash2, Loader2, MapPin, CheckSquare, Save, Layers } from 'lucide-react';
+import { Project, NTLocation, MapLayer } from '../types';
+import { locationsApi, projectSitesApi, mapsApi } from '../services/api';
 
 interface Props {
     project: Project;
@@ -16,14 +16,20 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
     const [search, setSearch] = useState('');
     const [isSaving, setIsSaving] = useState(false);
 
+    // Multi-map support
+    const [maps, setMaps] = useState<MapLayer[]>([]);
+    const [selectedMapId, setSelectedMapId] = useState<string>('__all__');
+
     useEffect(() => {
         const load = async () => {
             setLoading(true);
             try {
-                const [sites, assignedIds] = await Promise.all([
-                    locationsApi.listNT(),
+                const [allMaps, sites, assignedIds] = await Promise.all([
+                    mapsApi.list(),
+                    locationsApi.listNT(), // Load all sites (no mapId filter) to support cross-map assignments
                     projectSitesApi.getSitesForProject(project.id)
                 ]);
+                setMaps(allMaps);
                 setAllSites(sites);
                 const assignedSet = new Set(assignedIds);
                 setInitialSiteIds(new Set(assignedSet));
@@ -70,11 +76,17 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
         }
     };
 
+    // Filter sites by selected map layer
+    const mapFilteredSites = useMemo(() => {
+        if (selectedMapId === '__all__') return allSites;
+        return allSites.filter(s => s.map_id === selectedMapId);
+    }, [allSites, selectedMapId]);
+
     const filteredSites = useMemo(() => {
-        if (!search) return allSites;
+        if (!search) return mapFilteredSites;
         const lower = search.toLowerCase();
-        return allSites.filter(s => s.name.toLowerCase().includes(lower) || s.province.toLowerCase().includes(lower));
-    }, [allSites, search]);
+        return mapFilteredSites.filter(s => s.name.toLowerCase().includes(lower) || s.province.toLowerCase().includes(lower));
+    }, [mapFilteredSites, search]);
 
     const assignedSites = filteredSites.filter(s => stagedSiteIds.has(s.id));
     const unassignedSites = filteredSites.filter(s => !stagedSiteIds.has(s.id));
@@ -115,16 +127,36 @@ const ManageProjectSites: React.FC<Props> = ({ project, onClose }) => {
                 </div>
 
                 {/* Content */}
-                <div className="p-6 flex-1 overflow-hidden flex flex-col gap-6">
-                    <div className="relative">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                        <input
-                            type="text"
-                            placeholder="ค้นหาสถานที่หรือจังหวัด..."
-                            value={search}
-                            onChange={e => setSearch(e.target.value)}
-                            className="w-full bg-slate-950 border border-slate-800 rounded-2xl pl-12 pr-4 py-4 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-600 font-bold"
-                        />
+                <div className="p-6 flex-1 overflow-hidden flex flex-col gap-4">
+
+                    {/* Map Layer Filter */}
+                    <div className="flex items-center gap-3">
+                        <div className="p-2 bg-blue-500/10 text-blue-400 rounded-lg border border-blue-500/20">
+                            <Layers size={16} />
+                        </div>
+                        <div className="flex-1">
+                            <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest mb-1">กรองสถานที่จากแผนที่</p>
+                            <select
+                                value={selectedMapId}
+                                onChange={e => setSelectedMapId(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 text-white rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none font-bold appearance-none cursor-pointer"
+                            >
+                                <option value="__all__">📋 แสดงทุกแผนที่</option>
+                                {maps.map(m => (
+                                    <option key={m.id} value={m.id}>🗺 {m.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={16} />
+                            <input
+                                type="text"
+                                placeholder="ค้นหาสถานที่หรือจังหวัด..."
+                                value={search}
+                                onChange={e => setSearch(e.target.value)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-10 pr-4 py-2 text-sm text-white focus:ring-2 focus:ring-blue-500 outline-none placeholder:text-slate-600 font-bold"
+                            />
+                        </div>
                     </div>
 
                     {loading ? (

@@ -51,3 +51,8 @@ description: Comprehensive summary of App5 architecture, proxy setup, and develo
   - สร้างตารางกลาง `project_sites` ในฐานข้อมูลเพื่อจับคู่โปรเจกต์และสถานที่ และเพิ่ม API `/api/pms/project-sites` (GET, POST, DELETE)
   - เพิ่มเมนูย่อย `ManageProjectSites.tsx` ให้ Admin สามารถติ๊กเลือก Site เพิ่ม/ลดออกจากแต่ละโปรเจกต์ได้ 
   - ระบบแสดงแผนที่ (`NTLocationMap`) และระบบแสดงสถานที่ (`LocationManager`) จะถูกกรองให้แสดงเฉพาะรายการที่ได้รับมอบหมายในโปรเจกต์ปัจจุบันเท่านั้น
+- **2026-03-09**: เปลี่ยนแปลงระบบแผนที่ให้รองรับคุณสมบัติ **Dynamic Map Layers & Custom Columns**:
+  - เปลี่ยนจาก `nt_sites` ที่มีคอลัมน์ตายตัว เป็นการสร้างตาราง `map_layers` (เก็บโครงสร้าง Schema แบบ Dynamic) 
+  - ใช้หลักการจัดเก็บคอลัมน์ที่เพิ่มใหม่ลงในงรูปแบบ `JSONB` ผ่านตัวแปร `custom_data` ในตาราง `nt_sites` ทำให้ระบบเพิ่มฟิลด์ประเภท Text, Number, Date, Dropdown Options ได้อิสระโดยไม่ต้องทำ Database Schema Migration เพิ่มเติม
+  - รองรับการสร้างแผนที่ได้เป็นจำนวนมาก โดยแยกข้อมูลสถานที่เชื่อมโยงกับ `map_id`
+  - สร้างกลไก UI `AdminSiteMaster.tsx` ใหม่ ให้โหลด Form Fields อัตโนมัติจาก Schema และเชื่อมการแสดงผลกับ `NTLocationMap.tsx`

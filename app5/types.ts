@@ -16,12 +16,51 @@ export interface NTLocation {
   name: string;
   lat: number;
   lng: number;
-  type: string;
   serviceCenter: string;
   province: string;
-  images?: string[];
-  olt_count?: number;
+  type: string;
+  olt_count: number;
+  images: string[];
   site_exists?: boolean;
+  map_id?: string;
+  custom_data?: Record<string, any>;
+}
+
+export interface MapLayer {
+  id: string;
+  name: string;
+  schema: DynamicColumnSchema[];
+  created_at: string;
+}
+
+export interface DynamicColumnSchema {
+  id: string;
+  name: string;
+  type: 'text' | 'number' | 'dropdown' | 'date';
+  options?: string[]; // for dropdowns
+}
+
+export interface ProjectFilterConfig {
+  allowedTypes: string[]; // e.g. ['A', 'B', 'C', 'D', 'pending']
+}
+
+export type ProjectFieldType = 'text' | 'number' | 'dropdown' | 'checkbox' | 'photo';
+
+export interface ProjectFieldSchema {
+  id: string;     // unique key e.g. 'field_1'
+  label: string;  // display label
+  type: ProjectFieldType;
+  options?: string[];   // for dropdown
+  required?: boolean;
+}
+
+export interface ProjectSiteRecord {
+  id?: number;
+  projectId: string;
+  siteId: number;
+  customData: Record<string, any>;
+  images: string[];
+  updatedAt?: string;
 }
 
 export interface Project {
@@ -30,7 +69,9 @@ export interface Project {
   status: 'active' | 'completed' | 'on-hold';
   color: string;
   equipmentTypes: string[];
-  workType: WorkType; // เพิ่มเพื่อระบุหมวดงานหลักของโครงการ
+  workType: WorkType;
+  filterConfig?: ProjectFilterConfig;
+  fieldsSchema?: ProjectFieldSchema[]; // per-project data collection schema
 }
 
 export interface MaintenanceRecord {
