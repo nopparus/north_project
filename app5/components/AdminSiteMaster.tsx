@@ -184,6 +184,7 @@ export default function AdminSiteMaster() {
     const [importDeleteMissing, setImportDeleteMissing] = useState(false);
     const [importNewMapName, setImportNewMapName] = useState('');
     const [importFile, setImportFile] = useState<File | null>(null);
+    const [importPreviewData, setImportPreviewData] = useState<any | null>(null);
 
     // Initialize Map Layers
 
@@ -418,9 +419,10 @@ export default function AdminSiteMaster() {
 
         // Reset file input so same file can be selected again
         if (fileInputRef.current) fileInputRef.current.value = '';
+        setImportPreviewData(null);
     };
 
-    const executeImport = async () => {
+    const fetchImportPreview = async () => {
         if (!importFile || !activeMapId) return;
         setIsSaving(true);
         try {
@@ -432,71 +434,94 @@ export default function AdminSiteMaster() {
 
             if (jsonData.length === 0) {
                 alert('ไม่พบข้อมูลในไฟล์ Excel');
+                setIsSaving(false);
                 return;
             }
 
+            const payload: Partial<NTLocation>[] = jsonData.map(row => {
+                const custom_data: any = {};
+                schema.forEach(col => {
+                    if (row[col.name] !== undefined) custom_data[col.id] = row[col.name];
+                });
+                return {
+                    id: row['System ID'] || undefined,
+                    locationname: row['ชื่อสถานที่'], 
+                    province: row['จังหวัด'],
+                    servicecenter: row['ศูนย์บริการ'] || '',
+                    latitude: parseFloat(row['ละติจูด (Lat)']),
+                    longitude: parseFloat(row['ลองจิจูด (Lng)']),
+                    type: row['ประเภท'] || 'ทั่วไป',
+                    site_exists: row['ยังมีอยู่จริง'] === 'ไม่ใช่' ? false : true,
+                    map_id: activeMapId,
+                    custom_data
+                };
+            });
+
+            const result = await locationsApi.advancedBulkImport({
+                mode: importMode === 'create' ? 'append' : importMode,
+                mapId: activeMapId,
+                deleteMissing: importMode === 'sync' ? importDeleteMissing : false,
+                locations: payload,
+                preview: true
+            });
+
+            if (result.success && result.preview) {
+                setImportPreviewData({ results: result.results, payload });
+            } else {
+                alert(result.details || 'การตรวจสอบหัวตารางล้มเหลว กรุณาตรวจสอบรูปแบบไฟล์');
+            }
+        } catch (err: any) {
+            console.error(err);
+            alert(err.response?.data?.details || 'เกิดข้อผิดพลาดในการตรวจสอบไฟล์');
+        } finally {
+            setIsSaving(false);
+        }
+    };
+
+    const executeImport = async () => {
+        if (!importPreviewData || !activeMapId) return;
+        setIsSaving(true);
+        try {
             let targetMapId = activeMapId;
 
-            // Handle "Create New Map" first
             if (importMode === 'create') {
                 if (!importNewMapName.trim()) {
                     alert('กรุณาระบุชื่อแผนที่ใหม่');
+                    setIsSaving(false);
                     return;
                 }
                 const newMap = await mapsApi.create({ name: importNewMapName, schema: schema });
                 setMaps(prev => [...prev, newMap]);
                 targetMapId = newMap.id;
+                // Update map_id in payload
+                importPreviewData.payload.forEach((p: any) => p.map_id = targetMapId);
             }
 
-            const payload: Partial<NTLocation>[] = jsonData.map(row => {
-                // Map custom data
-                const custom_data: any = {};
-                schema.forEach(col => {
-                    if (row[col.name] !== undefined) {
-                        custom_data[col.id] = row[col.name];
-                    }
-                });
-
-                return {
-                    id: row['System ID'] || undefined, // Capture for Sync Mode
-                    name: row['ชื่อสถานที่'] || 'Unnamed Site',
-                    province: row['จังหวัด'] || '',
-                    serviceCenter: row['ศูนย์บริการ'] || '',
-                    lat: parseFloat(row['ละติจูด (Lat)']) || 0,
-                    lng: parseFloat(row['ลองจิจูด (Lng)']) || 0,
-                    type: row['ประเภท'] || 'ทั่วไป',
-                    site_exists: row['ยังมีอยู่จริง'] === 'ไม่ใช่' ? false : true,
-                    map_id: targetMapId,
-                    custom_data
-                };
-            });
-
-            const apiMode = importMode === 'create' ? 'append' : importMode;
-
             const result = await locationsApi.advancedBulkImport({
-                mode: apiMode,
+                mode: importMode === 'create' ? 'append' : importMode,
                 mapId: targetMapId,
                 deleteMissing: importMode === 'sync' ? importDeleteMissing : false,
-                locations: payload
+                locations: importPreviewData.payload,
+                preview: false
             });
 
             if (result.success) {
                 alert(`นำเข้าสำเร็จ!\n- เพิ่มใหม่: ${result.results?.inserted || 0} รายการ\n- อัปเดตทับ: ${result.results?.updated || 0} รายการ\n- ข้ามข้อมูลซ้ำ: ${result.results?.skipped || 0} รายการ\n- ย้ายไปถังขยะ: ${result.results?.deleted || 0} รายการ`);
                 if (importMode === 'create') {
-                    setActiveMapId(targetMapId); // switch to new map
+                    setActiveMapId(targetMapId);
                 } else {
-                    await loadSites(targetMapId); // reload current map
+                    await loadSites(targetMapId);
                 }
                 setIsImportModalOpen(false);
+                setImportPreviewData(null);
             } else {
                 alert('เกิดข้อผิดพลาดในการนำเข้า');
             }
-        } catch (err) {
+        } catch (err: any) {
             console.error(err);
-            alert('เกิดข้อผิดพลาดในการนำเข้าไฟล์ กรุณาตรวจสอบรูปแบบไฟล์ และความถูกต้องของข้อมูล');
+            alert(err.response?.data?.details || 'เกิดข้อผิดพลาดในการนำเข้าไฟล์');
         } finally {
             setIsSaving(false);
-            setImportFile(null);
         }
     };
 
@@ -996,101 +1021,153 @@ export default function AdminSiteMaster() {
                             <button onClick={() => { setIsImportModalOpen(false); setImportFile(null); }} className="text-slate-500 hover:text-white bg-slate-800 p-2 rounded-xl"><X size={18} /></button>
                         </div>
 
-                        <div className="flex-1 p-6 space-y-4">
-                            <label className="flex items-start gap-4 p-4 rounded-2xl border border-slate-700 bg-slate-800/30 cursor-pointer hover:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 transition-colors">
-                                <input
-                                    type="radio"
-                                    name="importMode"
-                                    value="sync"
-                                    checked={importMode === 'sync'}
-                                    onChange={() => setImportMode('sync')}
-                                    className="mt-1 sr-only"
-                                />
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${importMode === 'sync' ? 'border-blue-500' : 'border-slate-500'}`}>
-                                    {importMode === 'sync' && <div className="w-2.5 h-2.5 bg-blue-500 rounded-full" />}
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-white text-md">อัปเดตและเขียนทับทั้งหมด (Sync / Upsert)</h4>
-                                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                                        ระบบจะดึง <b>System ID</b> จากไฟล์ Excel มาตรวจสอบ หากมีอยู่แล้วจะอัปเดตข้อมูลทับ (โดยคง ID เดิมไว้) หากไม่มีจะสร้างใหม่<br />
-                                        <span className="text-emerald-400">แนะนำ: ปลอดภัยที่สุดสำหรับข้อมูลที่มีโปรเจคผูกอยู่แล้ว</span>
-                                    </p>
+                        <div className="flex-1 p-6 space-y-4 overflow-y-auto">
+                            {importPreviewData ? (
+                                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                                    <div className="bg-blue-600/10 border border-blue-500/30 rounded-2xl p-6 text-center">
+                                        <AlertOctagon size={40} className="mx-auto text-blue-500 mb-3" />
+                                        <h4 className="text-lg font-black text-white">ตรวจสอบความพึงพอใจก่อนนำเข้า</h4>
+                                        <p className="text-xs text-slate-400 mt-1 uppercase tracking-widest font-bold">Preview : {importFile?.name}</p>
+                                    </div>
 
-                                    {importMode === 'sync' && (
-                                        <label className="flex items-center gap-2 mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl cursor-pointer">
-                                            <input
-                                                type="checkbox"
-                                                checked={importDeleteMissing}
-                                                onChange={(e) => setImportDeleteMissing(e.target.checked)}
-                                                className="rounded bg-slate-900 border-slate-600 text-red-500 focus:ring-red-500 focus:ring-offset-slate-900"
-                                            />
-                                            <span className="text-red-400 text-xs font-bold">ลบสถานที่ในแผนที่ปัจจบุันที่ไม่มีในไฟล์ Excel นี้ทิ้ง (ย้ายลง Temp)</span>
-                                        </label>
-                                    )}
-                                </div>
-                            </label>
-
-                            <label className="flex items-start gap-4 p-4 rounded-2xl border border-slate-700 bg-slate-800/30 cursor-pointer hover:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 transition-colors">
-                                <input
-                                    type="radio"
-                                    name="importMode"
-                                    value="append"
-                                    checked={importMode === 'append'}
-                                    onChange={() => setImportMode('append')}
-                                    className="mt-1 sr-only"
-                                />
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${importMode === 'append' ? 'border-blue-500' : 'border-slate-500'}`}>
-                                    {importMode === 'append' && <div className="w-2.5 h-2.5 bg-blue-500 rounded-full" />}
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-white text-md">เพิ่มของใหม่ลงแผนที่เดิม (Append)</h4>
-                                    <p className="text-xs text-slate-400 mt-1 leading-relaxed">
-                                        เพิ่มเฉพาะรายการใหม่ลงในแผนที่ปัจจุบัน หากข้อมูลซ้ำ (ชื่อสถานที่+จังหวัด) จะข้ามไป
-                                    </p>
-                                </div>
-                            </label>
-
-                            <label className="flex items-start gap-4 p-4 rounded-2xl border border-slate-700 bg-slate-800/30 cursor-pointer hover:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 transition-colors">
-                                <input
-                                    type="radio"
-                                    name="importMode"
-                                    value="create"
-                                    checked={importMode === 'create'}
-                                    onChange={() => setImportMode('create')}
-                                    className="mt-1 sr-only"
-                                />
-                                <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${importMode === 'create' ? 'border-blue-500' : 'border-slate-500'}`}>
-                                    {importMode === 'create' && <div className="w-2.5 h-2.5 bg-blue-500 rounded-full" />}
-                                </div>
-                                <div className="w-full">
-                                    <h4 className="font-bold text-white text-md">สร้างเป็นแผนที่ใหม่ (Create New Map)</h4>
-                                    <p className="text-xs text-slate-400 mt-1 leading-relaxed mb-3">
-                                        ระบบจะสร้าง Map Layer ใหม่และโคลน Schema ไปให้ แล้วนำข้อมูลทั้งหมดใส่ในแผนที่ใหม่
-                                    </p>
-
-                                    {importMode === 'create' && (
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs text-slate-400 font-bold uppercase">ชื่อแผนที่ใหม่</label>
-                                            <input
-                                                type="text"
-                                                value={importNewMapName}
-                                                onChange={e => setImportNewMapName(e.target.value)}
-                                                className="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-sm text-white focus:border-blue-500 outline-none"
-                                            />
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                            <p className="text-[10px] uppercase font-black text-slate-500 mb-1">เพิ่มใหม่ (New)</p>
+                                            <p className="text-2xl font-black text-emerald-400">{importPreviewData.results?.toInsert || 0}</p>
                                         </div>
-                                    )}
+                                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                            <p className="text-[10px] uppercase font-black text-slate-500 mb-1">อัปเดต (Update)</p>
+                                            <p className="text-2xl font-black text-blue-400">{importPreviewData.results?.toUpdate || 0}</p>
+                                        </div>
+                                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                            <p className="text-[10px] uppercase font-black text-slate-500 mb-1">ข้าม (Skip)</p>
+                                            <p className="text-2xl font-black text-slate-400">{importPreviewData.results?.toSkip || 0}</p>
+                                        </div>
+                                        <div className="bg-slate-950 p-4 rounded-xl border border-slate-800">
+                                            <p className="text-[10px] uppercase font-black text-slate-500 mb-1">ลบ (Delete)</p>
+                                            <p className="text-2xl font-black text-rose-500">{importPreviewData.results?.toDelete || 0}</p>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-4 flex items-start gap-3">
+                                        <AlertOctagon size={18} className="text-amber-500 shrink-0 mt-0.5" />
+                                        <p className="text-[11px] text-amber-200 leading-relaxed font-bold">
+                                            กรุณาตรวจสอบจำนวนรายการด้านบน หากไม่ถูกต้องให้กดยกเลิกเพื่อแก้ไขไฟล์ Excel หรือเปลี่ยนโหมดการนำเข้า
+                                        </p>
+                                    </div>
                                 </div>
-                            </label>
+                            ) : (
+                                <>
+                                    <label className="flex items-start gap-4 p-4 rounded-2xl border border-slate-700 bg-slate-800/30 cursor-pointer hover:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 transition-colors">
+                                        <input
+                                            type="radio"
+                                            name="importMode"
+                                            value="sync"
+                                            checked={importMode === 'sync'}
+                                            onChange={() => setImportMode('sync')}
+                                            className="mt-1 sr-only"
+                                        />
+                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${importMode === 'sync' ? 'border-blue-500' : 'border-slate-500'}`}>
+                                            {importMode === 'sync' && <div className="w-2.5 h-2.5 bg-blue-500 rounded-full" />}
+                                        </div>
+                                        <div>
+                                            <h4 className="font-bold text-white text-md">อัปเดตและเขียนทับทั้งหมด (Sync / Upsert)</h4>
+                                            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                                                ระบบจะดึง <b>System ID</b> จากไฟล์ Excel มาตรวจสอบ หากมีอยู่แล้วจะอัปเดตข้อมูลทับ (โดยคง ID เดิมไว้) หากไม่มีจะสร้างใหม่<br />
+                                                <span className="text-emerald-400">แนะนำ: ปลอดภัยที่สุดสำหรับข้อมูลที่มีโปรเจคผูกอยู่แล้ว</span>
+                                            </p>
+
+                                            {importMode === 'sync' && (
+                                                <label className="flex items-center gap-2 mt-3 p-3 bg-red-500/10 border border-red-500/20 rounded-xl cursor-pointer">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={importDeleteMissing}
+                                                        onChange={(e) => setImportDeleteMissing(e.target.checked)}
+                                                        className="rounded bg-slate-900 border-slate-600 text-red-500 focus:ring-red-500 focus:ring-offset-slate-900"
+                                                    />
+                                                    <span className="text-red-400 text-xs font-bold">ลบสถานที่ในแผนที่ปัจจบุันที่ไม่มีในไฟล์ Excel นี้ทิ้ง (ย้ายลง Temp)</span>
+                                                </label>
+                                            )}
+                                        </div>
+                                    </label>
+
+                                    <label className="flex items-start gap-4 p-4 rounded-2xl border border-slate-700 bg-slate-800/30 cursor-pointer hover:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 transition-colors">
+                                        <input
+                                            type="radio"
+                                            name="importMode"
+                                            value="append"
+                                            checked={importMode === 'append'}
+                                            onChange={() => setImportMode('append')}
+                                            className="mt-1 sr-only"
+                                        />
+                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${importMode === 'append' ? 'border-blue-500' : 'border-slate-500'}`}>
+                                            {importMode === 'append' && <div className="w-2.5 h-2.5 bg-blue-500 rounded-full" />}
+                                        </div>
+                                        <div>
+                                            <h4 className="font-bold text-white text-md">เพิ่มของใหม่ลงแผนที่เดิม (Append)</h4>
+                                            <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                                                เพิ่มเฉพาะรายการใหม่ลงในแผนที่ปัจจุบัน หากข้อมูลซ้ำ (ชื่อสถานที่+จังหวัด) จะข้ามไป
+                                            </p>
+                                        </div>
+                                    </label>
+
+                                    <label className="flex items-start gap-4 p-4 rounded-2xl border border-slate-700 bg-slate-800/30 cursor-pointer hover:bg-slate-800 focus-within:ring-2 focus-within:ring-blue-500 transition-colors">
+                                        <input
+                                            type="radio"
+                                            name="importMode"
+                                            value="create"
+                                            checked={importMode === 'create'}
+                                            onChange={() => setImportMode('create')}
+                                            className="mt-1 sr-only"
+                                        />
+                                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${importMode === 'create' ? 'border-blue-500' : 'border-slate-500'}`}>
+                                            {importMode === 'create' && <div className="w-2.5 h-2.5 bg-blue-500 rounded-full" />}
+                                        </div>
+                                        <div className="w-full">
+                                            <h4 className="font-bold text-white text-md">สร้างเป็นแผนที่ใหม่ (Create New Map)</h4>
+                                            <p className="text-xs text-slate-400 mt-1 leading-relaxed mb-3">
+                                                ระบบจะสร้าง Map Layer ใหม่และโคลน Schema ไปให้ แล้วนำข้อมูลทั้งหมดใส่ในแผนที่ใหม่
+                                            </p>
+
+                                            {importMode === 'create' && (
+                                                <div className="space-y-1.5">
+                                                    <label className="text-xs text-slate-400 font-bold uppercase">ชื่อแผนที่ใหม่</label>
+                                                    <input
+                                                        type="text"
+                                                        value={importNewMapName}
+                                                        onChange={e => setImportNewMapName(e.target.value)}
+                                                        className="w-full p-2 bg-slate-900 border border-slate-700 rounded-xl text-sm text-white focus:border-blue-500 outline-none"
+                                                    />
+                                                </div>
+                                            )}
+                                        </div>
+                                    </label>
+                                </>
+                            )}
                         </div>
 
                         <div className="p-4 border-t border-slate-800 bg-slate-900/50 flex justify-end gap-3 shrink-0">
-                            <button onClick={() => { setIsImportModalOpen(false); setImportFile(null); }} className="px-6 py-2.5 rounded-xl font-bold text-slate-400 hover:bg-slate-800">ยกเลิก</button>
                             <button
-                                onClick={executeImport} disabled={isSaving}
-                                className="px-8 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
+                                onClick={() => { setIsImportModalOpen(false); setImportFile(null); setImportPreviewData(null); }}
+                                className="px-6 py-2.5 rounded-xl font-bold text-slate-400 hover:bg-slate-800"
                             >
-                                {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />} ยืนยันการนำเข้า
+                                {importPreviewData ? 'ยกเลิก / แก้ไขไฟล์' : 'ยกเลิก'}
                             </button>
+                            {importPreviewData ? (
+                                <button
+                                    onClick={executeImport} disabled={isSaving}
+                                    className="px-8 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-500/20"
+                                >
+                                    {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />} ยืนยันการบันทึกจริง
+                                </button>
+                            ) : (
+                                <button
+                                    onClick={fetchImportPreview} disabled={isSaving}
+                                    className="px-8 py-2.5 rounded-xl font-bold flex items-center gap-2 transition-all shadow-lg bg-blue-600 hover:bg-blue-500 text-white shadow-blue-500/20"
+                                >
+                                    {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Layers size={18} />} เรียกดูรายการที่จะแก้ไข
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>

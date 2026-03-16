@@ -53,6 +53,11 @@ description: Comprehensive summary of App5 architecture, proxy setup, and develo
   - ระบบแสดงแผนที่ (`NTLocationMap`) และระบบแสดงสถานที่ (`LocationManager`) จะถูกกรองให้แสดงเฉพาะรายการที่ได้รับมอบหมายในโปรเจกต์ปัจจุบันเท่านั้น
 - **2026-03-09**: เปลี่ยนแปลงระบบแผนที่ให้รองรับคุณสมบัติ **Dynamic Map Layers & Custom Columns**:
   - เปลี่ยนจาก `nt_sites` ที่มีคอลัมน์ตายตัว เป็นการสร้างตาราง `map_layers` (เก็บโครงสร้าง Schema แบบ Dynamic) 
-  - ใช้หลักการจัดเก็บคอลัมน์ที่เพิ่มใหม่ลงในงรูปแบบ `JSONB` ผ่านตัวแปร `custom_data` ในตาราง `nt_sites` ทำให้ระบบเพิ่มฟิลด์ประเภท Text, Number, Date, Dropdown Options ได้อิสระโดยไม่ต้องทำ Database Schema Migration เพิ่มเติม
+  - ใช้หลักการจัดเก็บคอลัมน์ที่เพิ่มใหม่ลงในรูปแบบ `JSONB` ผ่านตัวแปร `custom_data` ในตาราง `nt_sites` ทำให้ระบบเพิ่มฟิลด์ประเภท Text, Number, Date, Dropdown Options ได้อิสระโดยไม่ต้องทำ Database Schema Migration เพิ่มเติม
   - รองรับการสร้างแผนที่ได้เป็นจำนวนมาก โดยแยกข้อมูลสถานที่เชื่อมโยงกับ `map_id`
   - สร้างกลไก UI `AdminSiteMaster.tsx` ใหม่ ให้โหลด Form Fields อัตโนมัติจาก Schema และเชื่อมการแสดงผลกับ `NTLocationMap.tsx`
+- **2026-03-10 - 2026-03-11**: ปรับปรุงระบบ Import/Export และการแสดงผลข้อมูล:
+  - แก้ไขบัค Data Type Casting ในระบบ Bulk Import (`advanced-bulk`) ที่เกิดข้อผิดพลาด `operator does not exist: integer <> uuid` โดยการทำ `parseInt` ให้กับ `system_id`
+  - ปรับปรุง `NTLocationMap.tsx` ให้แยกการแสดงผลข้อมูล Master (สำหรับโครงการ NT North) และข้อมูลเฉพาะโครงการ (Project-specific data) ตาม `fields_schema`
+  - แก้ไขปัญหาคอลัมน์ "Type" ในการ Export ข้อมูลที่แสดงผลไม่ถูกต้อง (แสดง Label แทน Key)
+  - ตรวจสอบและยืนยันการทำงานของระบบกรองข้อมูล (Filter) ให้สอดคล้องกับ `filter_config` ของแต่ละโครงการ

@@ -47,16 +47,28 @@ const createCustomIcon = (color: string, count: number = 1) => {
     });
 };
 
-const getIcon = (type: string, count: number) => {
+const getIcon = (type: string, count: number, status?: string) => {
     const colorMap: Record<string, string> = {
         A: '#dc2626', // Red
         B: '#f97316', // Orange
         C: '#22c55e', // Green
         D: '#3b82f6', // Blue
         pending: '#a855f7', // Purple
-        default: '#64748b' // Slate
+        default: '#64748b', // Slate
+        // Status colors
+        Completed: '#059669', // Emerald
+        'In Progress': '#2563eb', // Blue
+        Issue: '#e11d48', // Rose
     };
-    const color = colorMap[type] || colorMap.default;
+    
+    // Priority: Status color > Type color
+    let color = colorMap.default;
+    if (status && colorMap[status]) {
+        color = colorMap[status];
+    } else {
+        color = colorMap[type] || colorMap.default;
+    }
+    
     return createCustomIcon(color, count);
 };
 
@@ -100,11 +112,6 @@ const CenterModal: React.FC<{
     return (
         <div
             className="absolute top-0 left-0 w-full h-full z-[2000] pointer-events-auto flex items-center justify-center bg-black/50 backdrop-blur-sm"
-            onClick={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                onClose();
-            }}
         >
             <div
                 className="relative bg-white rounded-xl shadow-2xl border border-slate-200 w-[90%] max-w-sm animate-in fade-in zoom-in duration-200 p-4"
@@ -129,16 +136,29 @@ const CenterModal: React.FC<{
 // ----------------------------------------------------
 
 const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({ projectId, project }) => {
+    // Persistence Keys
+    const MAP_STATE_KEY = 'app5_map_state';
+
+    const getInitialMapState = () => {
+        try {
+            const saved = localStorage.getItem(MAP_STATE_KEY);
+            if (saved) return JSON.parse(saved);
+        } catch { /* ignore */ }
+        return { center: [18.7883, 98.9853], zoom: 12, layer: 'clean' };
+    };
+
+    const initialMapState = getInitialMapState();
+
     const [locations, setLocations] = useState<NTLocation[]>([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
-    const [mapCenter, setMapCenter] = useState<[number, number]>([18.7883, 98.9853]);
-    const [mapZoom, setMapZoom] = useState(12); // Initial zoom
+    const [mapCenter, setMapCenter] = useState<[number, number]>(initialMapState.center);
+    const [mapZoom, setMapZoom] = useState(initialMapState.zoom); // Initial zoom
 
     // Viewport state
     const [currentBounds, setCurrentBounds] = useState<L.LatLngBounds | null>(null);
-    const [currentZoom, setCurrentZoom] = useState(12);
-    const [mapLayer, setMapLayer] = useState<'osm' | 'clean' | 'vivid' | 'satellite'>('clean');
+    const [currentZoom, setCurrentZoom] = useState(initialMapState.zoom);
+    const [mapLayer, setMapLayer] = useState<'osm' | 'clean' | 'vivid' | 'satellite'>(initialMapState.layer);
 
     const mapLayers = {
         osm: {
@@ -203,33 +223,67 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
     // Ref to track if a marker was just clicked (to prevent map click from closing it)
     const isMarkerClick = useRef(false);
 
-    useEffect(() => {
+    // Debounced fetch to avoid excessive API calls
+    const fetchTimer = useRef<NodeJS.Timeout | null>(null);
+
+    const fetchData = async (bounds?: L.LatLngBounds) => {
         if (!projectId) return;
-        const fetchData = async () => {
-            setLoading(true);
-            try {
-                const [assignedIds, records] = await Promise.all([
-                    projectSitesApi.getSitesForProject(projectId),
-                    projectRecordsApi.getForProject(projectId),
-                ]);
-                const assignedSet = new Set(assignedIds);
+        
+        // If it's the first load (no bounds), show loader
+        if (!bounds) setLoading(true);
 
-                // Load ALL sites (across maps) and filter to assigned ones
-                const allSites = await locationsApi.listNT();
-                setLocations(allSites.filter(loc => assignedSet.has(loc.id)));
+        try {
+            const b = bounds || currentBounds;
+            const boundsParam = b ? {
+                minLat: b.getSouth(),
+                maxLat: b.getNorth(),
+                minLng: b.getWest(),
+                maxLng: b.getEast()
+            } : undefined;
 
-                // Build project records map
+            const [items, records] = await Promise.all([
+                locationsApi.listNT(undefined, boundsParam, projectId),
+                // Only fetch records once if we don't have them yet, or maybe always for freshness?
+                // For now, let's fetch sites based on bounds, but records for the whole project 
+                // (records are usually small compared to thousands of sites)
+                projectRecords.size === 0 ? projectRecordsApi.getForProject(projectId) : Promise.resolve(null)
+            ]);
+
+            setLocations(items);
+
+            if (records) {
                 const recMap = new Map<number, ProjectSiteRecord>();
                 records.forEach(r => recMap.set(r.siteId, r));
                 setProjectRecords(recMap);
-            } catch (err) {
-                console.error('Failed to load data', err);
-            } finally {
-                setLoading(false);
             }
-        };
+        } catch (err) {
+            console.error('Failed to load data', err);
+        } finally {
+            if (!bounds) setLoading(false);
+        }
+    };
+
+    // Initial load for records and maybe initial locations
+    useEffect(() => {
+        if (!projectId) return;
         fetchData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId]);
+
+    // Fetch on bounds change with debounce
+    useEffect(() => {
+        if (!projectId || !currentBounds) return;
+
+        if (fetchTimer.current) clearTimeout(fetchTimer.current);
+        fetchTimer.current = setTimeout(() => {
+            fetchData(currentBounds);
+        }, 400); // 400ms debounce
+
+        return () => {
+            if (fetchTimer.current) clearTimeout(fetchTimer.current);
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [currentBounds]);
 
     // Filtered Content (Instead of grouping, just filter)
     const STANDARD_TYPES = ['A', 'B', 'C', 'D', 'pending'];
@@ -261,6 +315,17 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
     const handleMapChange = (bounds: L.LatLngBounds, zoom: number) => {
         setCurrentBounds(bounds);
         setCurrentZoom(zoom);
+
+        // Persist center and zoom
+        const center = bounds.getCenter();
+        try {
+            const current = getInitialMapState();
+            localStorage.setItem(MAP_STATE_KEY, JSON.stringify({
+                ...current,
+                center: [center.lat, center.lng],
+                zoom: zoom
+            }));
+        } catch { /* ignore */ }
     };
 
     const handleMapClick = () => {
@@ -270,17 +335,32 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
         setActiveGridKey(null);
     };
 
-    const handleSearch = () => {
+    const handleSearch = async () => {
         if (!searchTerm) return;
-        const found = locations.find(l =>
+        
+        // 1. Search in current visible locations
+        let found = locations.find(l =>
             l.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
             l.locationId.includes(searchTerm)
         );
+        
+        // 2. If not found, search in globally assigned project locations via API
+        if (!found && projectId) {
+            try {
+                // Fetching without bounds to find it globally in the project
+                const globalResults = await locationsApi.listNT(undefined, undefined, projectId);
+                found = globalResults.find(l =>
+                    l.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                    l.locationId.includes(searchTerm)
+                );
+            } catch (err) { console.error('Global search failed', err); }
+        }
+
         if (found) {
             setMapCenter([found.lat, found.lng]);
-            setMapZoom(16);
+            setMapZoom(17); // Zoom in closer for specific search
+            setEditingLocation(found); // Open for editing directly
             setActiveGridKey(null);
-            setEditingLocation(null);
         } else {
             alert('ไม่พบข้อมูล: ' + searchTerm);
         }
@@ -418,7 +498,13 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
                         return (
                             <button
                                 key={key}
-                                onClick={() => setMapLayer(key)}
+                                onClick={() => {
+                                    setMapLayer(key);
+                                    try {
+                                        const current = getInitialMapState();
+                                        localStorage.setItem(MAP_STATE_KEY, JSON.stringify({ ...current, layer: key }));
+                                    } catch { /* ignore */ }
+                                }}
                                 className={`flex items-center gap-3 px-3 py-2.5 transition-all text-left group border-b border-slate-50 last:border-0 ${isActive ? 'bg-blue-50/80 text-blue-600' : 'bg-transparent text-slate-500 hover:bg-slate-50'}`}
                             >
                                 <div className={`p-1.5 rounded-lg transition-colors ${isActive ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 group-hover:bg-slate-200'}`}>
@@ -455,11 +541,10 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
 
                 <MarkerClusterGroup
                     chunkedLoading={true}
-                    maxClusterRadius={50}
+                    maxClusterRadius={40}
                     spiderfyOnMaxZoom={true}
-                    disableClusteringAtZoom={16}
                     showCoverageOnHover={false}
-                    animate={false} // Disable animation for large datasets (improves performance)
+                    animate={true} 
                     zoomToBoundsOnClick={true}
                     removeOutsideVisibleBounds={true} // Performance optimization
                     iconCreateFunction={(cluster) => {
@@ -467,21 +552,26 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
                         return createCustomIcon('#64748b', count); // 64748b is slate color
                     }}
                 >
-                    {filteredLocations.map((loc) => (
-                        <Marker
-                            key={loc.id}
-                            position={[loc.lat, loc.lng]}
-                            icon={getIcon(loc.type || 'default', 1)}
-                            eventHandlers={{
-                                click: (e) => {
-                                    isMarkerClick.current = true;
-                                    setTimeout(() => { isMarkerClick.current = false; }, 200);
-                                    L.DomEvent.stopPropagation(e.originalEvent);
-                                    setEditingLocation(loc);
-                                }
-                            }}
-                        />
-                    ))}
+                    {filteredLocations.map((loc) => {
+                        const record = projectRecords.get(loc.id);
+                        const status = record?.customData?.status;
+                        
+                        return (
+                            <Marker
+                                key={loc.id}
+                                position={[loc.lat, loc.lng]}
+                                icon={getIcon(loc.type || 'default', 1, status)}
+                                eventHandlers={{
+                                    click: (e) => {
+                                        isMarkerClick.current = true;
+                                        setTimeout(() => { isMarkerClick.current = false; }, 200);
+                                        L.DomEvent.stopPropagation(e.originalEvent);
+                                        setEditingLocation(loc);
+                                    }
+                                }}
+                            />
+                        );
+                    })}
                 </MarkerClusterGroup>
             </MapContainer>
 
@@ -747,7 +837,7 @@ const EditLocationContent: React.FC<{
     return (
         <div className="text-slate-800 font-sans max-h-[80vh] overflow-y-auto">
             {/* ── Header ── */}
-            <div className="flex items-center justify-between border-b pb-2 mb-3">
+            <div className="flex items-center justify-between border-b pb-2 mb-3 pr-10">
                 <div>
                     <h2 className="font-bold text-base text-slate-900">{loc.name}</h2>
                     <span className="text-[10px] text-slate-400">{loc.province} · {loc.lat.toFixed(5)}, {loc.lng.toFixed(5)}</span>
@@ -941,39 +1031,48 @@ const EditLocationContent: React.FC<{
                     {project?.fieldsSchema && project.fieldsSchema.length > 0 && (
                         <div className="space-y-3 mb-4">
                             <h3 className="text-xs font-bold text-slate-600 uppercase tracking-wide border-b pb-1">ข้อมูลโครงการ</h3>
-                            {project.fieldsSchema.map(field => (
-                                <div key={field.id}>
-                                    <label className="block text-xs font-bold text-slate-700 mb-1">
-                                        {field.label}{field.required && <span className="text-red-500 ml-1">*</span>}
-                                    </label>
-                                    {field.type === 'text' && (
-                                        <input type="text" value={customData[field.id] || ''}
-                                            onChange={e => setCustomData(prev => ({ ...prev, [field.id]: e.target.value }))}
-                                            className="w-full text-sm border-slate-300 rounded-md px-3 py-2 border" />
-                                    )}
-                                    {field.type === 'number' && (
-                                        <input type="number" value={customData[field.id] ?? ''}
-                                            onChange={e => setCustomData(prev => ({ ...prev, [field.id]: e.target.value === '' ? '' : Number(e.target.value) }))}
-                                            className="w-full text-sm border-slate-300 rounded-md px-3 py-2 border" />
-                                    )}
-                                    {field.type === 'dropdown' && field.options && (
-                                        <select value={customData[field.id] || ''}
-                                            onChange={e => setCustomData(prev => ({ ...prev, [field.id]: e.target.value }))}
-                                            className="w-full text-sm border-slate-300 rounded-md px-3 py-2 border bg-white">
-                                            <option value="">-- เลือก --</option>
-                                            {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-                                        </select>
-                                    )}
-                                    {field.type === 'checkbox' && (
-                                        <div className="flex items-center gap-2">
-                                            <input type="checkbox" checked={!!customData[field.id]}
-                                                onChange={e => setCustomData(prev => ({ ...prev, [field.id]: e.target.checked }))}
-                                                className="w-5 h-5 rounded border-slate-300 text-blue-600 cursor-pointer" />
-                                            <span className="text-sm text-slate-600">{field.label}</span>
-                                        </div>
-                                    )}
-                                </div>
-                            ))}
+                            {project.fieldsSchema.map(field => {
+                                const isStatusField = field.id === 'status' || field.label.toLowerCase().includes('status');
+                                return (
+                                    <div key={field.id}>
+                                        <label className="block text-xs font-bold text-slate-700 mb-1">
+                                            {field.label}{field.required && <span className="text-red-500 ml-1">*</span>}
+                                        </label>
+                                        {(field.type === 'dropdown' || isStatusField) ? (
+                                            <select value={customData[field.id] || ''}
+                                                onChange={e => setCustomData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                                                className="w-full text-sm border-slate-300 rounded-md px-3 py-2 border bg-white">
+                                                <option value="">-- เลือก --</option>
+                                                {isStatusField && !field.options ? (
+                                                    <>
+                                                        <option value="Pending">Pending (รอเข้าตรวจ)</option>
+                                                        <option value="In Progress">In Progress (กำลังดำเนินการ)</option>
+                                                        <option value="Completed">Completed (ตรวจเสร็จแล้ว)</option>
+                                                        <option value="Issue">Issue (พบปัญหา)</option>
+                                                    </>
+                                                ) : (
+                                                    field.options?.map(opt => <option key={opt} value={opt}>{opt}</option>)
+                                                )}
+                                            </select>
+                                        ) : field.type === 'number' ? (
+                                            <input type="number" value={customData[field.id] ?? ''}
+                                                onChange={e => setCustomData(prev => ({ ...prev, [field.id]: e.target.value === '' ? '' : Number(e.target.value) }))}
+                                                className="w-full text-sm border-slate-300 rounded-md px-3 py-2 border" />
+                                        ) : field.type === 'checkbox' ? (
+                                            <div className="flex items-center gap-2">
+                                                <input type="checkbox" checked={!!customData[field.id]}
+                                                    onChange={e => setCustomData(prev => ({ ...prev, [field.id]: e.target.checked }))}
+                                                    className="w-5 h-5 rounded border-slate-300 text-blue-600 cursor-pointer" />
+                                                <span className="text-sm text-slate-600">{field.label}</span>
+                                            </div>
+                                        ) : (
+                                            <input type="text" value={customData[field.id] || ''}
+                                                onChange={e => setCustomData(prev => ({ ...prev, [field.id]: e.target.value }))}
+                                                className="w-full text-sm border-slate-300 rounded-md px-3 py-2 border" />
+                                        )}
+                                    </div>
+                                );
+                            })}
                         </div>
                     )}
 

@@ -364,7 +364,7 @@ app.delete('/api/pms/maps/:id', async (req, res) => {
 
 app.get('/api/pms/nt-locations', async (req, res) => {
     try {
-        const { mapId } = req.query;
+        const { mapId, minLat, maxLat, minLng, maxLng, projectId } = req.query;
         let query = `
             SELECT 
               s.id, s.site_name as locationname, s.latitude, s.longitude, 
@@ -377,12 +377,29 @@ app.get('/api/pms/nt-locations', async (req, res) => {
               ) as images
             FROM nt_sites s
             LEFT JOIN nt_locations l ON s.id = l.site_id
-            WHERE 1=1
         `;
         const params = [];
+
+        if (projectId) {
+            query += ` JOIN project_sites ps ON s.id = ps.site_id `;
+        }
+
+        query += ` WHERE 1=1 `;
+
+        if (projectId) {
+            params.push(projectId);
+            query += ` AND ps.project_id = $${params.length} `;
+        }
+
         if (mapId) {
             params.push(mapId);
             query += ` AND s.map_id = $${params.length}`;
+        }
+
+        if (minLat && maxLat && minLng && maxLng) {
+            params.push(minLat, maxLat, minLng, maxLng);
+            query += ` AND s.latitude >= $${params.length - 3} AND s.latitude <= $${params.length - 2}`;
+            query += ` AND s.longitude >= $${params.length - 1} AND s.longitude <= $${params.length}`;
         }
 
         query += ` GROUP BY s.id ORDER BY s.id ASC`;
@@ -449,9 +466,63 @@ app.post('/api/pms/nt-locations', async (req, res) => {
 app.post('/api/pms/nt-locations/advanced-bulk', async (req, res) => {
     const client = await pool.connect();
     try {
-        const { mode, mapId, locations, deleteMissing } = req.body;
+        const { mode, mapId, locations, deleteMissing, preview } = req.body;
         if (!Array.isArray(locations) || !mapId) {
             return res.status(400).json({ error: 'Invalid payload: missing mapId or locations array' });
+        }
+
+        // --- Header / Data Structure Validation ---
+        const requiredFields = ['locationname', 'province', 'latitude', 'longitude'];
+        const missingInRecord = locations.some(loc => requiredFields.some(f => loc[f] === undefined));
+        
+        if (missingInRecord) {
+            return res.status(400).json({ 
+                error: 'Invalid data format', 
+                details: 'ไฟล์ที่นำเข้ามีคอลัมน์ไม่ครบถ้วนหรือชื่อคอลัมน์ไม่ถูกต้อง กรุณาตรวจสอบหัวตาราง (Headers)' 
+            });
+        }
+
+        if (preview) {
+            // Dry run mode: return summary of what WOULD happen
+            const previewResults = { toInsert: 0, toUpdate: 0, toSkip: 0, toDelete: 0 };
+            
+            for (const loc of locations) {
+                let systemId = loc.id ? parseInt(loc.id, 10) : null;
+                if (mode === 'sync') {
+                    let existingId = null;
+                    if (systemId && !isNaN(systemId)) {
+                        const checkRes = await client.query('SELECT id FROM nt_sites WHERE id = $1::int AND map_id = $2::uuid', [systemId, mapId]);
+                        if (checkRes.rows.length > 0) existingId = systemId;
+                    }
+                    if (!existingId) {
+                        const matchRes = await client.query('SELECT id FROM nt_sites WHERE site_name = $1 AND province = $2 AND map_id = $3', [loc.name || loc.locationname, loc.province || '', mapId]);
+                        if (matchRes.rows.length > 0) existingId = matchRes.rows[0].id;
+                    }
+                    if (existingId) previewResults.toUpdate++;
+                    else previewResults.toInsert++;
+                } else if (mode === 'append') {
+                    const checkRes = await client.query('SELECT id FROM nt_sites WHERE site_name = $1 AND province = $2 AND map_id = $3', [loc.name || loc.locationname, loc.province || '', mapId]);
+                    if (checkRes.rows.length > 0) previewResults.toSkip++;
+                    else previewResults.toInsert++;
+                } else {
+                    previewResults.toInsert++;
+                }
+            }
+            
+            if (mode === 'sync' && deleteMissing) {
+                // Potential deletions
+                const incomingIds = locations.map(l => parseInt(l.id, 10)).filter(id => !isNaN(id));
+                let deleteQuery = 'SELECT COUNT(*) FROM nt_sites WHERE map_id = $1';
+                let deleteParams = [mapId];
+                if (incomingIds.length > 0) {
+                    deleteQuery += ' AND id != ALL($2::int[])';
+                    deleteParams.push(incomingIds);
+                }
+                const missingRes = await client.query(deleteQuery, deleteParams);
+                previewResults.toDelete = parseInt(missingRes.rows[0].count);
+            }
+
+            return res.json({ success: true, preview: true, results: previewResults });
         }
 
         await client.query('BEGIN');
@@ -470,16 +541,16 @@ app.post('/api/pms/nt-locations/advanced-bulk', async (req, res) => {
         };
 
         for (const loc of locations) {
-            // Parse system_id as integer to match nt_sites.id column type (integer)
-            let systemId = loc.system_id ? parseInt(loc.system_id, 10) : null;
+            // Compatible with both 'system_id' and 'id' from frontend
+            let systemId = (loc.id || loc.system_id) ? parseInt(loc.id || loc.system_id, 10) : null;
             const type = normalizeType(loc.type);
 
             const values = [
-                loc.locationname,
+                loc.name || loc.locationname,
                 loc.province || '',
-                loc.latitude || 0,
-                loc.longitude || 0,
-                loc.servicecenter || '',
+                loc.lat || loc.latitude || 0,
+                loc.lng || loc.longitude || 0,
+                loc.serviceCenter || loc.servicecenter || '',
                 type,
                 loc.site_exists ?? true,
                 mapId,
@@ -497,7 +568,7 @@ app.post('/api/pms/nt-locations/advanced-bulk', async (req, res) => {
 
                 // 2. Fallback: match by name and province
                 if (!existingId) {
-                    const matchRes = await client.query('SELECT id FROM nt_sites WHERE site_name = $1 AND province = $2 AND map_id = $3', [loc.locationname, loc.province || '', mapId]);
+                    const matchRes = await client.query('SELECT id FROM nt_sites WHERE site_name = $1 AND province = $2 AND map_id = $3', [loc.name || loc.locationname, loc.province || '', mapId]);
                     if (matchRes.rows.length > 0) {
                         existingId = matchRes.rows[0].id;
                         systemId = existingId;
@@ -522,7 +593,7 @@ app.post('/api/pms/nt-locations/advanced-bulk', async (req, res) => {
                 }
             } else if (mode === 'append') {
                 // Append Mode: Skip if name and province already exist in this map
-                const checkRes = await client.query('SELECT id FROM nt_sites WHERE site_name = $1 AND province = $2 AND map_id = $3', [loc.locationname, loc.province || '', mapId]);
+                const checkRes = await client.query('SELECT id FROM nt_sites WHERE site_name = $1 AND province = $2 AND map_id = $3', [loc.name || loc.locationname, loc.province || '', mapId]);
                 if (checkRes.rows.length > 0) {
                     results.skipped++;
                 } else {
@@ -577,7 +648,7 @@ app.post('/api/pms/nt-locations/advanced-bulk', async (req, res) => {
         await client.query('COMMIT');
         res.status(200).json({ success: true, message: 'Bulk operation successful', results });
     } catch (err) {
-        await client.query('ROLLBACK');
+        if (client) await client.query('ROLLBACK');
         console.error('Advanced Bulk insert error:', err);
         res.status(500).json({ error: 'Database error during advanced bulk operation', details: err.message });
     } finally {

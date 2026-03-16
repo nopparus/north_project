@@ -12,13 +12,21 @@ export interface LocationInfo {
 
 export interface NTLocation {
   id: number;
-  locationId: string;
-  name: string;
+  locationId?: string; // Kept for legacy compatibility in mappers
+  // Standard fields (camelCase for frontend logic)
+  name: string; 
+  province: string;
   lat: number;
   lng: number;
-  serviceCenter: string;
-  province: string;
   type: string;
+  serviceCenter?: string;
+  
+  // DB Compatible fields (snake_case)
+  locationname?: string; 
+  latitude?: number;
+  longitude?: number;
+  servicecenter?: string;
+  
   olt_count: number;
   images: string[];
   site_exists?: boolean;

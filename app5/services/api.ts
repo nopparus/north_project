@@ -243,8 +243,18 @@ export const locationsApi = {
   delete: (id: string): Promise<{ success: boolean }> =>
     request('DELETE', `/locations/${id}`),
 
-  listNT: async (mapId?: string): Promise<NTLocation[]> => {
-    const url = mapId ? `/nt-locations?mapId=${mapId}` : '/nt-locations';
+  listNT: async (mapId?: string, bounds?: { minLat: number, maxLat: number, minLng: number, maxLng: number }, projectId?: string): Promise<NTLocation[]> => {
+    const params = new URLSearchParams();
+    if (mapId) params.append('mapId', mapId);
+    if (projectId) params.append('projectId', projectId);
+    if (bounds) {
+      params.append('minLat', String(bounds.minLat));
+      params.append('maxLat', String(bounds.maxLat));
+      params.append('minLng', String(bounds.minLng));
+      params.append('maxLng', String(bounds.maxLng));
+    }
+    const qs = params.toString();
+    const url = qs ? `/nt-locations?${qs}` : '/nt-locations';
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rows: any[] = await request('GET', url);
     return rows.map((r: any) => ({
@@ -363,7 +373,19 @@ export const locationsApi = {
     }));
   },
 
-  advancedBulkImport: async (payload: { mode: 'append' | 'sync', mapId: string | number, locations: Partial<NTLocation>[], deleteMissing?: boolean }): Promise<{ success: boolean, message: string, results: { inserted: number, updated: number, deleted: number, skipped: number } }> => {
+  advancedBulkImport: async (payload: { 
+    mode: 'append' | 'sync', 
+    mapId: string | number, 
+    locations: Partial<NTLocation>[], 
+    deleteMissing?: boolean,
+    preview?: boolean 
+  }): Promise<{ 
+    success: boolean, 
+    message: string, 
+    preview?: boolean,
+    details?: string,
+    results: { inserted: number, updated: number, deleted: number, skipped: number, toInsert?: number, toUpdate?: number, toSkip?: number, toDelete?: number } 
+  }> => {
     const normalizeType = (t?: string) => {
       if (!t) return 'ทั่วไป';
       const s = String(t).trim();
@@ -375,15 +397,17 @@ export const locationsApi = {
       return s;
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // Use property names compatible with backend expectation if provided, 
+    // otherwise fallback to NTLocation standard fields.
     const formattedLocations = payload.locations.map(d => ({
-      system_id: d.id || d.locationId, // Capture system ID for sync mode
+      id: d.id,
+      system_id: d.id,
       type: normalizeType(d.type),
-      locationname: d.name,
+      locationname: d.locationname || d.name,
       province: d.province,
-      servicecenter: d.serviceCenter,
-      latitude: d.lat,
-      longitude: d.lng,
+      servicecenter: d.servicecenter || d.serviceCenter,
+      latitude: d.latitude || d.lat,
+      longitude: d.longitude || d.lng,
       images: d.images,
       site_exists: d.site_exists,
       map_id: d.map_id,
@@ -394,6 +418,7 @@ export const locationsApi = {
       mode: payload.mode,
       mapId: payload.mapId,
       deleteMissing: payload.deleteMissing,
+      preview: payload.preview,
       locations: formattedLocations
     });
     return res;
