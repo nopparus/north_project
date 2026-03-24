@@ -1327,11 +1327,11 @@ export default function App() {
                       <p className="text-2xl font-bold">{rows.reduce((acc, r) => acc + r.points, 0)} จุด</p>
                     </div>
                     <div className="text-center md:text-left">
-                      <p className="text-indigo-200 text-xs font-bold uppercase">จำนวนบุคลากร</p>
+                      <p className="text-indigo-200 text-xs font-bold uppercase">จำนวนผลัด (ต่อวัน)</p>
                       <p className="text-2xl font-bold">{rows.reduce((acc, r) => {
                         const profile = profiles.find(p => p.id === r.selectedProfileId) || profiles[0];
                         return acc + (r.points * profile.shiftsPerPointNormal);
-                      }, 0)} คน</p>
+                      }, 0)} ผลัด</p>
                     </div>
                   </div>
                 </div>
@@ -1768,7 +1768,7 @@ export default function App() {
                                     />
                                   </div>
                                   <div className="space-y-1 col-span-2">
-                                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">จน. คน/จุด</label>
+                                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">จำนวนผลัด ต่อจุด</label>
                                     <input
                                       type="number"
                                       min="0"
@@ -1809,7 +1809,7 @@ export default function App() {
                                     />
                                   </div>
                                   <div className="space-y-1 col-span-2">
-                                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">จน. คน/จุด</label>
+                                    <label className="text-[10px] font-bold text-slate-500 dark:text-slate-400">จำนวนผลัด ต่อจุด</label>
                                     <input
                                       type="number"
                                       min="0"
@@ -1830,7 +1830,7 @@ export default function App() {
                                 <br />• ค่าจ้างปกติ = (ชม.ละ x {p.normalHours} ชม.)
                                 {p.otHours > 0 && ` + (OT = ชม.ละ x ${settings.otNormalRate} x ${p.otHours} ชม.)`}
                                 <br />• ค่าจ้างวันหยุด = {p.holidayOtHours > 0 ? `(ชม.ละ x 2 x ${p.holidayNormalHours} ชม.) + (OT = ชม.ละ x ${settings.otHolidayRate} x ${p.holidayOtHours} ชม.)` : `(ชม.ละ x ${p.holidayNormalHours} ชม.)`}
-                                <br />• ใช้บุคลากร {p.shiftsPerPointNormal} คน สำหรับวันปกติ, และ {p.shiftsPerPointHoliday} คน สำหรับวันหยุด ต่อ 1 จุด/สถานที่
+                                <br />• จำนวน {p.shiftsPerPointNormal} ผลัด สำหรับวันปกติ, และ {p.shiftsPerPointHoliday} ผลัด สำหรับวันหยุด ต่อ 1 จุด/สถานที่
                               </p>
                             </div>
                           </motion.div>
@@ -2082,7 +2082,7 @@ export default function App() {
               <th rowSpan={2} className="border border-black p-1 text-center">ค่าแรง<br />ขั้นต่ำ</th>
               <th rowSpan={2} className="border border-black p-1 text-center">ปฏิบัติงาน<br />ปกติ (8 ชม.)</th>
               <th rowSpan={2} className="border border-black p-1 text-center">จำนวน<br />สถานที่<br />(จุด รปภ.)</th>
-              <th rowSpan={2} className="border border-black p-1 text-center">จำนวน<br />คน</th>
+              <th rowSpan={2} className="border border-black p-1 text-center">จำนวน<br />ผลัด/วัน</th>
               <th rowSpan={2} className="border border-black p-1 text-center">จำนวน<br />ผลัด</th>
               <th rowSpan={2} className="border border-black p-1 text-center">ค่าจ้างแรงงาน<br />{periodStats ? Math.floor(periodStats.totalDays / 30) : 0} เดือน</th>
               <th rowSpan={2} className="border border-black p-1 text-center">ค่าใช้จ่าย<br />บริหารจัดการ<br />{settings.managementFeeRate}%</th>

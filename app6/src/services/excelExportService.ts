@@ -58,7 +58,7 @@ export const exportBudgetToExcel = async (data: ExportData) => {
         'ค่าแรงขั้นต่ำ',
         'ปฏิบัติงานปกติ (8 ชม.)',
         'จำนวนสถานที่ (จุด รปภ.)',
-        'จำนวนคน',
+        'จำนวนผลัด (ต่อวัน)',
         'จำนวนผลัด',
         `ค่าจ้างแรงงาน ${periodStats ? Math.floor(periodStats.totalDays / 30) : 0} เดือน`,
         `ค่าใช้จ่ายบริหารจัดการ ${settings.managementFeeRate}%`,
