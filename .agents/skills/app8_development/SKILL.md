@@ -50,7 +50,9 @@ App8 ทำงานบนระบบ Docker Container ภายใต้เค
 - **คำสั่งอัปเดตระบบ (Build เฉพาะ App8):**
   ```bash
   cd /home/nopparus2/www
-  echo "13700352" | sudo -S docker compose up -d --build app8-frontend app8-backend app8-db
+  echo "13700352" | sudo -S docker compose -f /home/nopparus2/www/docker-compose.yml up -d --build --force-recreate app8-frontend app8-backend
+  # หรือถ้าต้องการล้าง Cache ทั้งหมด (กรณีหน้าเว็บไม่เปลี่ยน):
+  echo "13700352" | sudo -S docker compose -f /home/nopparus2/www/docker-compose.yml build --no-cache app8-frontend && echo "13700352" | sudo -S docker compose -f /home/nopparus2/www/docker-compose.yml up -d --force-recreate app8-frontend
   ```
 - **การจัดการฐานข้อมูล (Management):**
   ```bash
@@ -100,3 +102,17 @@ App8 ทำงานบนระบบ Docker Container ภายใต้เค
   - **Dynamic UI**: เพิ่มระบบเลือกคอลัมน์ (Column Selector) ที่ซ่อน/แสดงได้ (Toggle Settings) และระบบส่งออกไฟล์ตามคอลัมน์ที่เลือกจริง
   - **Security**: เพิ่ม `ALLOWED_ONU_FIELDS` Whitelist ป้องกัน SQL Injection ในการ Update/Insert และปรับระบบ Error Handling ให้ซ่อนรายละเอียดทางเทคนิค
   - **Performance**: เพิ่ม `NODE_OPTIONS: "--max-old-space-size=4096"` ใน `docker-compose.yml` เพื่อเพิ่มขีดความสามารถในการจัดการข้อมูลขนาดใหญ่
+- **2026-05-07 (session 6)**: WiFi Router Integration & Enhanced Reporting:
+  - **WiFi Module**: เพิ่มระบบจัดการ WiFi Router (AP ที่แถมคู่กับ ONU) โดยอ้างอิงความสัมพันธ์ผ่าน `circuit_id`
+  - **Database**: สร้างตาราง `wifi_routers` และ `wifi_routers_backup` พร้อม index ที่ `circuit_id` เพื่อความเร็วในการ Join
+  - **Initial Import**: นำเข้าข้อมูลเริ่มต้นจาก `WiFiRouter.xlsx` (65,365 แถว) สำเร็จ
+  - **Frontend Integration**: เพิ่มเมนู "WiFi Routers" ใน Sidebar พร้อมระบบ Table View, ค้นหา, เรียงลำดับ และระบบ **Upload (Write-over) / Restore** ข้อมูลจากไฟล์ Excel
+  - **Reporting Enhancements**: อัปเดต "Integrated Report" ให้ทำ `LEFT JOIN` กับตาราง `wifi_routers` เพื่อแสดงข้อมูล AP ควบคู่กับ ONU และ Catalog โดยอัตโนมัติ
+  - **Excel Export**: เพิ่มคอลัมน์ WiFi Router (Brand, Model, Version) ในไฟล์ Export Excel ของ Integrated Report
+  - **Catalog Synchronization**: เพิ่มระบบดึงข้อมูล ยี่ห้อ/รุ่น ที่ไม่ซ้ำกันจากตาราง `wifi_routers` เข้าสู่ `device_catalog` โดยอัตโนมัติ (กำหนด `onu_type = 'WiFi Router'`) ทุกครั้งที่มีการ Upload หรือ Restore ข้อมูล WiFi
+- **2026-05-07 (session 7)**: UI Stabilization & UX Perfection:
+  - **Integrated Report Perfection**: ปรับปรุงหน้าการเลือกคอลัมน์ให้แบ่งเป็นกลุ่มที่ชัดเจน (ข้อมูลบริการ, สเปก ONU, สเปก WiFi) พร้อมแสดงชื่อเต็มทุกคอลัมน์เพื่อให้อ่านง่าย
+  - **Persistent Dropdown**: แก้ไข `AutocompleteInput` ให้ "ไม่หายไป" เมื่อนำเมาส์ออกนอกพื้นที่ (Click-outside persistent) เพื่อให้ผู้ใช้สามารถเลือก ยี่ห้อ/รุ่น ได้อย่างมั่นใจ โดยจะปิดเฉพาะเมื่อเลือกตัวเลือกหรือกดซ้ำที่ช่องเดิมเท่านั้น
+  - **Structural Repair**: แก้ไขปัญหา JSX Corruption ใน `App.tsx` ที่เกิดจาก Block โค้ดซ้ำซ้อนและ Tag ปิดไม่ครบถ้วน ทำให้ระบบกลับมาทำงานได้อย่างเสถียร 100%
+  - **UX Enhancements**: เพิ่มปุ่ม "ยืนยันและแสดงผลลัพธ์" (Apply and Show Results) ขนาดใหญ่และ Header แบบ Clickable Toggle เพื่อเพิ่มความสะดวกในการสลับระหว่างโหมดตั้งค่าและโหมดดูรายงาน
+  - **Stability**: จัดระเบียบ View Guards (`view === '...'`) ใน Dashboard ให้แยกขาดจากกันชัดเจน ป้องกันปัญหา Rendering ซ้อนทับกัน
