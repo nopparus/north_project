@@ -19,8 +19,10 @@ services:
       - app5-frontend
       - app6-frontend
       - app7-frontend
+      - app8-frontend
       - main-api
       - app4-backend
+      - app8-backend
     networks:
       - nexus-network
 
@@ -171,6 +173,55 @@ services:
       - nexus-network
     depends_on:
       - app7-backend
+
+  # App8 Services
+  app8-db:
+    image: postgres:15-alpine
+    container_name: nexus-app8-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: app8_db
+    volumes:
+      - ./app8/db-data:/var/lib/postgresql/data
+    networks:
+      - nexus-network
+    restart: always
+
+  app8-backend:
+    build:
+      context: ./app8/server
+      dockerfile: Dockerfile
+    container_name: nexus-app8-backend
+    environment:
+      DATABASE_URL: postgres://postgres:postgrespassword@app8-db:5432/app8_db
+      JWT_SECRET: supersecretkey_app8_2026
+      PORT: 3008
+      NODE_OPTIONS: "--max-old-space-size=4096"
+      ADMIN_PASSWORD_HASH: $$2b$$10$$wT/7fH9X.w8f8.w8f8.w8f8.w8f8.w8f8.w8f8.w8f8.w8f8.w8f8. # admin123
+    depends_on:
+      - app8-db
+    volumes:
+      - ./app8/ONU.xlsx:/app/ONU.xlsx
+      - ./app8/ONU_Data.xlsx:/app/ONU_Data.xlsx
+      - ./app8/server/import_onu_data.js:/app/import_onu_data.js
+      - ./app8/onu_type.xlsx:/app/onu_type.xlsx
+      - ./app8/server/import_cpe_data.js:/app/import_cpe_data.js
+      - ./app8/server/migrate_catalog.js:/app/migrate_catalog.js
+    networks:
+      - nexus-network
+    restart: always
+
+  app8-frontend:
+    build:
+      context: ./app8/client
+      dockerfile: Dockerfile
+    container_name: nexus-app8
+    depends_on:
+      - app8-backend
+    networks:
+      - nexus-network
+    restart: always
 
 networks:
   nexus-network:
