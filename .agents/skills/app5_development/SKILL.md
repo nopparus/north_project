@@ -61,3 +61,8 @@ description: Comprehensive summary of App5 architecture, proxy setup, and develo
   - ปรับปรุง `NTLocationMap.tsx` ให้แยกการแสดงผลข้อมูล Master (สำหรับโครงการ NT North) และข้อมูลเฉพาะโครงการ (Project-specific data) ตาม `fields_schema`
   - แก้ไขปัญหาคอลัมน์ "Type" ในการ Export ข้อมูลที่แสดงผลไม่ถูกต้อง (แสดง Label แทน Key)
   - ตรวจสอบและยืนยันการทำงานของระบบกรองข้อมูล (Filter) ให้สอดคล้องกับ `filter_config` ของแต่ละโครงการ
+- **2026-05-05**: ตรวจสอบและบำรุงรักษาระบบบนเซิร์ฟเวอร์จริง (Production):
+  - สำรองฐานข้อมูล (`pg_dump`) ก่อนการแก้ไข
+  - สร้างตาราง `nt_sites_temp` เพื่อรองรับระบบ Archiving ในฟีเจอร์ "Advanced Bulk Import (Sync Mode)"
+  - ยืนยันโครงสร้างฐานข้อมูลล่าสุดรองรับ Dynamic Map Layers (map_id, custom_data) เรียบร้อยแล้ว
+  - ตรวจสอบ API `nt-locations` พบว่าทำงานปกติและรองรับ Bounding Box Loading เพื่อประสิทธิภาพบนแผนที่

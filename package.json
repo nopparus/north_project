@@ -11,6 +11,7 @@
     "pm2:logs": "pm2 logs nexus-proxy"
   },
   "dependencies": {
-    "http-proxy": "^1.18.1"
+    "http-proxy": "^1.18.1",
+    "xlsx": "^0.18.5"
   }
 }

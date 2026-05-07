@@ -1,0 +1,34 @@
+ D-Link CORP. | DIR825M
+ DLINK        | DIR1251
+ DLINK        | DIR842
+ DLink        | DIR-X3000Z
+ FiberHome    | SR1041F
+ FiberHome    | SR1041Y
+ FiberHome    | SR120A
+ T3           | A622T
+ T3           | A626T
+ TP-LINK      | IGD
+ TP-Link      | Archer C6
+ TP-Link      | ArcherC5
+ TP-Link      | EC230-G1
+ TP-Link      | EC230G1
+ TP-Link      | EC231G1u
+ TP-Link      | EX221-G5
+ TP-Link      | EX221G5
+ TP-Link      | EX511
+ TP-Link      | EX820v
+ TP-Link      | IGD
+ ZIONCOM      | TOTOLINK_A3002RU
+ ZIONCOM      | TOTOLINK_A3002RU_V2
+ ZTE          | H196Q
+ ZTE          | H198A
+ ZTE          | H3601P
+ ZTE          | H6645PV2
+ ZTE          | H8102E
+ ZYXEL        | EX3220T0
+ ZYXEL        | EX3300-T0
+ ZYXEL        | EX3300T0
+ ZYXEL        | EX3320T0
+ Zyxel        | EMG2881-T20B
+ Zyxel        | EMG2881T20B
+

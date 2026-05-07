@@ -88,6 +88,17 @@ const DEFAULT_APPS: SubApp[] = [
     appType: 'iframe',
     iframeSrc: '/app7/',
     component: IframeApp
+  },
+  {
+    id: 'onu-management',
+    name: 'ONU Management',
+    description: 'ระบบจัดการและตรวจสอบข้อมูล ONU (High Security)',
+    icon: 'Database',
+    color: 'text-rose-400',
+    path: '/app8',
+    appType: 'iframe',
+    iframeSrc: '/app8/',
+    component: IframeApp
   }
 ];
 
