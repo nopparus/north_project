@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
   Search, Plus, Edit2, Trash2, LogOut, Loader2, 
@@ -31,15 +31,31 @@ const COLUMN_DISPLAY_MAP = {
 
 const REPORT_COLUMNS = {
     ...COLUMN_DISPLAY_MAP,
-    'mapped_brand': 'ยี่ห้อ (จับคู่แล้ว)',
-    'mapped_model': 'รุ่น (จับคู่แล้ว)',
-    'onu_type': 'Hardware Type',
-    'version': 'Version',
-    'lan_ge': 'LAN GE',
-    'lan_fe': 'LAN FE',
-    'wifi': 'WiFi',
-    'usage': 'Usage',
-    'grade': 'Grade'
+    'mapped_brand': 'ยี่ห้อ ONU (มาตรฐาน)',
+    'mapped_model': 'รุ่น ONU (มาตรฐาน)',
+    'onu_type': 'ONU Type',
+    'version': 'ONU Version',
+    'lan_ge': 'ONU LAN GE',
+    'lan_fe': 'ONU LAN FE',
+    'wifi': 'ONU WiFi',
+    'usage': 'ONU Usage',
+    'grade': 'ONU Grade',
+    'wifi_brand': 'WiFi Router: ยี่ห้อ (ดิบ)',
+    'wifi_model': 'WiFi Router: รุ่น (ดิบ)',
+    'wifi_version': 'WiFi Router: Version (ดิบ)',
+    'wifi_mapped_brand': 'WiFi Router: ยี่ห้อ (มาตรฐาน)',
+    'wifi_mapped_model': 'WiFi Router: รุ่น (มาตรฐาน)',
+    'wifi_hw_type': 'WiFi Router: Hardware Type',
+    'wifi_lan_ge': 'WiFi Router: LAN GE',
+    'wifi_lan_fe': 'WiFi Router: LAN FE',
+    'wifi_wifi_spec': 'WiFi Router: WiFi Spec'
+};
+
+const WIFI_DISPLAY_MAP = {
+  'circuit_id': 'หมายเลขวงจร',
+  'brand': 'ยี่ห้อ',
+  'model': 'รุ่น',
+  'version': 'version'
 };
 
 // --- TYPES ---
@@ -67,6 +83,14 @@ interface CPEGroup {
   mapped_id: number | null;
 }
 
+interface WiFiMapping {
+  raw_brand: string;
+  raw_model: string;
+  target_brand: string | null;
+  target_model: string | null;
+  mapped_id: number | null;
+}
+
 interface DeviceSpec {
   id: number;
   brand: string;
@@ -78,6 +102,14 @@ interface DeviceSpec {
   wifi: string | null;
   usage: string | null;
   grade: string | null;
+}
+
+interface WiFiRouter {
+  id: number;
+  circuit_id: string;
+  brand: string;
+  model: string;
+  version: string;
 }
 
 interface Log {
@@ -97,6 +129,7 @@ const AutocompleteInput = ({ value, onChange, options, placeholder, required, te
   const [filterText, setFilterText] = useState('');
   const [pos, setPos] = useState({ top: 0, left: 0, width: 0 });
   const inputRef = React.useRef<HTMLInputElement>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
   React.useEffect(() => { setInputText(value || ''); }, [value]);
 
@@ -137,18 +170,20 @@ const AutocompleteInput = ({ value, onChange, options, placeholder, required, te
   useEffect(() => {
     const handleScroll = () => { if (isOpen) setIsOpen(false); };
     window.addEventListener('scroll', handleScroll, true);
-    return () => window.removeEventListener('scroll', handleScroll, true);
+    return () => {
+      window.removeEventListener('scroll', handleScroll, true);
+    };
   }, [isOpen]);
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full" ref={containerRef}>
       <input 
         ref={inputRef}
         type="text" 
         value={inputText} 
         onChange={handleChange}
         onFocus={handleFocus}
-        onBlur={() => { setTimeout(() => setIsOpen(false), 200); }}
+        onClick={() => setIsOpen(!isOpen)}
         placeholder={placeholder}
         className={`w-full ${compact ? 'px-3 py-2.5 text-sm rounded-xl focus:ring-2' : 'px-5 py-4 text-lg rounded-2xl focus:ring-4'} bg-slate-50 border border-slate-200 font-black ${textClass} outline-none focus:ring-indigo-100 focus:border-indigo-500 transition-all cursor-text`}
         required={required}
@@ -249,8 +284,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const savedLimit = Number(localStorage.getItem('app8_limit')) || 10;
   const savedSearch = localStorage.getItem('app8_search') || '';
 
-  const [view, setView] = useState<'onu' | 'logs' | 'cpe' | 'catalog' | 'report'>(savedView);
+  const [view, setView] = useState<'onu' | 'logs' | 'cpe' | 'catalog' | 'report' | 'wifi'>(savedView);
   const [reportData, setReportData] = useState<any[]>([]);
+  const [wifiRouters, setWifiRouters] = useState<WiFiRouter[]>([]);
   const [selectedReportColumns, setSelectedReportColumns] = useState<string[]>(['request_id', 'circuit_id', 'cpe_brand_model', 'mapped_brand', 'mapped_model', 'onu_type']);
   const [searchTerm, setSearchTerm] = useState(savedSearch);
   const [searchInput, setSearchInput] = useState(savedSearch);
@@ -263,8 +299,18 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [limit, setLimit] = useState(savedLimit);
   const [sortField, setSortField] = useState('id');
   const [sortOrder, setSortOrder] = useState<'ASC' | 'DESC'>('DESC');
+
+  // WiFi Sorting
+  const [wifiSortField, setWifiSortField] = useState<keyof WiFiRouter>('id');
+  const [wifiSortOrder, setWifiSortOrder] = useState<'ASC' | 'DESC'>('DESC');
+
   const [showReportSettings, setShowReportSettings] = useState(true);
   const [jumpPage, setJumpPage] = useState('');
+  const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
+  const [backupCount, setBackupCount] = useState(0);
+  const [wifiBackupCount, setWifiBackupCount] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const wifiFileInputRef = useRef<HTMLInputElement>(null);
 
   // CPE Sorting (Frontend)
   const [cpeSortField, setCpeSortField] = useState<keyof CPEGroup>('raw_name');
@@ -276,7 +322,11 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   // New Discoveries
   const [newDiscoveries, setNewDiscoveries] = useState<{raw_name: string}[]>([]);
+  const [newWifiDiscoveries, setNewWifiDiscoveries] = useState<{raw_brand: string, raw_model: string}[]>([]);
   const [showNewDiscoveries, setShowNewDiscoveries] = useState(false);
+  const [mappingTab, setMappingTab] = useState<'onu' | 'wifi'>('onu');
+  const [wifiMappings, setWifiMappings] = useState<WiFiMapping[]>([]);
+  const [mappingWifi, setMappingWifi] = useState<Partial<WiFiMapping> | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -304,6 +354,21 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const res = await axios.get(`${API_BASE}/cpe-groups`, { params: { page, limit, sortField: cpeSortField, sortOrder: cpeSortOrder } });
       setCpeGroups(res.data.data);
       setTotal(res.data.total);
+      
+      const disc = await axios.get(`${API_BASE}/cpe-groups/new-discoveries`);
+      setNewDiscoveries(disc.data.data);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
+  };
+
+  const fetchWifiMappings = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/wifi-mappings/groups`, { params: { page, limit } });
+      setWifiMappings(res.data.data);
+      setTotal(res.data.total);
+
+      const disc = await axios.get(`${API_BASE}/wifi-mappings/new-discoveries`);
+      setNewWifiDiscoveries(disc.data.data);
     } catch (err) { console.error(err); } finally { setLoading(false); }
   };
 
@@ -312,6 +377,15 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     try {
       const res = await axios.get(`${API_BASE}/device-catalog`, { params: { page, limit, sortField: catalogSortField, sortOrder: catalogSortOrder } });
       setCatalog(res.data.data);
+      setTotal(res.data.total);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
+  };
+
+  const fetchWiFiRouters = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/wifi-routers`, { params: { page, limit, search: searchTerm, sortField: wifiSortField, sortOrder: wifiSortOrder } });
+      setWifiRouters(res.data.data);
       setTotal(res.data.total);
     } catch (err) { console.error(err); } finally { setLoading(false); }
   };
@@ -364,15 +438,22 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   };
 
   useEffect(() => {
-    if (view === 'onu') fetchData();
+    if (view === 'onu') {
+      fetchData();
+      axios.get(`${API_BASE}/onu/backup-status`).then(res => setBackupCount(res.data.count)).catch(() => {});
+    }
     else if (view === 'logs') fetchLogs();
     else if (view === 'cpe') {
-      fetchCPEGroups();
-      fetchNewDiscoveries();
+      if (mappingTab === 'onu') fetchCPEGroups();
+      else fetchWifiMappings();
     }
     else if (view === 'catalog') fetchCatalog();
     else if (view === 'report') fetchReport();
-  }, [view, searchTerm, page, limit, sortField, sortOrder, cpeSortField, cpeSortOrder, catalogSortField, catalogSortOrder]);
+    else if (view === 'wifi') {
+      fetchWiFiRouters();
+      axios.get(`${API_BASE}/wifi-routers/backup-status`).then(res => setWifiBackupCount(res.data.count)).catch(() => {});
+    }
+  }, [view, searchTerm, page, limit, sortField, sortOrder, cpeSortField, cpeSortOrder, catalogSortField, catalogSortOrder, wifiSortField, wifiSortOrder]);
 
   const handleSort = (field: string) => {
     if (sortField === field) setSortOrder(sortOrder === 'ASC' ? 'DESC' : 'ASC');
@@ -421,6 +502,29 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     } catch (err) { alert('Mapping failed'); }
   };
 
+  const handleSaveWifiMapping = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mappingWifi) return;
+    try {
+      await axios.post(`${API_BASE}/wifi-mappings`, mappingWifi);
+      setMappingWifi(null);
+      fetchWifiMappings();
+    } catch (err) { alert('Save failed'); }
+  };
+
+  const handleDeleteWifiMapping = async (id: number) => {
+    setConfirmAction({
+      title: 'ยืนยันการลบการตั้งค่า',
+      message: 'ยืนยันการลบการตั้งค่ายี่ห้อ/รุ่น ของ WiFi Router นี้?',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_BASE}/wifi-mappings/${id}`);
+          fetchWifiMappings();
+        } catch (err) { alert('Delete failed'); }
+      }
+    });
+  };
+
   const handleSaveSpec = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingSpec) return;
@@ -432,28 +536,46 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   };
 
   const handleDeleteMapping = async (id: number) => {
-    if (!confirm('ยืนยันการลบการตั้งค่ายี่ห้อ/รุ่น ของอุปกรณ์นี้? (จะทำให้สถานะกลับไปเป็น Pending)')) return;
-    try {
-      await axios.delete(`${API_BASE}/cpe-devices/${id}`);
-      fetchCPEGroups();
-      fetchNewDiscoveries();
-    } catch (err) { alert('Delete failed'); }
+    setConfirmAction({
+      title: 'ยืนยันการลบการตั้งค่า',
+      message: 'ยืนยันการลบการตั้งค่ายี่ห้อ/รุ่น ของอุปกรณ์นี้? (จะทำให้สถานะกลับไปเป็น Pending)',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_BASE}/cpe-devices/${id}`);
+          fetchCPEGroups();
+          fetchNewDiscoveries();
+          setConfirmAction(null);
+        } catch (err) { alert('Delete failed'); }
+      }
+    });
   };
 
   const handleDelete = async (id: number) => {
-    if (!confirm('ยืนยันการลบข้อมูลรายการ ONU นี้?')) return;
-    try {
-      await axios.delete(`${API_BASE}/onu/${id}`);
-      fetchData();
-    } catch (err) { alert('Delete failed'); }
+    setConfirmAction({
+      title: 'ยืนยันการลบข้อมูล ONU',
+      message: 'ยืนยันการลบข้อมูลรายการ ONU นี้?',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_BASE}/onu/${id}`);
+          fetchData();
+          setConfirmAction(null);
+        } catch (err) { alert('Delete failed'); }
+      }
+    });
   };
 
   const handleDeleteCatalogSpec = async (id: number) => {
-    if (!confirm('ยืนยันการลบข้อมูลสเปกอุปกรณ์นี้จากฐานข้อมูล?')) return;
-    try {
-      await axios.delete(`${API_BASE}/device-catalog/${id}`);
-      fetchCatalog();
-    } catch (err) { alert('Delete failed'); }
+    setConfirmAction({
+      title: 'ยืนยันการลบสเปกอุปกรณ์',
+      message: 'ยืนยันการลบข้อมูลสเปกอุปกรณ์นี้จากฐานข้อมูล?',
+      onConfirm: async () => {
+        try {
+          await axios.delete(`${API_BASE}/device-catalog/${id}`);
+          fetchCatalog();
+          setConfirmAction(null);
+        } catch (err) { alert('Delete failed'); }
+      }
+    });
   };
 
   const handleExportExcel = async () => {
@@ -475,6 +597,95 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     } catch (err) { alert('Export failed'); } finally { setLoading(false); }
   };
 
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setConfirmAction({
+      title: 'ยืนยันการนำเข้าข้อมูลใหม่',
+      message: 'การนำเข้าจะเขียนทับข้อมูล ONU ทั้งหมดในปัจจุบัน ระบบจะสำรองข้อมูลเดิมไว้ให้ 1 ชุด ยืนยันที่จะดำเนินการต่อหรือไม่?',
+      onConfirm: async () => {
+        const formData = new FormData();
+        formData.append('file', file);
+        setLoading(true);
+        setConfirmAction(null);
+        try {
+          await axios.post(`${API_BASE}/onu/upload`, formData);
+          fetchData();
+          const backupRes = await axios.get(`${API_BASE}/onu/backup-status`);
+          setBackupCount(backupRes.data.count);
+          alert('นำเข้าข้อมูลสำเร็จ');
+        } catch (err) {
+          alert('Upload failed');
+        } finally {
+          setLoading(false);
+          if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+      }
+    });
+  };
+
+  const handleRestore = async () => {
+    setConfirmAction({
+      title: 'ยืนยันการกู้คืนข้อมูล',
+      message: 'ระบบจะนำข้อมูลที่สำรองไว้กลับมาเขียนทับข้อมูลปัจจุบัน ยืนยันหรือไม่?',
+      onConfirm: async () => {
+        setLoading(true);
+        setConfirmAction(null);
+        try {
+          await axios.post(`${API_BASE}/onu/restore`);
+          fetchData();
+          alert('กู้คืนข้อมูลสำเร็จ');
+        } catch (err) {
+          alert('Restore failed');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
+
+  const handleWiFiUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setConfirmAction({
+      title: 'ยืนยันการนำเข้าข้อมูล WiFi Router',
+      message: 'การนำเข้าจะเขียนทับข้อมูล WiFi Router ทั้งหมดในปัจจุบัน ยืนยันหรือไม่?',
+      onConfirm: async () => {
+        const formData = new FormData();
+        formData.append('file', file);
+        setLoading(true);
+        setConfirmAction(null);
+        try {
+          await axios.post(`${API_BASE}/wifi-routers/upload`, formData);
+          fetchWiFiRouters();
+          const backupRes = await axios.get(`${API_BASE}/wifi-routers/backup-status`);
+          setWifiBackupCount(backupRes.data.count);
+          alert('นำเข้าข้อมูล WiFi สำเร็จ');
+        } catch (err) { alert('Upload failed'); } finally {
+          setLoading(false);
+          if (wifiFileInputRef.current) wifiFileInputRef.current.value = '';
+        }
+      }
+    });
+  };
+
+  const handleWiFiRestore = async () => {
+    setConfirmAction({
+      title: 'ยืนยันการกู้คืนข้อมูล WiFi Router',
+      message: 'ระบบจะนำข้อมูลที่สำรองไว้กลับมาเขียนทับข้อมูลปัจจุบัน ยืนยันหรือไม่?',
+      onConfirm: async () => {
+        setLoading(true);
+        setConfirmAction(null);
+        try {
+          await axios.post(`${API_BASE}/wifi-routers/restore`);
+          fetchWiFiRouters();
+          alert('กู้คืนข้อมูลสำเร็จ');
+        } catch (err) { alert('Restore failed'); } finally { setLoading(false); }
+      }
+    });
+  };
+
   // Brand options
   const uniqueBrands = Array.from(new Set(allCatalog.map(d => d.brand))).filter(Boolean) as string[];
   
@@ -485,13 +696,24 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   };
 
   // When model is selected, auto-fill brand if brand is empty
-  const handleModelSelect = (val: string) => {
-    const updates: Partial<CPEGroup> = { model: val };
-    if (!mappingCPE?.brand && val) {
-      const found = allCatalog.find(d => d.model === val);
-      if (found?.brand) updates.brand = found.brand;
-    }
+  const handleONUBrandChange = (val: string) => {
+    setMappingCPE({ ...mappingCPE, brand: val, model: '' });
+  };
+  const handleONUModelChange = (val: string) => {
+    const updates: any = { model: val };
+    const found = allCatalog.find(d => d.model === val);
+    if (found?.brand) updates.brand = found.brand;
     setMappingCPE({ ...mappingCPE, ...updates });
+  };
+
+  const handleWifiBrandChange = (val: string) => {
+    setMappingWifi({ ...mappingWifi, target_brand: val, target_model: '' });
+  };
+  const handleWifiModelChange = (val: string) => {
+    const updates: any = { target_model: val };
+    const found = allCatalog.find(d => d.model === val);
+    if (found?.brand) updates.target_brand = found.brand;
+    setMappingWifi({ ...mappingWifi, ...updates });
   };
 
   const PaginationControls = () => {
@@ -536,7 +758,8 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         </div>
         <nav className="flex-1 p-6 space-y-2">
           <button onClick={() => { setView('onu'); }} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-base font-black transition-all ${view === 'onu' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}><Server size={20} /> ONU Records</button>
-          <button onClick={() => { setView('cpe'); }} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-base font-black transition-all ${view === 'cpe' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}><Cpu size={20} /> CPE Management</button>
+          <button onClick={() => { setView('wifi'); }} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-base font-black transition-all ${view === 'wifi' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}><Wifi size={20} /> WiFi Routers</button>
+          <button onClick={() => { setView('cpe'); }} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-base font-black transition-all ${view === 'cpe' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}><Cpu size={20} /> Device Mapping</button>
           <button onClick={() => { setView('catalog'); }} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-base font-black transition-all ${view === 'catalog' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}><Database size={20} /> Device Catalog</button>
           <button onClick={() => { setView('report'); }} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-base font-black transition-all ${view === 'report' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}><FileBarChart size={20} /> Integrated Report</button>
           {user.role === 'admin' && (<button onClick={() => { setView('logs'); }} className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-base font-black transition-all ${view === 'logs' ? 'bg-indigo-600 text-white shadow-xl shadow-indigo-100' : 'text-slate-500 hover:bg-slate-50'}`}><History size={20} /> Activity Logs</button>)}
@@ -549,15 +772,15 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <header className="h-24 bg-white border-b border-slate-200 flex items-center justify-between px-10 shrink-0 shadow-sm z-10">
-          <div className="flex items-center gap-6"><h2 className="text-2xl font-black text-slate-800 tracking-tight">{view === 'onu' ? 'รายการข้อมูล ONU' : view === 'cpe' ? 'จัดการยี่ห้อ/รุ่นอุปกรณ์' : view === 'catalog' ? 'ฐานข้อมูลอุปกรณ์' : view === 'report' ? 'Integrated Report' : 'ประวัติการใช้งาน'}</h2>{(view === 'onu' || view === 'report') && (<div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-sm border border-indigo-100"><span>ทั้งหมด {total.toLocaleString()} รายการ</span></div>)}</div>
+          <div className="flex items-center gap-6"><h2 className="text-2xl font-black text-slate-800 tracking-tight">{view === 'onu' ? 'รายการข้อมูล ONU' : view === 'wifi' ? 'รายการข้อมูล WiFi Router' : view === 'cpe' ? 'จัดการยี่ห้อ/รุ่นอุปกรณ์' : view === 'catalog' ? 'ฐานข้อมูลอุปกรณ์' : view === 'report' ? 'Integrated Report' : 'ประวัติการใช้งาน'}</h2>{(view === 'onu' || view === 'report' || view === 'wifi') && (<div className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-sm border border-indigo-100"><span>ทั้งหมด {total.toLocaleString()} รายการ</span></div>)}</div>
           <div className="flex items-center gap-6">
-            {(view === 'onu' || view === 'report') && (
+            {(view === 'onu' || view === 'report' || view === 'wifi') && (
               <form onSubmit={handleSearchSubmit} className="flex items-center gap-3">
                 <div className="relative">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                   <input 
                     type="text" 
-                    placeholder="ค้นหาข้อมูลในทุกตาราง..." 
+                    placeholder="ค้นหาข้อมูล..." 
                     value={searchInput} 
                     onChange={(e) => setSearchInput(e.target.value)} 
                     className="pl-12 pr-6 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-base font-medium outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 w-[450px] transition-all" 
@@ -567,7 +790,33 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               </form>
             )}
             {view === 'catalog' && (<button onClick={() => setEditingSpec({})} className="flex items-center gap-3 px-8 py-3.5 bg-indigo-600 text-white rounded-2xl text-base font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all"><Plus size={22} /> เพิ่มรุ่นอุปกรณ์ใหม่</button>)}
-            {view === 'onu' && (<button onClick={() => setEditing({})} className="flex items-center gap-3 px-8 py-3.5 bg-indigo-600 text-white rounded-2xl text-base font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all"><Plus size={22} /> เพิ่มรายการใหม่</button>)}
+            {view === 'onu' && (
+              <div className="flex gap-2">
+                <input type="file" ref={fileInputRef} onChange={handleFileUpload} accept=".xlsx, .xls" className="hidden" />
+                <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-6 py-3.5 bg-indigo-50 text-indigo-600 rounded-2xl text-sm font-black hover:bg-indigo-100 transition-all">
+                  <Download size={20} className="rotate-180" /> นำเข้า (Excel)
+                </button>
+                {backupCount > 0 && (
+                  <button onClick={handleRestore} className="flex items-center gap-2 px-6 py-3.5 bg-slate-100 text-slate-600 rounded-2xl text-sm font-black hover:bg-slate-200 transition-all border border-slate-200 shadow-sm">
+                    <History size={18} /> กู้คืนข้อมูลสำรอง
+                  </button>
+                )}
+                <button onClick={() => setEditing({})} className="flex items-center gap-3 px-8 py-3.5 bg-indigo-600 text-white rounded-2xl text-base font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all"><Plus size={22} /> เพิ่มรายการใหม่</button>
+              </div>
+            )}
+            {view === 'wifi' && (
+              <div className="flex gap-2">
+                <input type="file" ref={wifiFileInputRef} onChange={handleWiFiUpload} accept=".xlsx, .xls" className="hidden" />
+                <button onClick={() => wifiFileInputRef.current?.click()} className="flex items-center gap-2 px-6 py-3.5 bg-indigo-50 text-indigo-600 rounded-2xl text-sm font-black hover:bg-indigo-100 transition-all">
+                  <Download size={20} className="rotate-180" /> นำเข้า WiFi (Excel)
+                </button>
+                {wifiBackupCount > 0 && (
+                  <button onClick={handleWiFiRestore} className="flex items-center gap-2 px-6 py-3.5 bg-slate-100 text-slate-600 rounded-2xl text-sm font-black hover:bg-slate-200 transition-all border border-slate-200 shadow-sm">
+                    <History size={18} /> กู้คืนข้อมูลสำรอง
+                  </button>
+                )}
+              </div>
+            )}
             {view === 'report' && (<button onClick={handleExportExcel} className="flex items-center gap-3 px-8 py-3.5 bg-green-600 text-white rounded-2xl text-base font-black shadow-lg shadow-green-100 hover:bg-green-700 active:scale-95 transition-all"><Download size={22} /> Export Excel</button>)}
           </div>
         </header>
@@ -578,11 +827,11 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             {view === 'onu' && (
               <>
                 <div className="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-                  <table className="w-full text-left border-collapse min-w-[2500px]">
+                  <table className="w-full text-left border-separate border-spacing-0 min-w-[2500px]">
                     <thead className="sticky top-0 bg-white border-b-2 border-slate-100 z-10 shadow-sm">
-                      <tr>{Object.keys(COLUMN_DISPLAY_MAP).map(key => (<th key={key} onClick={() => handleSort(key)} className="px-6 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 cursor-pointer hover:text-indigo-600 group transition-all"><div className="flex items-center gap-2 whitespace-nowrap">{COLUMN_DISPLAY_MAP[key as keyof typeof COLUMN_DISPLAY_MAP]}{sortField === key ? (sortOrder === 'ASC' ? <ArrowUp size={14} className="text-indigo-600" /> : <ArrowDown size={14} className="text-indigo-600" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-100" />}</div></th>))}<th className="px-6 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 text-right sticky right-0 bg-white/95 backdrop-blur-sm shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.05)]">ตัวเลือก</th></tr>
+                      <tr>{Object.keys(COLUMN_DISPLAY_MAP).map(key => (<th key={key} onClick={() => handleSort(key)} className="px-6 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 cursor-pointer hover:text-indigo-600 group transition-all border-b border-slate-100"><div className="flex items-center gap-2 whitespace-nowrap">{COLUMN_DISPLAY_MAP[key as keyof typeof COLUMN_DISPLAY_MAP]}{sortField === key ? (sortOrder === 'ASC' ? <ArrowUp size={14} className="text-indigo-600" /> : <ArrowDown size={14} className="text-indigo-600" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-100" />}</div></th>))}<th className="px-6 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 text-right sticky right-0 bg-white shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.05)] border-b border-slate-100">ตัวเลือก</th></tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">{data.map((item) => (<tr key={item.id} className="hover:bg-indigo-50/30 transition-colors group">{Object.keys(COLUMN_DISPLAY_MAP).map(key => (<td key={key} className={`px-6 py-2.5 text-sm font-bold truncate max-w-[300px] ${key === 'onu_serial' ? 'text-indigo-600 font-black' : 'text-slate-600'}`}>{key === 'service_status' ? (<span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase border ${item[key] === 'Active' || item[key] === 'ใช้งาน' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>{item[key]}</span>) : item[key] || '-'}</td>))}<td className="px-6 py-2.5 text-right sticky right-0 bg-white/95 backdrop-blur-sm group-hover:bg-indigo-50/95 transition-all shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.05)]"><div className="flex justify-end gap-2"><button onClick={() => setEditing(item)} className="p-2.5 text-indigo-400 hover:text-indigo-600 hover:bg-white rounded-xl shadow-sm transition-all border border-transparent hover:border-indigo-100"><Edit2 size={16} /></button><button onClick={() => handleDelete(item.id)} className="p-2.5 text-red-400 hover:text-red-600 hover:bg-white rounded-xl shadow-sm transition-all border border-transparent hover:border-red-100"><Trash2 size={16} /></button></div></td></tr>))}</tbody>
+                    <tbody className="divide-y divide-slate-100">{data.map((item) => (<tr key={item.id} className="hover:bg-indigo-50/20 transition-colors group">{Object.keys(COLUMN_DISPLAY_MAP).map(key => (<td key={key} className={`px-6 py-4 text-sm font-bold truncate max-w-[300px] ${key === 'onu_serial' ? 'text-indigo-600 font-black' : 'text-slate-600'}`}>{key === 'service_status' ? (<span className={`px-3 py-1 rounded-full text-[10px] font-black uppercase border ${item[key] === 'Active' || item[key] === 'ใช้งาน' ? 'bg-green-50 text-green-600 border-green-100' : 'bg-slate-100 text-slate-400 border-slate-200'}`}>{item[key]}</span>) : item[key] || '-'}</td>))}<td className="px-6 py-4 text-right sticky right-0 bg-white group-hover:bg-indigo-50/20 transition-all shadow-[-8px_0_12px_-4px_rgba(0,0,0,0.05)]"><div className="flex justify-end gap-2"><button onClick={() => setEditing(item)} className="p-2.5 text-indigo-400 hover:text-indigo-600 hover:bg-white rounded-xl shadow-sm transition-all border border-transparent hover:border-indigo-100"><Edit2 size={16} /></button><button onClick={() => handleDelete(item.id)} className="p-2.5 text-red-400 hover:text-red-600 hover:bg-white rounded-xl shadow-sm transition-all border border-transparent hover:border-red-100"><Trash2 size={16} /></button></div></td></tr>))}</tbody>
                   </table>
                 </div>
                 <PaginationControls />
@@ -593,20 +842,84 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               <div className="flex-1 overflow-auto p-10">
                 <div className="max-w-6xl mx-auto space-y-10">
                   <div className="flex items-center justify-between">
-                    <div><h3 className="text-2xl font-black text-slate-800">จัดกลุ่มอุปกรณ์ CPE</h3><p className="text-slate-500 font-bold">ตรวจสอบและกำหนดค่า ยี่ห้อ/รุ่น สำหรับอุปกรณ์ที่ตรวจพบในระบบ</p></div>
-                    {newDiscoveries.length > 0 && (
-                      <button onClick={() => setShowNewDiscoveries(true)} className="flex items-center gap-2 px-6 py-3 bg-amber-500 text-white rounded-2xl font-black text-sm shadow-lg shadow-amber-100 hover:bg-amber-600 transition-all animate-pulse">
-                        <AlertCircle size={18} /> พบอุปกรณ์ใหม่ ({newDiscoveries.length})
-                      </button>
+                    <div>
+                      <h3 className="text-2xl font-black text-slate-800">จัดการการจับคู่อุปกรณ์ (Device Mapping)</h3>
+                      <p className="text-slate-500 font-bold">ตรวจสอบและกำหนดชื่อมาตรฐานให้กับอุปกรณ์ที่ตรวจพบในระบบ</p>
+                    </div>
+                    {((mappingTab === 'onu' && newDiscoveries.length > 0) || (mappingTab === 'wifi' && newWifiDiscoveries.length > 0)) && (
+                      <div className="flex items-center gap-2 px-6 py-3 bg-amber-500 text-white rounded-2xl font-black text-sm shadow-lg shadow-amber-100 animate-pulse">
+                        <AlertCircle size={18} /> พบรุ่นใหม่ที่ยังไม่ได้จับคู่ ({(mappingTab === 'onu' ? newDiscoveries : newWifiDiscoveries).length})
+                      </div>
                     )}
                   </div>
-                  <div className="bg-white border border-slate-200 rounded-3xl shadow-sm overflow-x-auto">
-                    <table className="w-full text-left whitespace-nowrap">
-                      <thead className="bg-slate-50 border-b border-slate-100">
-                        <tr><th onClick={() => handleCPESort('raw_name')} className="px-5 py-4 text-[11px] font-black uppercase tracking-widest text-slate-400 cursor-pointer hover:text-indigo-600 group transition-all"><div className="flex items-center gap-2">Raw Name (จากไฟล์){cpeSortField === 'raw_name' ? (cpeSortOrder === 'ASC' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-100" />}</div></th><th onClick={() => handleCPESort('brand')} className="px-5 py-4 text-[11px] font-black uppercase tracking-widest text-slate-400 cursor-pointer hover:text-indigo-600 group transition-all"><div className="flex items-center gap-2">ยี่ห้อ{cpeSortField === 'brand' ? (cpeSortOrder === 'ASC' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-100" />}</div></th><th onClick={() => handleCPESort('model')} className="px-5 py-4 text-[11px] font-black uppercase tracking-widest text-slate-400 cursor-pointer hover:text-indigo-600 group transition-all"><div className="flex items-center gap-2">รุ่น{cpeSortField === 'model' ? (cpeSortOrder === 'ASC' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-100" />}</div></th><th className="px-5 py-4 text-[11px] font-black uppercase tracking-widest text-slate-400 text-right">สถานะ / จัดการ</th></tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-50">{cpeGroups.map((group, idx) => (<tr key={idx} className="hover:bg-slate-50/50 transition-all group"><td className="px-5 py-2 text-sm font-bold text-slate-600">{group.raw_name}</td><td className="px-5 py-2 text-sm font-black text-indigo-600">{group.brand || '-'}</td><td className="px-5 py-2 text-sm font-black text-slate-800">{group.model || '-'}</td><td className="px-5 py-2 text-right"><div className="flex items-center justify-end gap-3">{group.mapped_id ? (<span className="flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-600 rounded-full text-[10px] font-black uppercase border border-green-100"><CheckCircle2 size={12} /> OK</span>) : (<span className="flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase border border-red-100"><XCircle size={12} /> Pending</span>)}<button onClick={() => setMappingCPE({ ...group })} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl transition-all"><Edit2 size={16} /></button>{group.mapped_id && <button onClick={() => handleDeleteMapping(group.mapped_id!)} className="p-2 bg-red-50 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all"><Trash2 size={16} /></button>}</div></td></tr>))}</tbody>
-                    </table>
+
+                  <div className="flex p-1.5 bg-slate-100 rounded-[2rem] w-fit">
+                    <button onClick={() => { setMappingTab('onu'); setPage(1); }} className={`px-10 py-3 rounded-[1.5rem] text-sm font-black transition-all ${mappingTab === 'onu' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>ONU Mapping</button>
+                    <button onClick={() => { setMappingTab('wifi'); setPage(1); }} className={`px-10 py-3 rounded-[1.5rem] text-sm font-black transition-all ${mappingTab === 'wifi' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>WiFi Router Mapping</button>
+                  </div>
+
+                  <div className="bg-white border border-slate-200 rounded-[2.5rem] shadow-sm overflow-hidden flex flex-col">
+                    {mappingTab === 'onu' ? (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left whitespace-nowrap">
+                          <thead className="bg-slate-50 border-b border-slate-100">
+                            <tr>
+                              <th onClick={() => handleCPESort('raw_name')} className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 cursor-pointer hover:text-indigo-600 group transition-all"><div className="flex items-center gap-2">Raw Name (จากไฟล์){cpeSortField === 'raw_name' ? (cpeSortOrder === 'ASC' ? <ArrowUp size={14} /> : <ArrowDown size={14} />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-100" />}</div></th>
+                              <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400">ยี่ห้อ (มาตรฐาน)</th>
+                              <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400">รุ่น (มาตรฐาน)</th>
+                              <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 text-right">สถานะ / จัดการ</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {cpeGroups.map((group, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50/50 transition-all group">
+                                <td className="px-8 py-3 text-sm font-bold text-slate-600">{group.raw_name}</td>
+                                <td className="px-8 py-3 text-sm font-black text-indigo-600">{group.brand || '-'}</td>
+                                <td className="px-8 py-3 text-sm font-black text-slate-800">{group.model || '-'}</td>
+                                <td className="px-8 py-3 text-right">
+                                  <div className="flex items-center justify-end gap-3">
+                                    {group.mapped_id ? (<span className="flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-600 rounded-full text-[10px] font-black uppercase border border-green-100"><CheckCircle2 size={12} /> OK</span>) : (<span className="flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase border border-red-100"><XCircle size={12} /> Pending</span>)}
+                                    <button onClick={() => setMappingCPE({ ...group })} className="p-2.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl transition-all"><Edit2 size={16} /></button>
+                                    {group.mapped_id && <button onClick={() => handleDeleteMapping(group.mapped_id!)} className="p-2.5 bg-red-50 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all"><Trash2 size={16} /></button>}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    ) : (
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left whitespace-nowrap">
+                          <thead className="bg-slate-50 border-b border-slate-100">
+                            <tr>
+                              <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400">ยี่ห้อ (ดิบ)</th>
+                              <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400">รุ่น (ดิบ)</th>
+                              <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400">ยี่ห้อ (มาตรฐาน)</th>
+                              <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400">รุ่น (มาตรฐาน)</th>
+                              <th className="px-8 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 text-right">สถานะ / จัดการ</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {wifiMappings.map((group, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50/50 transition-all group">
+                                <td className="px-8 py-3 text-sm font-bold text-slate-500">{group.raw_brand}</td>
+                                <td className="px-8 py-3 text-sm font-bold text-slate-500">{group.raw_model}</td>
+                                <td className="px-8 py-3 text-sm font-black text-indigo-600">{group.target_brand || '-'}</td>
+                                <td className="px-8 py-3 text-sm font-black text-slate-800">{group.target_model || '-'}</td>
+                                <td className="px-8 py-3 text-right">
+                                  <div className="flex items-center justify-end gap-3">
+                                    {group.mapped_id ? (<span className="flex items-center gap-1.5 px-3 py-1 bg-green-50 text-green-600 rounded-full text-[10px] font-black uppercase border border-green-100"><CheckCircle2 size={12} /> OK</span>) : (<span className="flex items-center gap-1.5 px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase border border-red-100"><XCircle size={12} /> Pending</span>)}
+                                    <button onClick={() => setMappingWifi({ ...group })} className="p-2.5 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-xl transition-all"><Edit2 size={16} /></button>
+                                    {group.mapped_id && <button onClick={() => handleDeleteWifiMapping(group.mapped_id!)} className="p-2.5 bg-red-50 text-red-500 hover:bg-red-500 hover:text-white rounded-xl transition-all"><Trash2 size={16} /></button>}
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
                     <PaginationControls />
                   </div>
                 </div>
@@ -617,14 +930,15 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               <div className="flex flex-col h-full overflow-hidden">
                 <div className={`border-b border-slate-100 bg-white shrink-0 transition-all ${showReportSettings ? 'p-8' : 'p-4'}`}>
                   <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600"><Settings2 size={20} /></div>
+                    <div className="flex items-center gap-3 cursor-pointer select-none group" onClick={() => setShowReportSettings(!showReportSettings)}>
+                      <div className="w-10 h-10 bg-indigo-50 rounded-xl flex items-center justify-center text-indigo-600 group-hover:bg-indigo-600 group-hover:text-white transition-all"><Settings2 size={20} /></div>
                       <div>
                         <h3 className="text-lg font-black text-slate-800 flex items-center gap-3">
                           เลือกข้อมูลที่ต้องการนำมาแสดง
-                          <button onClick={() => setShowReportSettings(!showReportSettings)} className="p-1.5 hover:bg-slate-100 rounded-lg text-slate-400 transition-all">
-                            {showReportSettings ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-                          </button>
+                          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${showReportSettings ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}>
+                            {showReportSettings ? 'ย่อตัวเลือก (ซ่อน)' : 'ขยายตัวเลือก (แสดง)'}
+                            {showReportSettings ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                          </div>
                         </h3>
                         {showReportSettings && <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">ติ๊กเลือกหัวข้อที่ต้องการรวมข้อมูลในตาราง</p>}
                       </div>
@@ -637,27 +951,63 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     )}
                   </div>
                   {showReportSettings && (
-                    <div className="mt-6 grid grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-3 max-h-48 overflow-y-auto pr-4 scrollbar-thin">
-                      {Object.entries(REPORT_COLUMNS).map(([key, label]) => (
-                        <label key={key} className={`flex items-center gap-3 p-3 rounded-2xl border-2 transition-all cursor-pointer select-none ${selectedReportColumns.includes(key) ? 'border-indigo-600 bg-indigo-50/50' : 'border-slate-100 hover:border-slate-200'}`}>
-                          <input type="checkbox" className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500" checked={selectedReportColumns.includes(key)} onChange={() => {
-                            if (selectedReportColumns.includes(key)) setSelectedReportColumns(selectedReportColumns.filter(c => c !== key));
-                            else setSelectedReportColumns([...selectedReportColumns, key]);
-                          }} />
-                          <span className={`text-[10px] font-black truncate ${selectedReportColumns.includes(key) ? 'text-indigo-700' : 'text-slate-500'}`}>{label}</span>
-                        </label>
-                      ))}
-                    </div>
+                    <>
+                      <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-8 max-h-[60vh] overflow-y-auto pr-6 scrollbar-thin">
+                        <div className="space-y-4">
+                          <h4 className="text-[11px] font-black text-indigo-500 uppercase tracking-widest bg-indigo-50 px-3 py-1.5 rounded-lg w-fit">ข้อมูลบริการพื้นฐาน</h4>
+                          <div className="space-y-2">
+                            {Object.keys(COLUMN_DISPLAY_MAP).map(key => (
+                              <label key={key} className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none ${selectedReportColumns.includes(key) ? 'border-indigo-600 bg-indigo-50/30' : 'border-slate-100 hover:border-slate-200'}`}>
+                                <input type="checkbox" className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500" checked={selectedReportColumns.includes(key)} onChange={() => {
+                                  if (selectedReportColumns.includes(key)) setSelectedReportColumns(selectedReportColumns.filter(c => c !== key));
+                                  else setSelectedReportColumns([...selectedReportColumns, key]);
+                                }} />
+                                <span className={`text-[11px] font-bold ${selectedReportColumns.includes(key) ? 'text-indigo-700' : 'text-slate-500'}`}>{COLUMN_DISPLAY_MAP[key as keyof typeof COLUMN_DISPLAY_MAP]}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-4">
+                          <h4 className="text-[11px] font-black text-amber-500 uppercase tracking-widest bg-amber-50 px-3 py-1.5 rounded-lg w-fit">ข้อมูล ONU (มาตรฐาน)</h4>
+                          <div className="space-y-2">
+                            {['mapped_brand', 'mapped_model', 'onu_type', 'version', 'lan_ge', 'lan_fe', 'wifi', 'usage', 'grade'].map(key => (
+                              <label key={key} className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none ${selectedReportColumns.includes(key) ? 'border-indigo-600 bg-indigo-50/30' : 'border-slate-100 hover:border-slate-200'}`}>
+                                <input type="checkbox" className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500" checked={selectedReportColumns.includes(key)} onChange={() => {
+                                  if (selectedReportColumns.includes(key)) setSelectedReportColumns(selectedReportColumns.filter(c => c !== key));
+                                  else setSelectedReportColumns([...selectedReportColumns, key]);
+                                }} />
+                                <span className={`text-[11px] font-bold ${selectedReportColumns.includes(key) ? 'text-indigo-700' : 'text-slate-500'}`}>{REPORT_COLUMNS[key as keyof typeof REPORT_COLUMNS]}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                        <div className="space-y-4">
+                          <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-50 px-3 py-1.5 rounded-lg w-fit">ข้อมูล WiFi Router</h4>
+                          <div className="space-y-2">
+                            {['wifi_brand', 'wifi_model', 'wifi_version', 'wifi_mapped_brand', 'wifi_mapped_model', 'wifi_hw_type', 'wifi_lan_ge', 'wifi_lan_fe', 'wifi_wifi_spec'].map(key => (
+                              <label key={key} className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer select-none ${selectedReportColumns.includes(key) ? 'border-indigo-600 bg-indigo-50/30' : 'border-slate-100 hover:border-slate-200'}`}>
+                                <input type="checkbox" className="w-5 h-5 rounded-lg border-2 border-slate-300 text-indigo-600 focus:ring-indigo-500" checked={selectedReportColumns.includes(key)} onChange={() => {
+                                  if (selectedReportColumns.includes(key)) setSelectedReportColumns(selectedReportColumns.filter(c => c !== key));
+                                  else setSelectedReportColumns([...selectedReportColumns, key]);
+                                }} />
+                                <span className={`text-[11px] font-bold ${selectedReportColumns.includes(key) ? 'text-indigo-700' : 'text-slate-500'}`}>{REPORT_COLUMNS[key as keyof typeof REPORT_COLUMNS]}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="mt-8 pt-6 border-t border-slate-50 flex justify-center sticky bottom-0 bg-white/80 backdrop-blur-sm pb-4">
+                        <button onClick={() => setShowReportSettings(false)} className="flex items-center gap-3 px-12 py-4 bg-indigo-600 text-white rounded-2xl font-black shadow-2xl shadow-indigo-200 hover:bg-indigo-700 active:scale-95 transition-all group">
+                          <CheckCircle2 size={20} className="group-hover:scale-110 transition-transform" /> ยืนยันและแสดงผลลัพธ์
+                        </button>
+                      </div>
+                    </>
                   )}
                 </div>
                 <div className="flex-1 overflow-auto scrollbar-thin bg-slate-50/30">
                   <table className="w-full text-left border-separate border-spacing-0 min-w-max">
                     <thead className="sticky top-0 bg-white border-b border-slate-200 z-10 shadow-sm">
-                      <tr>
-                        {selectedReportColumns.map(key => (
-                          <th key={key} className="px-6 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 bg-white border-b border-slate-100">{REPORT_COLUMNS[key as keyof typeof REPORT_COLUMNS]}</th>
-                        ))}
-                      </tr>
+                      <tr>{selectedReportColumns.map(key => (<th key={key} className="px-6 py-5 text-[11px] font-black uppercase tracking-widest text-slate-400 bg-white border-b border-slate-100">{REPORT_COLUMNS[key as keyof typeof REPORT_COLUMNS]}</th>))}</tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {reportData.map((row, idx) => (
@@ -715,6 +1065,43 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               </div>
             )}
 
+            {view === 'wifi' && (
+              <div className="flex-1 overflow-auto p-10 bg-slate-50/20">
+                <div className="max-w-7xl mx-auto space-y-10">
+                  <div>
+                    <h3 className="text-2xl font-black text-slate-800">รายการข้อมูล WiFi Router</h3>
+                    <p className="text-slate-500 font-bold">ข้อมูล Access Point ที่ติดตั้งร่วมกับ ONU (อ้างอิงตามหมายเลขวงจร)</p>
+                  </div>
+                  <div className="bg-white border border-slate-200 rounded-[2.5rem] shadow-sm overflow-hidden flex flex-col">
+                    <div className="overflow-x-auto scrollbar-thin">
+                      <table className="w-full text-left whitespace-nowrap">
+                        <thead className="bg-slate-50 border-b border-slate-100">
+                          <tr>
+                            {Object.entries(WIFI_DISPLAY_MAP).map(([key, label]) => (
+                              <th key={key} onClick={() => { setWifiSortField(key as keyof WiFiRouter); setWifiSortOrder(wifiSortOrder === 'ASC' ? 'DESC' : 'ASC'); setPage(1); }} className="px-10 py-6 text-[11px] font-black uppercase tracking-widest text-slate-400 cursor-pointer hover:text-indigo-600 transition-all">
+                                <div className="flex items-center gap-2">{label} {wifiSortField === key && (wifiSortOrder === 'ASC' ? <ArrowUp size={14} /> : <ArrowDown size={14} />)}</div>
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-50">
+                          {wifiRouters.map((item) => (
+                            <tr key={item.id} className="hover:bg-slate-50/50 transition-all">
+                              <td className="px-10 py-4 text-sm font-black text-indigo-600">{item.circuit_id}</td>
+                              <td className="px-10 py-4 text-sm font-bold text-slate-600">{item.brand}</td>
+                              <td className="px-10 py-4 text-sm font-black text-slate-800">{item.model}</td>
+                              <td className="px-10 py-4 text-sm font-medium text-slate-400">{item.version || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <PaginationControls />
+                  </div>
+                </div>
+              </div>
+            )}
+
             {view === 'logs' && (
               <div className="flex-1 overflow-auto p-10">
                 <div className="max-w-6xl mx-auto space-y-10">
@@ -744,36 +1131,71 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         </main>
       </div>
 
+      {/* --- MODALS --- */}
+
       {/* Modal - ONU Edit/New */}
-      {editing && (<div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#0f172a]/60 backdrop-blur-md"><form onSubmit={handleSave} className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]"><div className="px-6 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0"><div className="flex items-center gap-3"><div className="w-9 h-9 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">{editing.id ? <Edit2 size={18} /> : <Plus size={18} />}</div><div><h2 className="text-base font-black text-slate-800">{editing.id ? 'แก้ไขข้อมูล ONU' : 'เพิ่มข้อมูล ONU ใหม่'}</h2><p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">รหัสอ้างอิง: {editing.onu_serial || 'NEW_RECORD'}</p></div></div><button type="button" onClick={() => setEditing(null)} className="w-8 h-8 flex items-center justify-center hover:bg-red-50 hover:text-red-500 text-slate-400 rounded-xl transition-all"><Plus size={20} className="rotate-45" /></button></div><div className="p-5 overflow-auto scrollbar-thin flex-1"><div className="grid grid-cols-3 gap-x-4 gap-y-3">{Object.keys(COLUMN_DISPLAY_MAP).map(key => (<div key={key} className="space-y-1"><label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">{COLUMN_DISPLAY_MAP[key as keyof typeof COLUMN_DISPLAY_MAP]}</label><input className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 transition-all" value={editing[key] || ''} onChange={(e) => setEditing({...editing, [key]: e.target.value})} /></div>))}</div></div><div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0"><button type="button" onClick={() => setEditing(null)} className="px-6 py-2.5 text-sm font-black text-slate-500 hover:text-slate-800 transition-all">ยกเลิก</button><button type="submit" className="px-10 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all">{editing.id ? 'บันทึกการแก้ไข' : 'ยืนยันการเพิ่มข้อมูล'}</button></div></form></div>)}
+      {editing && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#0f172a]/60 backdrop-blur-md">
+          <form onSubmit={handleSave} className="bg-white w-full max-w-6xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
+            <div className="px-6 py-3.5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-indigo-100 rounded-xl flex items-center justify-center text-indigo-600">
+                  {editing.id ? <Edit2 size={18} /> : <Plus size={18} />}
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-slate-800">{editing.id ? 'แก้ไขข้อมูล ONU' : 'เพิ่มข้อมูล ONU ใหม่'}</h2>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">รหัสอ้างอิง: {editing.onu_serial || 'NEW_RECORD'}</p>
+                </div>
+              </div>
+              <button type="button" onClick={() => setEditing(null)} className="w-8 h-8 flex items-center justify-center hover:bg-red-50 hover:text-red-500 text-slate-400 rounded-xl transition-all">
+                <Plus size={20} className="rotate-45" />
+              </button>
+            </div>
+            <div className="p-5 overflow-auto scrollbar-thin flex-1">
+              <div className="grid grid-cols-3 gap-x-4 gap-y-3">
+                {Object.keys(COLUMN_DISPLAY_MAP).map(key => (
+                  <div key={key} className="space-y-1">
+                    <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">{COLUMN_DISPLAY_MAP[key as keyof typeof COLUMN_DISPLAY_MAP]}</label>
+                    <input 
+                      className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100 focus:border-indigo-400 transition-all" 
+                      value={editing[key] || ''} 
+                      onChange={(e) => setEditing({...editing, [key]: e.target.value})} 
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0">
+              <button type="button" onClick={() => setEditing(null)} className="px-6 py-2.5 text-sm font-black text-slate-500 hover:text-slate-800 transition-all">ยกเลิก</button>
+              <button type="submit" className="px-10 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all">
+                {editing.id ? 'บันทึกการแก้ไข' : 'ยืนยันการเพิ่มข้อมูล'}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Modal - CPE Mapping with Autocomplete */}
       {mappingCPE && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#0f172a]/60 backdrop-blur-md">
           <form onSubmit={handleSaveCPEMapping} className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
-            {/* Header */}
             <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
               <h2 className="text-base font-black text-slate-800">กำหนดค่าอุปกรณ์</h2>
               <button type="button" onClick={() => setMappingCPE(null)} className="w-8 h-8 flex items-center justify-center hover:bg-red-50 hover:text-red-500 text-slate-400 rounded-xl transition-all">
                 <Plus size={20} className="rotate-45" />
               </button>
             </div>
-
-            {/* Body - scrollable */}
             <div className="p-5 space-y-3 overflow-auto flex-1">
-              {/* Raw Name */}
               <div className="px-4 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
                 <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Raw Name (ต้นทาง)</label>
                 <p className="text-sm font-black text-slate-800">{mappingCPE.raw_name}</p>
               </div>
-
-              {/* Brand + Model */}
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">ยี่ห้อ (Brand)</label>
                   <AutocompleteInput 
                     value={mappingCPE.brand || ''} 
-                    onChange={(val: string) => setMappingCPE({...mappingCPE, brand: val})} 
+                    onChange={handleONUBrandChange} 
                     options={uniqueBrands} 
                     placeholder="ระบุหรือเลือกยี่ห้อ..." 
                     required 
@@ -785,18 +1207,16 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">รุ่น (Model)</label>
                   <AutocompleteInput 
                     value={mappingCPE.model || ''} 
-                    onChange={handleModelSelect} 
+                    onChange={handleONUModelChange} 
                     options={modelOptions(mappingCPE.brand)} 
                     placeholder="ระบุหรือเลือกรุ่น..." 
                     required 
-                    textClass="text-slate-800" 
+                    textClass="text-slate-800"
                     compact={true}
                   />
                 </div>
               </div>
             </div>
-
-            {/* Footer */}
             <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0">
               <button type="button" onClick={() => setMappingCPE(null)} className="px-6 py-2.5 text-sm font-black text-slate-500 hover:text-slate-800 transition-all">ยกเลิก</button>
               <button type="submit" className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-2">
@@ -807,6 +1227,63 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         </div>
       )}
 
+      {/* Modal - WiFi Mapping with Autocomplete */}
+      {mappingWifi && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#0f172a]/60 backdrop-blur-md">
+          <form onSubmit={handleSaveWifiMapping} className="bg-white w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+              <h2 className="text-base font-black text-slate-800">กำหนดค่าอุปกรณ์ WiFi Router</h2>
+              <button type="button" onClick={() => setMappingWifi(null)} className="w-8 h-8 flex items-center justify-center hover:bg-red-50 hover:text-red-500 text-slate-400 rounded-xl transition-all">
+                <Plus size={20} className="rotate-45" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3 overflow-auto flex-1">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="px-4 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Brand (ดิบ)</label>
+                  <p className="text-sm font-black text-slate-800">{mappingWifi.raw_brand}</p>
+                </div>
+                <div className="px-4 py-2.5 bg-slate-50 rounded-xl border border-slate-100">
+                  <label className="block text-[10px] font-black text-slate-400 uppercase tracking-widest mb-0.5">Model (ดิบ)</label>
+                  <p className="text-sm font-black text-slate-800">{mappingWifi.raw_model}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">ยี่ห้อ (มาตรฐาน)</label>
+                  <AutocompleteInput 
+                    value={mappingWifi.target_brand || ''} 
+                    onChange={handleWifiBrandChange} 
+                    options={uniqueBrands} 
+                    placeholder="ระบุหรือเลือกยี่ห้อ..." 
+                    required 
+                    textClass="text-indigo-600" 
+                    compact={true}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">รุ่น (มาตรฐาน)</label>
+                  <AutocompleteInput 
+                    value={mappingWifi.target_model || ''} 
+                    onChange={handleWifiModelChange} 
+                    options={modelOptions(mappingWifi.target_brand)} 
+                    placeholder="ระบุหรือเลือกรุ่น..." 
+                    required 
+                    textClass="text-slate-800"
+                    compact={true}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-3 shrink-0">
+              <button type="button" onClick={() => setMappingWifi(null)} className="px-6 py-2.5 text-sm font-black text-slate-500 hover:text-slate-800 transition-all">ยกเลิก</button>
+              <button type="submit" className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 active:scale-95 transition-all flex items-center gap-2">
+                <CheckCircle2 size={16} /> บันทึกการกำหนดค่า
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Modal - Device Catalog Spec */}
       {editingSpec && (
@@ -867,6 +1344,25 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             </div>
             <div className="p-8 border-t border-slate-100 flex justify-center bg-slate-50/50 shrink-0">
               <button onClick={() => setShowNewDiscoveries(false)} className="px-10 py-3 bg-slate-200 text-slate-600 rounded-2xl font-black hover:bg-slate-300 transition-all">ปิดหน้าต่างนี้</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {confirmAction && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-[#0f172a]/60 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-sm rounded-[2rem] shadow-2xl border border-slate-200 overflow-hidden transform animate-in zoom-in-95 duration-200">
+            <div className="p-8 text-center">
+              <div className="w-20 h-20 bg-red-50 rounded-3xl flex items-center justify-center text-red-500 mx-auto mb-6 shadow-sm border border-red-100">
+                <AlertCircle size={40} />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 mb-2">{confirmAction.title}</h3>
+              <p className="text-sm font-bold text-slate-500 leading-relaxed px-4">{confirmAction.message}</p>
+            </div>
+            <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
+              <button onClick={() => setConfirmAction(null)} className="flex-1 py-4 text-sm font-black text-slate-500 hover:text-slate-800 hover:bg-white rounded-2xl transition-all">ยกเลิก</button>
+              <button onClick={confirmAction.onConfirm} className="flex-1 py-4 bg-red-500 text-white rounded-2xl text-sm font-black shadow-lg shadow-red-100 hover:bg-red-600 active:scale-95 transition-all">ยืนยันการลบ</button>
             </div>
           </div>
         </div>
