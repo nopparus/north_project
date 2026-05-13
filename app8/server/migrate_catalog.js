@@ -22,19 +22,21 @@ async function migrate() {
         console.log('Table structure updated.');
 
         // 2. Sync Data from cpe_devices
-        // We select the first occurrence of each brand+model from cpe_devices
-        // (since multiple raw_names might map to the same brand/model, but their specs should theoretically be the same)
         const syncQuery = `
-            INSERT INTO device_catalog (brand, model, lan_ge, lan_fe, wifi, updated_at)
+            INSERT INTO device_catalog (brand, model, type, version, lan_ge, lan_fe, wifi, usage, grade, updated_at)
             SELECT DISTINCT ON (brand, model)
-                brand, model, lan_ge, lan_fe, wifi, CURRENT_TIMESTAMP
+                brand, model, type, version, lan_ge, lan_fe, wifi, usage, grade, CURRENT_TIMESTAMP
             FROM cpe_devices
             WHERE brand IS NOT NULL AND model IS NOT NULL
             ON CONFLICT (brand, model) 
             DO UPDATE SET 
+                type = EXCLUDED.type,
+                version = EXCLUDED.version,
                 lan_ge = EXCLUDED.lan_ge,
                 lan_fe = EXCLUDED.lan_fe,
                 wifi = EXCLUDED.wifi,
+                usage = EXCLUDED.usage,
+                grade = EXCLUDED.grade,
                 updated_at = CURRENT_TIMESTAMP;
         `;
         

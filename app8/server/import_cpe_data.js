@@ -14,7 +14,7 @@ const COLUMN_MAP = {
     'ยี่ห้อ': 'brand',
     'รุ่น': 'model',
     'Version': 'version',
-    'ONU Type': 'onu_type',
+    'ONU Type': 'type',
     'LAN GE': 'lan_ge',
     'LAN FE': 'lan_fe',
     'WiFi': 'wifi',
@@ -37,7 +37,7 @@ async function run() {
         // Just a precaution so the import doesn't fail if the schema update is partial.
         const addColQueries = [
             'ALTER TABLE cpe_devices ADD COLUMN IF NOT EXISTS version TEXT;',
-            'ALTER TABLE cpe_devices ADD COLUMN IF NOT EXISTS onu_type TEXT;',
+            'ALTER TABLE cpe_devices ADD COLUMN IF NOT EXISTS type TEXT;',
             'ALTER TABLE cpe_devices ADD COLUMN IF NOT EXISTS lan_ge TEXT;',
             'ALTER TABLE cpe_devices ADD COLUMN IF NOT EXISTS lan_fe TEXT;',
             'ALTER TABLE cpe_devices ADD COLUMN IF NOT EXISTS wifi TEXT;',
@@ -71,13 +71,13 @@ async function run() {
             }
 
             const query = `
-                INSERT INTO cpe_devices (raw_name, brand, model, version, onu_type, lan_ge, lan_fe, wifi, usage, grade)
+                INSERT INTO cpe_devices (raw_name, brand, model, version, type, lan_ge, lan_fe, wifi, usage, grade)
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (raw_name) DO UPDATE SET
                     brand = EXCLUDED.brand,
                     model = EXCLUDED.model,
                     version = EXCLUDED.version,
-                    onu_type = EXCLUDED.onu_type,
+                    type = EXCLUDED.type,
                     lan_ge = EXCLUDED.lan_ge,
                     lan_fe = EXCLUDED.lan_fe,
                     wifi = EXCLUDED.wifi,
@@ -88,7 +88,7 @@ async function run() {
 
             const values = [
                 mappedRow.raw_name, mappedRow.brand, mappedRow.model,
-                mappedRow.version, mappedRow.onu_type, mappedRow.lan_ge,
+                mappedRow.version, mappedRow.type, mappedRow.lan_ge,
                 mappedRow.lan_fe, mappedRow.wifi, mappedRow.usage, mappedRow.grade
             ];
 

@@ -45,13 +45,13 @@ async function migrate() {
   try {
     // 1. First, clear and recreate the catalog entries to be "Improved"
     // We only touch WiFi Router entries
-    await pool.query("DELETE FROM device_catalog WHERE onu_type = 'WiFi Router'");
+    await pool.query("DELETE FROM device_catalog WHERE type = 'WiFi Router'");
     
     const uniqueCatalog = Array.from(new Set(rawData.map(r => `${r.tb}|${r.tm}`)));
     for (const item of uniqueCatalog) {
       const [brand, model] = item.split('|');
       await pool.query(
-        "INSERT INTO device_catalog (brand, model, onu_type) VALUES ($1, $2, 'WiFi Router') ON CONFLICT DO NOTHING",
+        "INSERT INTO device_catalog (brand, model, type) VALUES ($1, $2, 'WiFi Router') ON CONFLICT DO NOTHING",
         [brand, model]
       );
     }
