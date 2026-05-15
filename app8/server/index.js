@@ -1876,9 +1876,6 @@ app.get('/api/reports/integrated-data', authenticate, async (req, res) => {
                 OR d.model ILIKE $1
                 OR w.brand ILIKE $1
                 OR w.model ILIKE $1
-                OR gl.onu_actual_type ILIKE $1
-                OR od.brand ILIKE $1
-                OR od.model ILIKE $1
             `;
             params.push(searchPattern);
         }
@@ -1958,6 +1955,7 @@ app.get('/api/reports/integrated-data', authenticate, async (req, res) => {
                 (o.cpe_brand_model = d.raw_name) OR 
                 ((o.cpe_brand_model IS NULL OR o.cpe_brand_model = '') AND d.raw_name = ' [MISSING] OLT: ' || COALESCE(o.olt_brand_model, 'Unknown'))
             LEFT JOIN wifi_routers w ON o.circuit_id = w.circuit_id
+            LEFT JOIN wifi_mappings wm ON w.brand = wm.raw_brand AND w.model = wm.raw_model
             ${whereClause}
         `;
 
@@ -2094,7 +2092,7 @@ app.get('/api/dashboard/service-names', authenticate, async (req, res) => {
     try {
         const result = await pool.query(`
             SELECT service_name, COUNT(*) as circuit_count
-            FROM onu_records
+            FROM mv_circuit_summary
             WHERE service_name IS NOT NULL AND service_name != '' AND service_name != 'UNKNOWN'
             GROUP BY service_name
             ORDER BY COUNT(*) DESC
@@ -2106,66 +2104,103 @@ app.get('/api/dashboard/service-names', authenticate, async (req, res) => {
     }
 });
 
+// GET /api/dashboard/install-years
+// Returns distinct years for the filter
+app.get('/api/dashboard/install-years', authenticate, async (req, res) => {
+    try {
+        const result = await pool.query(`
+            SELECT DISTINCT install_year
+            FROM mv_circuit_summary
+            WHERE install_year IS NOT NULL AND install_year != ''
+            ORDER BY install_year ASC
+        `);
+        res.json({ data: result.rows.map(r => r.install_year) });
+    } catch (err) {
+        console.error('Install years error:', err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
 // GET /api/dashboard/stats-v2
 // Returns data for 4 new stat cards
 app.get('/api/dashboard/stats-v2', authenticate, async (req, res) => {
-    const { serviceFilter } = req.query; // comma-separated service_names for card 1.3
+    const { serviceFilter, startYear, endYear, excludeNoWifi } = req.query; 
     try {
-        const [card11, card12, card13, card14] = await Promise.all([
-            // Card 1.1: ONU count by type and brand
+        let yearFilterSql = '';
+        const params = [];
+        let pIndex = 1;
+
+        if (serviceFilter) {
+            params.push(serviceFilter.split(','));
+            pIndex++;
+        }
+
+        if (startYear && endYear) {
+            if (startYear === '0000' || endYear === '0000') {
+                yearFilterSql = ` AND install_year = '0000'`;
+            } else {
+                yearFilterSql = ` AND install_year >= $${pIndex} AND install_year <= $${pIndex + 1}`;
+                params.push(startYear, endYear);
+                pIndex += 2;
+            }
+        }
+
+        const serviceFilterSql = serviceFilter ? ` AND service_name = ANY($1::text[])` : '';
+        const excludeNoWifiSql = excludeNoWifi === 'true' ? ` AND is_onu_without_wifi = false` : '';
+        const combinedFilter = serviceFilterSql + yearFilterSql + excludeNoWifiSql;
+        
+        const [card11, cards1234] = await Promise.all([
+            // Card 1.1: ONU count by type and brand (Still needs Group By)
             pool.query(`
-                SELECT onu_device_type as type, onu_brand as brand, COUNT(*) as count
+                SELECT COALESCE(NULLIF(onu_device_type, ''), 'Unknown') as type, onu_brand as brand, COUNT(*) as count
                 FROM mv_circuit_summary
-                WHERE onu_device_type IS NOT NULL AND onu_device_type != ''
-                ${serviceFilter ? `AND service_name = ANY($1::text[])` : ''}
-                GROUP BY onu_device_type, onu_brand
+                WHERE 1=1
+                ${combinedFilter}
+                GROUP BY COALESCE(NULLIF(onu_device_type, ''), 'Unknown'), onu_brand
                 ORDER BY count DESC
-            `, serviceFilter ? [serviceFilter.split(',')] : []),
+            `, params),
 
-            // Card 1.2: ONU with FE ports only (no GE) — how many circuits
+            // Cards 1.2, 1.3, 1.4: Combined summary query for efficiency
             pool.query(`
-                SELECT onu_brand as brand, COUNT(*) as circuit_count
+                SELECT 
+                    -- Card 1.2 & 1.3 total counts (calculated from FILTER for speed)
+                    COUNT(*) FILTER (WHERE is_fe_only AND onu_brand IS NOT NULL) as fe_total,
+                    COUNT(*) FILTER (WHERE onu_lan_ge IS NOT NULL AND onu_lan_ge != '' AND onu_lan_ge != '0' AND onu_brand IS NOT NULL) as ge_total,
+                    COUNT(*) FILTER (WHERE speed_mbps IS NOT NULL AND effective_max_speed_mbps IS NOT NULL AND has_olt = false AND speed_mbps > effective_max_speed_mbps) as mismatch_total,
+                    
+                    -- Breakdown for FE (Top 5)
+                    (SELECT jsonb_agg(t) FROM (
+                        SELECT onu_brand as brand, COUNT(*) as circuit_count
+                        FROM mv_circuit_summary
+                        WHERE is_fe_only AND onu_brand IS NOT NULL
+                        ${combinedFilter}
+                        GROUP BY onu_brand ORDER BY circuit_count DESC LIMIT 5
+                    ) t) as fe_brands,
+                    
+                    -- Breakdown for GE (Top 5)
+                    (SELECT jsonb_agg(t) FROM (
+                        SELECT onu_brand as brand, COUNT(*) as circuit_count
+                        FROM mv_circuit_summary
+                        WHERE onu_lan_ge IS NOT NULL AND onu_lan_ge != '' AND onu_lan_ge != '0' AND onu_brand IS NOT NULL
+                        ${combinedFilter}
+                        GROUP BY onu_brand ORDER BY circuit_count DESC LIMIT 5
+                    ) t) as ge_brands,
+                    
+                    -- Breakdown for Mismatch (Top 5)
+                    (SELECT jsonb_agg(t) FROM (
+                        SELECT onu_brand as brand, COUNT(*) as mismatch_count
+                        FROM mv_circuit_summary
+                        WHERE speed_mbps IS NOT NULL AND effective_max_speed_mbps IS NOT NULL AND has_olt = false AND speed_mbps > effective_max_speed_mbps
+                        ${combinedFilter}
+                        GROUP BY onu_brand ORDER BY mismatch_count DESC LIMIT 5
+                    ) t) as mismatch_brands
                 FROM mv_circuit_summary
-                WHERE onu_lan_fe IS NOT NULL AND onu_lan_fe != '' AND onu_lan_fe != '0'
-                AND (onu_lan_ge IS NULL OR onu_lan_ge = '' OR onu_lan_ge = '0')
-                AND onu_brand IS NOT NULL
-                ${serviceFilter ? `AND service_name = ANY($1::text[])` : ''}
-                GROUP BY onu_brand
-                ORDER BY circuit_count DESC
-                LIMIT 5
-            `, serviceFilter ? [serviceFilter.split(',')] : []),
-
-            // Card 1.3: Circuit count by service_name (filter if provided)
-            pool.query(`
-                SELECT service_name, COUNT(*) as circuit_count
-                FROM mv_circuit_summary
-                WHERE service_name IS NOT NULL AND service_name != '' AND service_name != 'UNKNOWN'
-                ${serviceFilter ? `AND service_name = ANY($1::text[])` : ''}
-                GROUP BY service_name
-                ORDER BY circuit_count DESC
-                LIMIT 20
-            `, serviceFilter ? [serviceFilter.split(',')] : []),
-
-            // Card 1.4: Speed mismatch — download speed > device max_speed
-            pool.query(`
-                SELECT onu_brand as brand, COUNT(*) as mismatch_count
-                FROM mv_circuit_summary
-                WHERE speed IS NOT NULL AND effective_max_speed IS NOT NULL
-                AND has_olt = false
-                AND (
-                    CASE 
-                        WHEN SPLIT_PART(speed, '/', 1) ILIKE '%k%' THEN 
-                            CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(speed, '/', 1), '[^0-9.]', '', 'g'), '') AS NUMERIC) / 1024
-                        ELSE 
-                            CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(speed, '/', 1), '[^0-9.]', '', 'g'), '') AS NUMERIC)
-                    END
-                ) > CAST(NULLIF(REGEXP_REPLACE(effective_max_speed, '[^0-9.]', '', 'g'), '') AS NUMERIC)
-                ${serviceFilter ? `AND service_name = ANY($1::text[])` : ''}
-                GROUP BY onu_brand
-                ORDER BY mismatch_count DESC
-                LIMIT 5
-            `, serviceFilter ? [serviceFilter.split(',')] : [])
+                WHERE 1=1
+                ${combinedFilter}
+            `, params)
         ]);
+
+        const summaryData = cards1234.rows[0];
 
         // Aggregate card 1.1 by type with top brands
         const typeMap = {};
@@ -2179,14 +2214,11 @@ app.get('/api/dashboard/stats-v2', authenticate, async (req, res) => {
             brands: t.brands.slice(0, 5) // top 5 brands per type
         })).sort((a, b) => b.total - a.total);
 
-        // Card 1.2 totals
-        const feTotal = card12.rows.reduce((s, r) => s + parseInt(r.circuit_count), 0);
-
         res.json({
-            card11_type_breakdown: typeBreakdown,
-            card12_fe_only: { brands: card12.rows, total: feTotal },
-            card13_by_service: card13.rows,
-            card14_speed_mismatch: card14.rows
+            card11_type_breakdown: { brands: typeBreakdown, total: parseInt(card11.rows.reduce((s, r) => s + parseInt(r.count), 0)) },
+            card12_fe_only: { brands: summaryData.fe_brands || [], total: parseInt(summaryData.fe_total || 0) },
+            card13_ge: { brands: summaryData.ge_brands || [], total: parseInt(summaryData.ge_total || 0) },
+            card14_speed_mismatch: { brands: summaryData.mismatch_brands || [], total: parseInt(summaryData.mismatch_total || 0) }
         });
     } catch (err) {
         console.error('Stats v2 error:', err);
@@ -2194,200 +2226,197 @@ app.get('/api/dashboard/stats-v2', authenticate, async (req, res) => {
     }
 });
 
+// GET /api/dashboard/executive-stats
+app.get('/api/dashboard/executive-stats', authenticate, async (req, res) => {
+    const { serviceFilter, startYear, endYear, excludeNoWifi } = req.query;
+    try {
+        let yearFilterSql = '';
+        const params = [];
+        let pIndex = 1;
+
+        if (serviceFilter) {
+            params.push(serviceFilter.split(','));
+            pIndex++;
+        }
+
+        if (startYear && endYear) {
+            if (startYear === '0000' || endYear === '0000') {
+                yearFilterSql = ` AND install_year = '0000'`;
+            } else {
+                yearFilterSql = ` AND install_year >= $${pIndex} AND install_year <= $${pIndex + 1}`;
+                params.push(startYear, endYear);
+                pIndex += 2;
+            }
+        }
+
+        const serviceFilterSql = serviceFilter ? ` AND service_name = ANY($1::text[])` : '';
+        const excludeNoWifiSql = excludeNoWifi === 'true' ? ` AND is_onu_without_wifi = false` : '';
+        const combinedFilter = serviceFilterSql + yearFilterSql + excludeNoWifiSql;
+
+        const result = await pool.query(`
+            WITH base AS (
+                SELECT 
+                    circuit_norm,
+                    onu_device_type,
+                    onu_wifi_spec,
+                    onu_brand,
+                    wifi_model,
+                    wifi_brand,
+                    is_fe_only,
+                    speed_mbps,
+                    effective_max_speed_mbps,
+                    is_onu_without_wifi,
+                    CASE 
+                        WHEN m.onu_wifi_spec ILIKE '%AX3000%' OR m.onu_wifi_spec ILIKE '%AX6000%' THEN true 
+                        ELSE false 
+                    END as is_onu_ax,
+                    CASE 
+                        WHEN dc.wifi ILIKE '%AX3000%' OR dc.wifi ILIKE '%AX6000%' THEN true 
+                        ELSE false 
+                    END as is_wifi_ax
+                FROM mv_circuit_summary m
+                LEFT JOIN device_catalog dc ON dc.brand = m.wifi_brand AND dc.model = m.wifi_model
+                WHERE 1=1 ${combinedFilter}
+            ),
+            brand_counts AS (
+                SELECT 'total_onu' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE onu_device_type ILIKE '%onu%' GROUP BY onu_brand
+                UNION ALL
+                SELECT 'total_ap' as category, wifi_brand as brand, COUNT(*) as count FROM base WHERE wifi_brand IS NOT NULL GROUP BY wifi_brand
+                UNION ALL
+                SELECT 'total_aio' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE onu_device_type ILIKE '%all in one%' GROUP BY onu_brand
+                UNION ALL
+                SELECT 'total_bridge' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE onu_device_type = 'ONU Bridge' GROUP BY onu_brand
+                UNION ALL
+                SELECT 'total_fe' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE is_fe_only GROUP BY onu_brand
+                UNION ALL
+                SELECT 'total_ge' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE NOT is_fe_only AND onu_device_type ILIKE '%onu%' GROUP BY onu_brand
+                UNION ALL
+                SELECT 'total_ax_3000' as category, COALESCE(wifi_brand, onu_brand) as brand, COUNT(*) as count FROM base WHERE (is_onu_ax OR is_wifi_ax) GROUP BY COALESCE(wifi_brand, onu_brand)
+                UNION ALL
+                SELECT 'total_below_ax_3000' as category, wifi_brand as brand, COUNT(*) as count FROM base WHERE wifi_brand IS NOT NULL AND NOT (is_onu_ax OR is_wifi_ax) GROUP BY wifi_brand
+                UNION ALL
+                SELECT 'aio_mismatch' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE speed_mbps > effective_max_speed_mbps AND onu_device_type ILIKE '%all in one%' GROUP BY onu_brand
+                UNION ALL
+                SELECT 'bridge_mismatch' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE speed_mbps > effective_max_speed_mbps AND onu_device_type = 'ONU Bridge' GROUP BY onu_brand
+                UNION ALL
+                SELECT 'ap_mismatch' as category, wifi_brand as brand, COUNT(*) as count FROM base WHERE speed_mbps > effective_max_speed_mbps AND wifi_brand IS NOT NULL GROUP BY wifi_brand
+            ),
+            top_brands AS (
+                SELECT 
+                    category,
+                    jsonb_agg(jsonb_build_object('brand', brand, 'count', count) ORDER BY count DESC) as brands
+                FROM (
+                    SELECT category, brand, count, ROW_NUMBER() OVER(PARTITION BY category ORDER BY count DESC) as rank
+                    FROM brand_counts
+                ) s
+                WHERE rank <= 5
+                GROUP BY category
+            )
+            SELECT
+                COUNT(*) as total_circuits,
+                
+                -- Inventory
+                COUNT(*) FILTER (WHERE onu_device_type ILIKE '%onu%') as total_onu,
+                COUNT(*) FILTER (WHERE wifi_model IS NOT NULL) as total_ap,
+                COUNT(*) FILTER (WHERE onu_device_type ILIKE '%all in one%') as total_aio,
+                COUNT(*) FILTER (WHERE onu_device_type = 'ONU Bridge') as total_bridge,
+                
+                -- Specs
+                COUNT(*) FILTER (WHERE is_fe_only) as total_fe,
+                COUNT(*) FILTER (WHERE NOT is_fe_only AND onu_device_type ILIKE '%onu%') as total_ge,
+                COUNT(*) FILTER (WHERE (is_onu_ax OR is_wifi_ax)) as total_ax_3000,
+                COUNT(*) FILTER (WHERE wifi_brand IS NOT NULL AND NOT (is_onu_ax OR is_wifi_ax)) as total_below_ax_3000,
+                
+                -- Package/Speed Breakdown (Flow)
+                jsonb_build_object(
+                    '2000', COUNT(*) FILTER (WHERE speed_mbps >= 2000),
+                    '1000', COUNT(*) FILTER (WHERE speed_mbps >= 1000 AND speed_mbps < 2000),
+                    '600', COUNT(*) FILTER (WHERE speed_mbps >= 600 AND speed_mbps < 1000),
+                    '500', COUNT(*) FILTER (WHERE speed_mbps >= 500 AND speed_mbps < 600),
+                    '300', COUNT(*) FILTER (WHERE speed_mbps >= 300 AND speed_mbps < 500),
+                    'below_300', COUNT(*) FILTER (WHERE speed_mbps < 300)
+                ) as speed_packages,
+                
+                -- Mismatch Breakdown
+                jsonb_build_object(
+                    'aio_mismatch', COUNT(*) FILTER (WHERE speed_mbps > effective_max_speed_mbps AND onu_device_type ILIKE '%all in one%'),
+                    'bridge_mismatch', COUNT(*) FILTER (WHERE speed_mbps > effective_max_speed_mbps AND onu_device_type = 'ONU Bridge'),
+                    'ap_mismatch', COUNT(*) FILTER (WHERE speed_mbps > effective_max_speed_mbps AND wifi_brand IS NOT NULL)
+                ) as mismatch_stats,
+
+                -- Top Brands Mapping
+                (SELECT jsonb_object_agg(category, brands) FROM top_brands) as brand_breakdown
+                
+            FROM base
+        `, params);
+
+        res.json({ data: result.rows[0] });
+    } catch (err) {
+        console.error('Executive stats error:', err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
 // GET /api/dashboard/circuit-summary
 // Main table: joins all 3 tables by normalized circuit_id
 app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
-    const { search = '', page = 1, limit = 50, sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '' } = req.query;
+    const { search = '', page = 1, limit = 50, sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '', startYear = '', endYear = '', excludeNoWifi } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const searchPattern = `%${search}%`;
 
-    const validSorts = ['circuit_norm', 'speed', 'service_name', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed'];
+    const validSorts = ['circuit_norm', 'speed', 'service_name', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed'];
     const finalSort = validSorts.includes(sortField) ? sortField : 'circuit_norm';
     const finalOrder = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
-    try {
-        const cteQuery = `
-            WITH
-            -- 1. Normalize ONU Records circuits
-            onu_base AS (
-                SELECT
-                    SPLIT_PART(circuit_id, '@', 1) as circuit_norm,
-                    circuit_id as circuit_raw,
-                    speed,
-                    cpe_brand_model,
-                    service_name
-                FROM onu_records
-                WHERE circuit_id IS NOT NULL AND circuit_id != ''
-            ),
-            -- 2. Normalize ONU Get OLT circuits
-            olt_base AS (
-                SELECT
-                    SPLIT_PART(service, '@', 1) as circuit_norm,
-                    service as circuit_raw,
-                    onu_actual_type
-                FROM onu_get_olt
-                WHERE service IS NOT NULL AND service != ''
-            ),
-            -- 3. Normalize WiFi Router circuits
-            wifi_base AS (
-                SELECT
-                    SPLIT_PART(circuit_id, '@', 1) as circuit_norm,
-                    circuit_id as circuit_raw,
-                    brand as wifi_raw_brand,
-                    model as wifi_raw_model
-                FROM wifi_routers
-                WHERE circuit_id IS NOT NULL AND circuit_id != ''
-            ),
-            -- 4. All unique circuits across all tables
-            all_circuits AS (
-                SELECT DISTINCT circuit_norm FROM onu_base
-                UNION
-                SELECT DISTINCT circuit_norm FROM olt_base
-                UNION
-                SELECT DISTINCT circuit_norm FROM wifi_base
-            ),
-            -- 5. ONU CPE mapping (from ONU Records)
-            onu_mapped AS (
-                SELECT DISTINCT ON (o.circuit_norm)
-                    o.circuit_norm, o.speed, o.service_name,
-                    d.brand as onu_brand, d.model as onu_model,
-                    c.type as onu_type, c.lan_ge, c.lan_fe, c.wifi as onu_wifi_spec,
-                    c.max_speed as onu_max_speed
-                FROM onu_base o
-                LEFT JOIN cpe_devices d ON o.cpe_brand_model = d.raw_name
-                LEFT JOIN device_catalog c ON d.brand = c.brand AND d.model = c.model
-                ORDER BY o.circuit_norm, o.circuit_raw
-            ),
-            -- 6. ONU Get OLT mapping (priority ONU source)
-            olt_mapped AS (
-                SELECT DISTINCT ON (ob.circuit_norm)
-                    ob.circuit_norm,
-                    d.brand as olt_brand, d.model as olt_model,
-                    c.type as olt_type, c.lan_ge as olt_lan_ge, c.lan_fe as olt_lan_fe,
-                    c.wifi as olt_wifi_spec, c.max_speed as olt_max_speed
-                FROM olt_base ob
-                LEFT JOIN cpe_devices d ON ob.onu_actual_type = d.raw_name
-                LEFT JOIN device_catalog c ON d.brand = c.brand AND d.model = c.model
-                ORDER BY ob.circuit_norm, ob.circuit_raw
-            ),
-            -- 7. WiFi Router mapping
-            wifi_mapped AS (
-                SELECT DISTINCT ON (wb.circuit_norm)
-                    wb.circuit_norm,
-                    wb.wifi_raw_brand, wb.wifi_raw_model,
-                    wm.target_brand as wifi_brand, wm.target_model as wifi_model,
-                    wc.max_speed as wifi_max_speed
-                FROM wifi_base wb
-                LEFT JOIN wifi_mappings wm ON wb.wifi_raw_brand = wm.raw_brand AND wb.wifi_raw_model = wm.raw_model
-                LEFT JOIN device_catalog wc ON wm.target_brand = wc.brand AND wm.target_model = wc.model
-                ORDER BY wb.circuit_norm, wb.circuit_raw
-            ),
-            -- 8. Source flags per circuit
-            sources AS (
-                SELECT
-                    ac.circuit_norm,
-                    CASE WHEN onu.circuit_norm IS NOT NULL THEN true ELSE false END as has_onu,
-                    CASE WHEN olt.circuit_norm IS NOT NULL THEN true ELSE false END as has_olt,
-                    CASE WHEN wf.circuit_norm IS NOT NULL  THEN true ELSE false END as has_wifi
-                FROM all_circuits ac
-                LEFT JOIN onu_mapped onu ON ac.circuit_norm = onu.circuit_norm
-                LEFT JOIN olt_mapped olt ON ac.circuit_norm = olt.circuit_norm
-                LEFT JOIN wifi_mapped wf ON ac.circuit_norm = wf.circuit_norm
-            ),
-            -- 9. Final assembly with max_speed logic
-            final AS (
-                SELECT
-                    ac.circuit_norm,
-                    onu.speed,
-                    onu.service_name,
-                    -- ONU device: prefer OLT mapping over ONU Records mapping
-                    COALESCE(olt.olt_brand, onu.onu_brand) as onu_brand,
-                    COALESCE(olt.olt_model, onu.onu_model) as onu_model,
-                    COALESCE(olt.olt_type, onu.onu_type) as onu_device_type,
-                    COALESCE(olt.olt_lan_ge, onu.lan_ge) as onu_lan_ge,
-                    COALESCE(olt.olt_lan_fe, onu.lan_fe) as onu_lan_fe,
-                    COALESCE(olt.olt_wifi_spec, onu.onu_wifi_spec) as onu_wifi_spec,
-                    -- OLT-specific brand (for display)
-                    olt.olt_brand,
-                    olt.olt_model,
-                    -- WiFi Router
-                    wf.wifi_raw_brand, wf.wifi_raw_model,
-                    wf.wifi_brand, wf.wifi_model,
-                    wf.wifi_max_speed,
-                    -- Sources
-                    s.has_onu, s.has_olt, s.has_wifi,
-                    -- Max Speed Logic
-                    CASE
-                        -- Compare speeds if it's ALL IN ONE and has a WiFi router attached
-                        WHEN (COALESCE(olt.olt_type, onu.onu_type) ILIKE '%all in one%' OR COALESCE(olt.olt_type, onu.onu_type) ILIKE '%all-in-one%')
-                             AND wf.circuit_norm IS NOT NULL
-                             AND wf.wifi_max_speed IS NOT NULL AND wf.wifi_max_speed != ''
-                             AND COALESCE(olt.olt_max_speed, onu.onu_max_speed) IS NOT NULL AND COALESCE(olt.olt_max_speed, onu.onu_max_speed) != ''
-                        THEN 
-                             CASE 
-                                 WHEN COALESCE(CAST(NULLIF(REGEXP_REPLACE(COALESCE(olt.olt_max_speed, onu.onu_max_speed), '[^0-9]', '', 'g'), '') AS integer), 0) > 
-                                      COALESCE(CAST(NULLIF(REGEXP_REPLACE(wf.wifi_max_speed, '[^0-9]', '', 'g'), '') AS integer), 0)
-                                 THEN COALESCE(olt.olt_max_speed, onu.onu_max_speed)
-                                 ELSE wf.wifi_max_speed
-                             END
-                        -- Default fallbacks
-                        WHEN wf.wifi_max_speed IS NOT NULL AND wf.wifi_max_speed != '' THEN wf.wifi_max_speed
-                        WHEN wf.circuit_norm IS NOT NULL THEN wf.wifi_raw_brand || ' ' || wf.wifi_raw_model
-                        WHEN (COALESCE(olt.olt_type, onu.onu_type) ILIKE '%all in one%' OR COALESCE(olt.olt_type, onu.onu_type) ILIKE '%all-in-one%')
-                             AND COALESCE(olt.olt_max_speed, onu.onu_max_speed) IS NOT NULL
-                             THEN COALESCE(olt.olt_max_speed, onu.onu_max_speed)
-                        WHEN (COALESCE(olt.olt_lan_fe, onu.lan_fe) IS NOT NULL AND COALESCE(olt.olt_lan_fe, onu.lan_fe) != '' AND COALESCE(olt.olt_lan_fe, onu.lan_fe) != '0')
-                             AND (COALESCE(olt.olt_lan_ge, onu.lan_ge) IS NULL OR COALESCE(olt.olt_lan_ge, onu.lan_ge) = '' OR COALESCE(olt.olt_lan_ge, onu.lan_ge) = '0')
-                             THEN '100 Mbps (FE Only)'
-                        ELSE COALESCE(olt.olt_max_speed, onu.onu_max_speed)
-                    END as effective_max_speed,
-                    -- WiFi-only flag (for ONU without WiFi section)
-                    CASE 
-                        WHEN wf.circuit_norm IS NULL 
-                             AND (COALESCE(olt.olt_brand, onu.onu_brand) IS NOT NULL)
-                             AND NOT (COALESCE(olt.olt_type, onu.onu_type) ILIKE '%all in one%')
-                        THEN true ELSE false 
-                    END as is_onu_without_wifi
-                FROM all_circuits ac
-                LEFT JOIN onu_mapped onu ON ac.circuit_norm = onu.circuit_norm
-                LEFT JOIN olt_mapped olt ON ac.circuit_norm = olt.circuit_norm
-                LEFT JOIN wifi_mapped wf ON ac.circuit_norm = wf.circuit_norm
-                LEFT JOIN sources s ON ac.circuit_norm = s.circuit_norm
-            )
-        `;
+    let sortSql = `f.${finalSort}`;
+    if (finalSort === 'speed') {
+        sortSql = `f.speed_mbps`;
+    } else if (finalSort === 'effective_max_speed') {
+        sortSql = `f.effective_max_speed_mbps`;
+    }
 
-        let finalWhereClause = 'f.is_onu_without_wifi = false';
+    try {
+        let whereClauses = ['1=1'];
         const params = [];
-        let paramCounter = 1;
+        let pIndex = 1;
 
         if (search) {
-            finalWhereClause += ` AND (f.circuit_norm ILIKE $${paramCounter} OR f.speed ILIKE $${paramCounter} OR f.onu_brand ILIKE $${paramCounter} OR f.olt_brand ILIKE $${paramCounter} OR f.wifi_brand ILIKE $${paramCounter} OR f.service_name ILIKE $${paramCounter})`;
+            whereClauses.push(`(f.circuit_norm ILIKE $${pIndex} OR f.speed ILIKE $${pIndex} OR f.onu_brand ILIKE $${pIndex} OR f.olt_brand ILIKE $${pIndex} OR f.wifi_brand ILIKE $${pIndex} OR f.service_name ILIKE $${pIndex})`);
             params.push(searchPattern);
-            paramCounter++;
+            pIndex++;
         }
 
         if (serviceFilter) {
-            const services = serviceFilter.split(',');
-            const servicePlaceholders = services.map((_, i) => `$${paramCounter + i}`).join(', ');
-            finalWhereClause += ` AND f.service_name IN (${servicePlaceholders})`;
-            params.push(...services);
-            paramCounter += services.length;
+            whereClauses.push(`f.service_name = ANY($${pIndex}::text[])`);
+            params.push(serviceFilter.split(','));
+            pIndex++;
         }
 
-        if (finalWhereClause) {
-            finalWhereClause = `WHERE ${finalWhereClause}`;
+        if (startYear && endYear) {
+            if (startYear === '0000' || endYear === '0000') {
+                whereClauses.push(`f.install_year = '0000'`);
+            } else {
+                whereClauses.push(`f.install_year >= $${pIndex} AND f.install_year <= $${pIndex + 1}`);
+                params.push(startYear, endYear);
+                pIndex += 2;
+            }
         }
 
-        const dataParams = [...params, parseInt(limit), offset];
+        if (excludeNoWifi === 'true') {
+            whereClauses.push(`f.is_onu_without_wifi = false`);
+        }
 
+        const finalWhereClause = `WHERE ${whereClauses.join(' AND ')}`;
         const queryText = `
             SELECT f.*, count(*) OVER() as full_count FROM mv_circuit_summary f
             ${finalWhereClause}
-            ORDER BY f.${finalSort} ${finalOrder} NULLS LAST
-            LIMIT $${paramCounter} OFFSET $${paramCounter + 1}
+            ORDER BY ${sortSql} ${finalOrder} NULLS LAST
+            LIMIT $${pIndex} OFFSET $${pIndex + 1}
         `;
+        const dataParams = [...params, parseInt(limit), offset];
 
         const result = await pool.query(queryText, dataParams);
+
         const rows = result.rows;
         
         let total = 0;
@@ -2410,32 +2439,88 @@ app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
 });
 
 app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) => {
-    const { search = '', sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '' } = req.query;
+    const { search = '', sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '', startYear = '', endYear = '', excludeNoWifi } = req.query;
     const searchPattern = `%${search}%`;
-    const validSorts = ['circuit_norm', 'speed', 'service_name', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed'];
+    const validSorts = ['circuit_norm', 'speed', 'service_name', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed'];
     const finalSort = validSorts.includes(sortField) ? sortField : 'circuit_norm';
     const finalOrder = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
+    
+    let sortSql = `f.${finalSort}`;
+    if (finalSort === 'speed') {
+        sortSql = `CASE 
+            WHEN COALESCE(CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(f.speed, '/', 1), '[^0-9.]', '', 'g'), '') AS numeric), 0) > 5000 THEN 
+                COALESCE(CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(f.speed, '/', 1), '[^0-9.]', '', 'g'), '') AS numeric), 0) / 1024
+            WHEN SPLIT_PART(f.speed, '/', 1) ILIKE '%k%' THEN 
+                COALESCE(CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(f.speed, '/', 1), '[^0-9.]', '', 'g'), '') AS numeric), 0) / 1024
+            ELSE 
+                COALESCE(CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(f.speed, '/', 1), '[^0-9.]', '', 'g'), '') AS numeric), 0)
+        END`;
+    } else if (finalSort === 'effective_max_speed') {
+    }
+
 
     try {
+        let whereClauses = ['1=1'];
+        const params = [];
+        let pIndex = 1;
+
+        if (search) {
+            whereClauses.push(`(f.circuit_norm ILIKE $${pIndex} OR f.speed ILIKE $${pIndex} OR f.onu_brand ILIKE $${pIndex} OR f.olt_brand ILIKE $${pIndex} OR f.wifi_brand ILIKE $${pIndex} OR f.service_name ILIKE $${pIndex})`);
+            params.push(searchPattern);
+            pIndex++;
+        }
+
+        if (serviceFilter) {
+            whereClauses.push(`f.service_name = ANY($${pIndex}::text[])`);
+            params.push(serviceFilter.split(','));
+            pIndex++;
+        }
+
+        if (startYear && endYear) {
+            if (startYear === '0000' || endYear === '0000') {
+                whereClauses.push(`f.install_year = '0000'`);
+            } else {
+                whereClauses.push(`f.install_year >= $${pIndex} AND f.install_year <= $${pIndex + 1}`);
+                params.push(startYear, endYear);
+                pIndex += 2;
+            }
+        }
+
+        if (excludeNoWifi === 'true') {
+            whereClauses.push(`f.is_onu_without_wifi = false`);
+        }
+
+        const finalWhereClause = `WHERE ${whereClauses.join(' AND ')}`;
+
         const queryText = `
             SELECT 
                 f.circuit_norm as "หมายเลขวงจร", 
                 f.speed as "ความเร็ว (Raw)",
                 CASE 
+                    WHEN CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(f.speed, '/', 1), '[^0-9.]', '', 'g'), '') AS NUMERIC) > 5000 THEN 
+                        CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(f.speed, '/', 1), '[^0-9.]', '', 'g'), '') AS NUMERIC) / 1024
                     WHEN SPLIT_PART(f.speed, '/', 1) ILIKE '%k%' THEN 
                         CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(f.speed, '/', 1), '[^0-9.]', '', 'g'), '') AS NUMERIC) / 1024
                     ELSE 
                         CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(f.speed, '/', 1), '[^0-9.]', '', 'g'), '') AS NUMERIC)
                 END as "ความเร็ว (Download Mbps)",
                 f.service_name as "Service Name",
-                f.onu_brand as "ONU Device Brand",
-                f.onu_model as "ONU Device Model",
+                f.install_year as "ปีที่ติดตั้ง",
+                f.onu_raw_name as "ONU Device (Raw Name)",
+                f.onu_brand as "ONU Brand",
+                f.onu_model as "ONU Model",
                 f.onu_device_type as "ONU Type",
+                f.onu_lan_ge as "ONU Port GE",
+                f.onu_lan_fe as "ONU Port FE",
+                f.olt_brand as "OLT Brand",
+                f.olt_model as "OLT Model",
                 f.wifi_brand as "WiFi Router Brand", 
-                f.effective_max_speed as "Max Speed รวม"
+                f.wifi_model as "WiFi Router Model",
+                f.effective_max_speed as "Max Speed รวม (Mbps)",
+                CASE WHEN f.is_onu_without_wifi THEN 'ใช่' ELSE 'ไม่' END as "ไม่มี WiFi ต่อพ่วง"
             FROM mv_circuit_summary f
             ${finalWhereClause}
-            ORDER BY f.${finalSort} ${finalOrder} NULLS LAST
+            ORDER BY ${sortSql} ${finalOrder} NULLS LAST
         `;
 
         const result = await pool.query(queryText, params);
@@ -2450,54 +2535,130 @@ app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) 
 });
 
 // GET /api/dashboard/no-wifi-summary
-// Split into two groups: 
-// 1. No WiFi (but has GE)
-// 2. FE Only (all circuits)
 app.get('/api/dashboard/no-wifi-summary', authenticate, async (req, res) => {
+    const threshold = parseInt(req.query.threshold) || 500;
     try {
         const result = await pool.query(`
             SELECT 
-                onu_brand as brand,
-                onu_model as model,
+                onu_brand,
+                onu_model,
+                onu_device_type,
                 is_onu_without_wifi,
-                CASE 
-                    WHEN (onu_lan_fe IS NOT NULL AND onu_lan_fe != '' AND onu_lan_fe != '0')
-                         AND (onu_lan_ge IS NULL OR onu_lan_ge = '' OR onu_lan_ge = '0')
-                    THEN true ELSE false 
-                END as is_fe_only,
+                wifi_brand,
+                wifi_model,
+                effective_max_speed_mbps as eff_speed,
+                speed_mbps as pkg_speed,
+                is_fe_only,
                 COUNT(DISTINCT circuit_norm) as circuit_count
             FROM mv_circuit_summary
-            WHERE onu_brand IS NOT NULL
             GROUP BY 
                 onu_brand, 
                 onu_model,
+                onu_device_type,
                 is_onu_without_wifi,
-                CASE 
-                    WHEN (onu_lan_fe IS NOT NULL AND onu_lan_fe != '' AND onu_lan_fe != '0')
-                         AND (onu_lan_ge IS NULL OR onu_lan_ge = '' OR onu_lan_ge = '0')
-                    THEN true ELSE false 
-                END
+                wifi_brand,
+                wifi_model,
+                effective_max_speed_mbps,
+                speed_mbps,
+                is_fe_only
         `);
 
-        const noWifiGroup = {};
-        const feOnlyGroup = {};
+        const feOnlyGroup = {};   // Group 1
+        const outdatedAPGroup = {}; // Group 2
+        const mismatchGroup = {};  // Group 2.1 (WiFi Router)
+        const overallMismatchGroup = {}; // Group 2.2 (Overall - Focus on ONU)
+        const noWifiGroup = {};    // Group 3
 
         for (const row of result.rows) {
-            const count = parseInt(row.circuit_count);
-            const brand = row.brand;
-            const model = row.model || 'Unknown';
+            const { onu_brand, onu_model, onu_device_type, is_onu_without_wifi, wifi_brand, wifi_model, eff_speed, pkg_speed, is_fe_only, circuit_count } = row;
+            const count = parseInt(circuit_count);
+            const effSpeed = parseFloat(eff_speed) || 0;
+            const pkgSpeed = parseFloat(pkg_speed) || 0;
 
-            // Group 2: FE Only (from all tables)
-            if (row.is_fe_only) {
+            // Group 1: All FE Only (Regardless of wifi attachment, but only for ONU)
+            const isOnu = (onu_device_type || '').toLowerCase().includes('onu');
+            if (is_fe_only && isOnu) {
+                const brand = onu_brand || 'Pending Mapping';
+                const model = onu_model || 'Raw Data';
                 if (!feOnlyGroup[brand]) feOnlyGroup[brand] = { brand, total: 0, models: [] };
                 feOnlyGroup[brand].total += count;
-                const existing = feOnlyGroup[brand].models.find(m => m.model === model);
-                if (existing) existing.count += count;
-                else feOnlyGroup[brand].models.push({ model, count });
+                let existing = feOnlyGroup[brand].models.find(m => m.model === model);
+                if (!existing) {
+                    existing = { model, bridge_count: 0, aio_count: 0 };
+                    feOnlyGroup[brand].models.push(existing);
+                }
+                if ((onu_device_type || '').toLowerCase().includes('all in one')) {
+                    existing.aio_count += count;
+                } else {
+                    existing.bridge_count += count;
+                }
             }
 
-            // Group 1: No WiFi AND NOT FE only
-            if (row.is_onu_without_wifi && !row.is_fe_only) {
+            // Group 2: Outdated AP (WiFi Router with speed <= threshold)
+            if (wifi_brand && wifi_model && !is_fe_only) {
+                if (effSpeed > 0 && effSpeed <= threshold) {
+                    const brand = wifi_brand || 'Unknown';
+                    const model = wifi_model || 'Unknown';
+                    if (!outdatedAPGroup[brand]) outdatedAPGroup[brand] = { brand, total: 0, models: [] };
+                    outdatedAPGroup[brand].total += count;
+                    const existing = outdatedAPGroup[brand].models.find(m => m.model === model);
+                    if (existing) existing.count += count;
+                    else outdatedAPGroup[brand].models.push({ model, count });
+                }
+            }
+
+            // Group 2.1: Speed Mismatch (Package > Device Max) - Focus on non-ONU (WiFi Routers)
+            if (pkgSpeed > effSpeed && wifi_brand && wifi_model) {
+                const brand = wifi_brand || 'Unknown';
+                const model = wifi_model || 'Unknown';
+                const pkgKey = Math.round(pkgSpeed).toString(); // e.g. "1000", "600"
+                
+                if (!mismatchGroup[brand]) mismatchGroup[brand] = { brand, total: 0, models: [] };
+                mismatchGroup[brand].total += count;
+                
+                let existing = mismatchGroup[brand].models.find(m => m.model === model);
+                if (!existing) {
+                    existing = { model, count: 0, speeds: {}, max_speed: effSpeed };
+                    mismatchGroup[brand].models.push(existing);
+                }
+                existing.count += count;
+                existing.speeds[pkgKey] = (existing.speeds[pkgKey] || 0) + count;
+            }
+
+            // Group 2.2: Overall Speed Mismatch (pkg > device_max) - Focus on ONU
+            const dlStr = row.speed ? row.speed.split('/')[0] : '';
+            const rawVal = parseFloat(dlStr.replace(/[^0-9.]/g, '')) || 0;
+            let pkgSpeedOverall = 0;
+            if (rawVal > 0) {
+              if (dlStr.toLowerCase().includes('k') || rawVal > 5000) {
+                pkgSpeedOverall = rawVal / 1024;
+              } else {
+                pkgSpeedOverall = rawVal;
+              }
+            }
+            const deviceMax = parseInt(row.effective_max_speed) || 0;
+            const isMismatch = pkgSpeedOverall > deviceMax && deviceMax > 0;
+            if (isMismatch) {
+                const brand = onu_brand || 'Unknown';
+                const model = onu_model || 'Unknown';
+                const pkgKey = Math.round(pkgSpeedOverall).toString();
+                
+                if (!overallMismatchGroup[brand]) overallMismatchGroup[brand] = { brand, total: 0, models: [] };
+                overallMismatchGroup[brand].total += count;
+                
+                let existing = overallMismatchGroup[brand].models.find(m => m.model === model);
+                if (!existing) {
+                    existing = { model, count: 0, speeds: {}, max_speed: effSpeed, type: onu_device_type };
+                    overallMismatchGroup[brand].models.push(existing);
+                }
+                existing.count += count;
+                existing.speeds[pkgKey] = (existing.speeds[pkgKey] || 0) + count;
+            }
+
+            // Group 3: ONU Bridge with GE port and No WiFi
+            if (onu_device_type === 'ONU Bridge' && is_onu_without_wifi) {
+                const brand = onu_brand || 'Pending Mapping';
+                const model = onu_model || 'Raw Data';
                 if (!noWifiGroup[brand]) noWifiGroup[brand] = { brand, total: 0, models: [] };
                 noWifiGroup[brand].total += count;
                 const existing = noWifiGroup[brand].models.find(m => m.model === model);
@@ -2506,20 +2667,37 @@ app.get('/api/dashboard/no-wifi-summary', authenticate, async (req, res) => {
             }
         }
         
-        const sortGroup = (groupMap) => {
+        const sortGroup = (groupMap, isGroup1 = false) => {
             return Object.values(groupMap)
                 .sort((a, b) => b.total - a.total)
                 .map(b => {
-                    b.models.sort((x, y) => y.count - x.count);
+                    if (isGroup1) {
+                        b.models.sort((x, y) => (y.bridge_count + y.aio_count) - (x.bridge_count + x.aio_count));
+                    } else {
+                        b.models.sort((x, y) => y.count - x.count);
+                    }
                     return b;
-                })
-                .slice(0, 10);
+                });
         };
+
+        const noWifiGrandTotal = Object.values(noWifiGroup).reduce((s, b) => s + b.total, 0);
+        const feOnlyGrandTotal = Object.values(feOnlyGroup).reduce((s, b) => s + b.total, 0);
+        const outdatedAPGrandTotal = Object.values(outdatedAPGroup).reduce((s, b) => s + b.total, 0);
+        const mismatchGrandTotal = Object.values(mismatchGroup).reduce((s, b) => s + b.total, 0);
+        const overallMismatchGrandTotal = Object.values(overallMismatchGroup).reduce((s, b) => s + b.total, 0);
 
         res.json({ 
             data: {
                 no_wifi: sortGroup(noWifiGroup),
-                fe_only: sortGroup(feOnlyGroup)
+                fe_only: sortGroup(feOnlyGroup, true),
+                outdated_ap: sortGroup(outdatedAPGroup),
+                speed_mismatch: sortGroup(mismatchGroup),
+                overall_mismatch: sortGroup(overallMismatchGroup),
+                no_wifi_total: noWifiGrandTotal,
+                fe_only_total: feOnlyGrandTotal,
+                outdated_ap_total: outdatedAPGrandTotal,
+                speed_mismatch_total: mismatchGrandTotal,
+                overall_mismatch_total: overallMismatchGrandTotal
             } 
         });
     } catch (err) {
@@ -2541,7 +2719,61 @@ app.post('/api/dashboard/refresh-view', authenticate, async (req, res) => {
 });
 
 // ============================================================
-// END NEW DASHBOARD v2 ENDPOINTS
+// REPLACEMENT EQUIPMENT MANAGEMENT
+// ============================================================
+
+// GET /api/replacement-configs
+app.get('/api/replacement-configs', authenticate, async (req, res) => {
+    try {
+        const result = await pool.query('SELECT * FROM replacement_configs ORDER BY id ASC');
+        res.json(result.rows);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// POST /api/replacement-configs
+app.post('/api/replacement-configs', authenticate, async (req, res) => {
+    const { brand, model, type, price } = req.body;
+    try {
+        const result = await pool.query(
+            'INSERT INTO replacement_configs (brand, model, type, price) VALUES ($1, $2, $3, $4) RETURNING *',
+            [brand, model, type, price]
+        );
+        res.status(201).json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// PUT /api/replacement-configs/:id
+app.put('/api/replacement-configs/:id', authenticate, async (req, res) => {
+    const { id } = req.params;
+    const { brand, model, type, price } = req.body;
+    try {
+        const result = await pool.query(
+            'UPDATE replacement_configs SET brand=$1, model=$2, type=$3, price=$4, updated_at=CURRENT_TIMESTAMP WHERE id=$5 RETURNING *',
+            [brand, model, type, price, id]
+        );
+        res.json(result.rows[0]);
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// DELETE /api/replacement-configs/:id
+app.delete('/api/replacement-configs/:id', authenticate, async (req, res) => {
+    const { id } = req.params;
+    try {
+        await pool.query('DELETE FROM replacement_configs WHERE id=$1', [id]);
+        res.json({ message: 'Deleted' });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+// ============================================================
+// END DASHBOARD v2 & REPLACEMENT ENDPOINTS
 // ============================================================
 
 app.listen(port, () => {

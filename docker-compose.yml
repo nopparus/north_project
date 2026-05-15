@@ -208,6 +208,9 @@ services:
       - ./app8/onu_type.xlsx:/app/onu_type.xlsx
       - ./app8/server/import_cpe_data.js:/app/import_cpe_data.js
       - ./app8/server/migrate_catalog.js:/app/migrate_catalog.js
+      - ./app8/ONU_ACC.xlsx:/app/ONU_ACC.xlsx
+      - ./app8/server/import_onu_acc.js:/app/import_onu_acc.js
+      - ./app8/server/onu_get_olt_setup.sql:/app/onu_get_olt_setup.sql
     networks:
       - nexus-network
     restart: always

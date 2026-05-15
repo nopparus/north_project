@@ -1,3 +1,4 @@
+// Syncing file state...
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import { 
@@ -6,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   ArrowUpDown, ArrowUp, ArrowDown, Cpu, CheckCircle2, XCircle, 
   Database, Network, Wifi, FileBarChart, Download, Settings2,
-  Zap, Banknote, Layout, Bell, Users, RefreshCw
+  Zap, Banknote, Layout, Bell, Users, RefreshCw, Calendar
 } from 'lucide-react';
 
 // --- CONFIG ---
@@ -96,6 +97,41 @@ const WIFI_DISPLAY_MAP = {
 };
 
 // --- TYPES ---
+// --- HELPER COMPONENTS ---
+const BrandTooltip = ({ brands, title, position = 'top' }: { brands: any[], title?: string, position?: 'top' | 'bottom' }) => {
+  const posClasses = position === 'top' 
+    ? "bottom-full mb-4 origin-bottom" 
+    : "top-full mt-4 origin-top";
+  
+  const arrowClasses = position === 'top'
+    ? "top-full border-t-slate-900/95"
+    : "bottom-full border-b-slate-900/95";
+
+  return (
+    <div className={`absolute z-[100] left-1/2 -translate-x-1/2 w-64 bg-slate-900/95 backdrop-blur-md text-white rounded-2xl p-4 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all scale-95 group-hover:scale-100 border border-white/10 ${posClasses}`}>
+      <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 border-b border-white/5 pb-2">{title || 'Top 5 Brands'}</h5>
+      <div className="flex flex-col gap-2.5">
+        {brands && brands.length > 0 ? brands.map((b: any, i: number) => (
+          <div key={i} className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-slate-200 truncate mr-2">{b.brand || 'Unknown'}</span>
+            <span className="text-[11px] font-black text-indigo-400">{Number(b.count).toLocaleString()}</span>
+          </div>
+        )) : <span className="text-[10px] text-slate-500 italic">ไม่มีข้อมูล</span>}
+      </div>
+      <div className={`absolute left-1/2 -translate-x-1/2 border-8 border-transparent ${arrowClasses}`} />
+    </div>
+  );
+};
+
+interface ReplacementConfig {
+  id: number;
+  brand: string;
+  model: string;
+  type: string;
+  price: number;
+  updated_at: string;
+}
+
 interface User {
   id: number;
   username: string;
@@ -374,7 +410,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [isExporting, setIsExporting] = useState(false);
   
   // Persistence
-  type AppView = 'home' | 'onu' | 'wifi' | 'onu-get-olt' | 'cpe' | 'catalog' | 'report' | 'logs' | 'missing-mapping';
+  type AppView = 'home' | 'onu' | 'wifi' | 'onu-get-olt' | 'cpe' | 'catalog' | 'report' | 'logs' | 'missing-mapping' | 'replacements';
   const savedView = (localStorage.getItem('app8_view') as AppView) || 'home';
   const savedLimit = Number(localStorage.getItem('app8_limit')) || 10;
   const savedSearch = localStorage.getItem('app8_search') || '';
@@ -442,7 +478,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [showDiscovery, setShowDiscovery] = useState(false);
 
   // --- Dashboard v2 (Circuit Summary) ---
-  const [homeTab, setHomeTab] = useState<'circuit' | 'overview'>('circuit');
+  const [homeTab, setHomeTab] = useState<'circuit' | 'overview' | 'executive'>('circuit');
   const [dashboardV2Stats, setDashboardV2Stats] = useState<any>(null);
   const [circuitData, setCircuitData] = useState<any[]>([]);
   const [circuitTotal, setCircuitTotal] = useState(0);
@@ -453,14 +489,37 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [circuitSortField, setCircuitSortField] = useState('circuit_norm');
   const [circuitSortOrder, setCircuitSortOrder] = useState<'ASC' | 'DESC'>('ASC');
   const [serviceNames, setServiceNames] = useState<{service_name: string, circuit_count: string}[]>([]);
-  const [noWifiData, setNoWifiData] = useState<{ no_wifi: any[], fe_only: any[] }>({ no_wifi: [], fe_only: [] });
+  const [noWifiData, setNoWifiData] = useState<{ 
+    no_wifi: any[], 
+    fe_only: any[], 
+    outdated_ap: any[], 
+    speed_mismatch: any[], 
+    overall_mismatch: any[],
+    no_wifi_total?: number, 
+    fe_only_total?: number, 
+    outdated_ap_total?: number, 
+    speed_mismatch_total?: number,
+    overall_mismatch_total?: number
+  }>({ no_wifi: [], fe_only: [], outdated_ap: [], speed_mismatch: [], overall_mismatch: [] });
   // Multi-select filters
   const [selectedServices, setSelectedServices] = useState<string[]>([]);
   const [serviceSearchTerm, setServiceSearchTerm] = useState('');
   const [isServiceFilterOpen, setIsServiceFilterOpen] = useState(false);
   const [isExportingCircuit, setIsExportingCircuit] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Year filters
+  const [startYear, setStartYear] = useState('');
+  const [endYear, setEndYear] = useState('');
+  const [availableYears, setAvailableYears] = useState<string[]>([]);
+  const [isYearFilterOpen, setIsYearFilterOpen] = useState(false);
+  const [excludeNoWifi, setExcludeNoWifi] = useState(false);
+  const [replacementConfigs, setReplacementConfigs] = useState<ReplacementConfig[]>([]);
+  const [apThreshold, setApThreshold] = useState(500);
+  const [isExecutiveLoading, setIsExecutiveLoading] = useState(false);
+  const [executiveStats, setExecutiveStats] = useState<any>(null);
 
+  const [isReplacementModalOpen, setIsReplacementModalOpen] = useState(false);
+  const [editingReplacement, setEditingReplacement] = useState<Partial<ReplacementConfig> | null>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -568,7 +627,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const fetchOnuGetOlt = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/onu-get-lt`, { params: { page, limit, search: searchTerm, sortField, sortOrder } });
+      const res = await axios.get(`${API_BASE}/onu-get-olt`, { params: { page, limit, search: searchTerm, sortField, sortOrder } });
       setOnuGetOltData(res.data.data);
       setTotal(res.data.total);
     } catch (err) { console.error(err); } finally { setLoading(false); }
@@ -581,12 +640,45 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     } catch (err) { console.error(err); }
   }, []);
 
+  const fetchReplacementConfigs = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/replacement-configs`);
+      setReplacementConfigs(res.data);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
+  }, []);
+
   const fetchNewDiscoveries = useCallback(async () => {
     try {
       const res = await axios.get(`${API_BASE}/cpe-groups/new-discoveries`);
       setNewDiscoveries(res.data.data);
     } catch (err) { console.error(err); }
   }, []);
+
+  const fetchExecutiveStats = useCallback(async () => {
+    setIsExecutiveLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/dashboard/executive-stats`, {
+        params: {
+          serviceFilter: selectedServices.join(','),
+          startYear,
+          endYear,
+          excludeNoWifi: excludeNoWifi ? 'true' : 'false'
+        }
+      });
+      setExecutiveStats(res.data.data);
+    } catch (err) {
+      console.error('Fetch executive stats error:', err);
+    } finally {
+      setIsExecutiveLoading(false);
+    }
+  }, [selectedServices, startYear, endYear, excludeNoWifi]);
+
+  useEffect(() => {
+    if (homeTab === 'executive') {
+      fetchExecutiveStats();
+    }
+  }, [homeTab, fetchExecutiveStats]);
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -601,21 +693,32 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     try {
       const params: any = {};
       if (selectedServices.length > 0) params.serviceFilter = selectedServices.join(',');
+      if (startYear && endYear) { params.startYear = startYear; params.endYear = endYear; }
+      if (excludeNoWifi) params.excludeNoWifi = 'true';
       const res = await axios.get(`${API_BASE}/dashboard/stats-v2`, { params });
       setDashboardV2Stats(res.data);
     } catch (err) { console.error('stats-v2 error:', err); }
-  }, [selectedServices]);
+  }, [selectedServices, startYear, endYear, excludeNoWifi]);
 
   const fetchCircuitSummary = useCallback(async () => {
     setLoading(true);
     try {
       const params: any = { search: circuitSearch, page: circuitPage, limit, sortField: circuitSortField, sortOrder: circuitSortOrder };
       if (selectedServices.length > 0) params.serviceFilter = selectedServices.join(',');
+      if (startYear && endYear) { params.startYear = startYear; params.endYear = endYear; }
+      if (excludeNoWifi) params.excludeNoWifi = 'true';
       const res = await axios.get(`${API_BASE}/dashboard/circuit-summary`, { params });
       setCircuitData(res.data.data || []);
       setCircuitTotal(res.data.total || 0);
     } catch (err) { console.error('circuit-summary error:', err); } finally { setLoading(false); }
-  }, [circuitSearch, circuitPage, limit, circuitSortField, circuitSortOrder, selectedServices]);
+  }, [circuitSearch, circuitPage, limit, circuitSortField, circuitSortOrder, selectedServices, startYear, endYear, excludeNoWifi]);
+
+  const fetchYears = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/dashboard/install-years`);
+      setAvailableYears(res.data.data || []);
+    } catch (err) { console.error(err); }
+  }, []);
 
   const fetchServiceNames = useCallback(async () => {
     try {
@@ -626,10 +729,14 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   const fetchNoWifiSummary = useCallback(async () => {
     try {
-      const res = await axios.get(`${API_BASE}/dashboard/no-wifi-summary`);
-      setNoWifiData(res.data.data || []);
-    } catch (err) { console.error(err); }
-  }, []);
+      const res = await axios.get(`${API_BASE}/dashboard/no-wifi-summary`, { params: { threshold: apThreshold } });
+      if (res.data && res.data.data) {
+        setNoWifiData(res.data.data);
+      } else {
+        setNoWifiData(res.data); // Fallback if not nested
+      }
+    } catch (err) { console.error('Fetch No-Wifi Error:', err); }
+  }, [apThreshold]);
 
   const handleCircuitExport = async () => {
     try {
@@ -641,8 +748,14 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         responseType: 'blob'
       });
       
-      const params2: any = { search: circuitSearch };
+      const params2: any = { 
+        search: circuitSearch,
+        sortField: circuitSortField,
+        sortOrder: circuitSortOrder,
+        excludeNoWifi: excludeNoWifi ? 'true' : 'false'
+      };
       if (selectedServices.length > 0) params2.serviceFilter = selectedServices.join(',');
+      if (startYear && endYear) { params2.startYear = startYear; params2.endYear = endYear; }
       const res2 = await axios.get(`${API_BASE}/dashboard/circuit-summary/export`, {
         params: params2,
         responseType: 'blob'
@@ -761,6 +874,8 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       fetchCircuitSummary();
       fetchServiceNames();
       fetchNoWifiSummary();
+      fetchYears();
+      fetchReplacementConfigs();
     }
     else if (view === 'onu') { fetchData(); }
     else if (view === 'logs') fetchLogs();
@@ -778,12 +893,12 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     else if (view === 'report') fetchReport();
     else if (view === 'wifi') { fetchWiFiRouters(); }
     else if (view === 'onu-get-olt') { fetchOnuGetOlt(); }
-  }, [view, mappingTab, fetchData, fetchLogs, fetchCPEGroups, fetchWifiMappings, fetchCatalog, fetchReport, fetchWiFiRouters, fetchDashboard, fetchOnuGetOlt, fetchStatsV2, fetchCircuitSummary, fetchServiceNames, fetchNoWifiSummary]);
+  }, [view, mappingTab, fetchData, fetchLogs, fetchCPEGroups, fetchWifiMappings, fetchCatalog, fetchReport, fetchWiFiRouters, fetchDashboard, fetchOnuGetOlt, fetchStatsV2, fetchCircuitSummary, fetchServiceNames, fetchNoWifiSummary, fetchYears, fetchReplacementConfigs]);
 
   // Re-fetch circuit when pagination/sort changes
   useEffect(() => {
     if (view === 'home') fetchCircuitSummary();
-  }, [circuitPage, circuitSearch, circuitSortField, circuitSortOrder]);
+  }, [circuitPage, circuitSearch, circuitSortField, circuitSortOrder, selectedServices, startYear, endYear]);
 
   // Re-fetch stats when service filter changes
   useEffect(() => {
@@ -1110,6 +1225,8 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     setMappingWifi({ ...mappingWifi, ...updates });
   };
 
+  // Catalog discovery handlers
+
 
   return (
     <div className="min-h-screen flex bg-[#f8fafc] font-sans text-slate-900">
@@ -1183,7 +1300,16 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-hidden">
         <header className="h-24 bg-white border-b border-slate-200 flex items-center justify-between px-10 shrink-0 shadow-sm z-10">
-            <div className="flex items-center gap-6"><h2 className="text-2xl font-black text-slate-800 tracking-tight">{view === 'home' ? 'Dashboard Summary v2.1' : view === 'onu' ? 'รายการข้อมูล ONU' : view === 'wifi' ? 'รายการข้อมูล WiFi Router' : view === 'onu-get-olt' ? 'รายการข้อมูล ONU Get OLT' : view === 'cpe' ? 'จัดการยี่ห้อ/รุ่นอุปกรณ์' : view === 'catalog' ? 'ฐานข้อมูลอุปกรณ์' : view === 'report' ? 'Integrated Report' : 'ประวัติการใช้งาน'}</h2>{((view === 'home' ? circuitTotal : total) > 0) && (<div className="flex items-center justify-center px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-sm border border-indigo-100 min-w-[160px] whitespace-nowrap"><span>ทั้งหมด {(view === 'home' ? circuitTotal : total).toLocaleString()} รายการ</span></div>)}</div>
+          <div className="flex items-center gap-6">
+            <h2 className="text-2xl font-black text-slate-800 tracking-tight">
+              {view === 'home' ? (homeTab === 'executive' ? 'Executive Dashboard' : 'Dashboard Summary v2.1') : view === 'onu' ? 'รายการข้อมูล ONU' : view === 'wifi' ? 'รายการข้อมูล WiFi Router' : view === 'onu-get-olt' ? 'รายการข้อมูล ONU Get OLT' : view === 'cpe' ? 'จัดการยี่ห้อ/รุ่นอุปกรณ์' : view === 'catalog' ? 'ฐานข้อมูลอุปกรณ์' : view === 'report' ? 'Integrated Report' : view === 'missing-mapping' ? 'จัดการข้อมูลที่ไม่สมบูรณ์' : 'ประวัติการใช้งาน'}
+            </h2>
+            {view !== 'home' && total > 0 && (
+              <div className="flex items-center justify-center px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-sm border border-indigo-100 min-w-[160px] whitespace-nowrap">
+                <span>ทั้งหมด {total.toLocaleString()} รายการ</span>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-6">
             {(view === 'home' || view === 'onu' || view === 'report' || view === 'wifi' || view === 'onu-get-olt' || view === 'cpe' || view === 'catalog') && (
               <form onSubmit={handleSearchSubmit} className="flex items-center gap-3">
@@ -1215,180 +1341,240 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           {view === 'home' && (
             <div className="flex-1 overflow-y-auto p-8 scrollbar-thin bg-slate-50/30">
               <div className="flex flex-col gap-8 max-w-[1600px] mx-auto">
-                {/* --- Tab Navigation --- */}
+                {/* --- Tab Navigation & Global Filters --- */}
                 <div className="flex flex-col md:flex-row md:items-center gap-4">
                   <div className="flex p-1.5 bg-slate-100/80 backdrop-blur-sm rounded-2xl w-fit border border-slate-200">
                     <button onClick={() => setHomeTab('circuit')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'circuit' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Circuit Summary (New)</button>
                     <button onClick={() => setHomeTab('overview')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'overview' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Overview (Classic)</button>
+                    <button onClick={() => setHomeTab('executive')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'executive' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Executive Dashboard</button>
                   </div>
 
-                  {homeTab === 'circuit' && (
-                    <div className="relative z-20">
-                      <button 
-                        onClick={() => setIsServiceFilterOpen(!isServiceFilterOpen)}
-                        className={`flex items-center gap-2 px-5 py-3 bg-white border ${selectedServices.length > 0 ? 'border-blue-500 text-blue-600 shadow-blue-100' : 'border-slate-200 text-slate-600 hover:border-slate-300 shadow-slate-100'} rounded-2xl text-sm font-black shadow-md transition-all`}
-                      >
-                        <Database size={18} />
-                        <span>ตัวกรอง Service Name {selectedServices.length > 0 ? `(${selectedServices.length})` : ''}</span>
-                        <ChevronDown size={18} className={`ml-2 transition-transform duration-200 ${isServiceFilterOpen ? 'rotate-180' : ''}`} />
-                      </button>
-
-                      {isServiceFilterOpen && (
-                        <>
-                          {/* Invisible backdrop to close dropdown on click outside */}
-                          <div className="fixed inset-0 z-40" onClick={() => setIsServiceFilterOpen(false)}></div>
-                          
-                          <div className="absolute top-[calc(100%+8px)] left-0 w-[360px] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden flex flex-col origin-top-left animate-in fade-in zoom-in-95 duration-200">
-                            <div className="p-3 border-b border-slate-100 bg-slate-50/50">
-                              <div className="relative">
-                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input 
-                                  type="text" 
-                                  placeholder="ค้นหา (Search)..." 
-                                  value={serviceSearchTerm}
-                                  onChange={(e) => setServiceSearchTerm(e.target.value)}
-                                  className="w-full pl-10 pr-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 placeholder-slate-400"
-                                  autoFocus
-                                />
+                  {(homeTab === 'circuit' || homeTab === 'executive') && (
+                    <>
+                      <div className="relative z-20">
+                        <button 
+                          onClick={() => setIsServiceFilterOpen(!isServiceFilterOpen)}
+                          className={`flex items-center gap-2 px-5 py-3 bg-white border ${selectedServices.length > 0 ? 'border-blue-500 text-blue-600 shadow-blue-100' : 'border-slate-200 text-slate-600 hover:border-slate-300 shadow-slate-100'} rounded-2xl text-sm font-black shadow-md transition-all`}
+                        >
+                          <Database size={18} />
+                          <span>ตัวกรอง Service Name {selectedServices.length > 0 ? `(${selectedServices.length})` : ''}</span>
+                          <ChevronDown size={18} className={`ml-2 transition-transform duration-200 ${isServiceFilterOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {isServiceFilterOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setIsServiceFilterOpen(false)}></div>
+                            <div className="absolute top-[calc(100%+8px)] left-0 w-[360px] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden flex flex-col origin-top-left animate-in fade-in zoom-in-95 duration-200">
+                              <div className="p-3 border-b border-slate-100 bg-slate-50/50">
+                                <div className="relative">
+                                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                  <input 
+                                    type="text" 
+                                    placeholder="ค้นหา (Search)..." 
+                                    value={serviceSearchTerm}
+                                    onChange={(e) => setServiceSearchTerm(e.target.value)}
+                                    className="w-full pl-10 pr-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 placeholder-slate-400"
+                                    autoFocus
+                                  />
+                                </div>
+                              </div>
+                              <div className="max-h-[320px] overflow-y-auto scrollbar-thin p-2 flex flex-col gap-0.5">
+                                <label className="flex items-center gap-3 p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer transition-all">
+                                   <input 
+                                     type="checkbox" 
+                                     className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                                     checked={serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).length > 0 && serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).every(s => selectedServices.includes(s.service_name))}
+                                     onChange={(e) => {
+                                       const filtered = serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).map(s => s.service_name);
+                                       if (e.target.checked) setSelectedServices(prev => Array.from(new Set([...prev, ...filtered])));
+                                       else setSelectedServices(prev => prev.filter(s => !filtered.includes(s)));
+                                     }}
+                                   />
+                                   <span className="text-sm font-black text-slate-800">(Select All{serviceSearchTerm ? ' Search Results' : ''})</span>
+                                </label>
+                                <div className="h-px w-full bg-slate-100 my-1"></div>
+                                {serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).map((s, i) => (
+                                  <label key={i} className={`flex items-center justify-between p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer group transition-all ${selectedServices.includes(s.service_name) ? 'bg-blue-50/50' : ''}`}>
+                                    <div className="flex items-center gap-3">
+                                      <input 
+                                        type="checkbox" 
+                                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                                        checked={selectedServices.includes(s.service_name)}
+                                        onChange={(e) => {
+                                          if (e.target.checked) setSelectedServices(prev => [...prev, s.service_name]);
+                                          else setSelectedServices(prev => prev.filter(v => v !== s.service_name));
+                                        }}
+                                      />
+                                      <span className={`text-sm font-bold truncate max-w-[200px] ${selectedServices.includes(s.service_name) ? 'text-blue-700' : 'text-slate-600'}`} title={s.service_name}>{s.service_name}</span>
+                                    </div>
+                                    <span className={`text-xs font-black ${selectedServices.includes(s.service_name) ? 'text-blue-500' : 'text-slate-400 group-hover:text-blue-400'}`}>{Number(s.circuit_count).toLocaleString()}</span>
+                                  </label>
+                                ))}
+                              </div>
+                              <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
+                                <button onClick={() => setSelectedServices([])} className="px-4 py-2 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-xl transition-all">Clear Filter</button>
+                                <button onClick={() => setIsServiceFilterOpen(false)} className="px-6 py-2 text-xs font-black text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-200">OK</button>
                               </div>
                             </div>
-                            
-                            <div className="max-h-[320px] overflow-y-auto scrollbar-thin p-2 flex flex-col gap-0.5">
-                              {/* Select All Checkbox */}
-                              <label className="flex items-center gap-3 p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer transition-all">
-                                 <input 
-                                   type="checkbox" 
-                                   className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                                   checked={
-                                     serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).length > 0 &&
-                                     serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase()))
-                                       .every(s => selectedServices.includes(s.service_name))
-                                   }
-                                   onChange={(e) => {
-                                     const filtered = serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).map(s => s.service_name);
-                                     if (e.target.checked) {
-                                       setSelectedServices(prev => Array.from(new Set([...prev, ...filtered])));
-                                     } else {
-                                       setSelectedServices(prev => prev.filter(s => !filtered.includes(s)));
-                                     }
-                                   }}
-                                 />
-                                 <span className="text-sm font-black text-slate-800">(Select All{serviceSearchTerm ? ' Search Results' : ''})</span>
-                              </label>
-                              
-                              <div className="h-px w-full bg-slate-100 my-1"></div>
+                          </>
+                        )}
+                      </div>
 
-                              {/* List of Services */}
-                              {serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).map((s, i) => (
-                                <label key={i} className={`flex items-center justify-between p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer group transition-all ${selectedServices.includes(s.service_name) ? 'bg-blue-50/50' : ''}`}>
-                                  <div className="flex items-center gap-3">
-                                    <input 
-                                      type="checkbox" 
-                                      className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                                      checked={selectedServices.includes(s.service_name)}
-                                      onChange={(e) => {
-                                        if (e.target.checked) setSelectedServices(prev => [...prev, s.service_name]);
-                                        else setSelectedServices(prev => prev.filter(v => v !== s.service_name));
-                                      }}
-                                    />
-                                    <span className={`text-sm font-bold truncate max-w-[200px] ${selectedServices.includes(s.service_name) ? 'text-blue-700' : 'text-slate-600'}`} title={s.service_name}>{s.service_name}</span>
-                                  </div>
-                                  <span className={`text-xs font-black ${selectedServices.includes(s.service_name) ? 'text-blue-500' : 'text-slate-400 group-hover:text-blue-400'}`}>{Number(s.circuit_count).toLocaleString()}</span>
-                                </label>
-                              ))}
-                              {serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).length === 0 && (
-                                <div className="py-8 text-center text-sm font-bold text-slate-400 flex flex-col items-center gap-2">
-                                  <Search size={24} className="text-slate-300 opacity-50" />
-                                  <span>ไม่พบ Service ที่ค้นหา</span>
-                                </div>
-                              )}
+                      <div className="relative z-20">
+                        <button 
+                          onClick={() => setIsYearFilterOpen(!isYearFilterOpen)}
+                          className={`flex items-center gap-2 px-5 py-3 bg-white border ${startYear && endYear ? 'border-amber-500 text-amber-600 shadow-amber-100' : 'border-slate-200 text-slate-600 hover:border-slate-300 shadow-slate-100'} rounded-2xl text-sm font-black shadow-md transition-all`}
+                        >
+                          <Calendar size={18} />
+                          <span>ตัวกรอง ปีที่ติดตั้ง {startYear && endYear ? `(${startYear === '0000' ? 'ข้อมูลปี 0000' : `${startYear}-${endYear}`})` : ''}</span>
+                          <ChevronDown size={18} className={`ml-2 transition-transform duration-200 ${isYearFilterOpen ? 'rotate-180' : ''}`} />
+                        </button>
+
+                        {isYearFilterOpen && (
+                          <>
+                            <div className="fixed inset-0 z-40" onClick={() => setIsYearFilterOpen(false)}></div>
+                            <div className="absolute top-[calc(100%+8px)] left-0 w-[300px] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 p-4 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200">
+                              <div className="flex flex-col gap-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">ปีเริ่มต้น</label>
+                                <select 
+                                  value={startYear} 
+                                  onChange={(e) => {
+                                    setStartYear(e.target.value);
+                                    if (e.target.value === '0000') setEndYear('0000');
+                                    else if (endYear === '0000') setEndYear('');
+                                  }}
+                                  className="w-full px-4 py-2 text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-100 text-slate-700"
+                                >
+                                  <option value="">(ทั้งหมด)</option>
+                                  {availableYears.map(y => <option key={y} value={y}>{y === '0000' ? '0000 (ไม่มีข้อมูล)' : y}</option>)}
+                                </select>
+                              </div>
+
+                              <div className="flex flex-col gap-2">
+                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">ปีสิ้นสุด</label>
+                                <select 
+                                  value={endYear} 
+                                  onChange={(e) => setEndYear(e.target.value)}
+                                  disabled={startYear === '0000'}
+                                  className="w-full px-4 py-2 text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-100 text-slate-700 disabled:opacity-50"
+                                >
+                                  <option value="">(ทั้งหมด)</option>
+                                  {availableYears.filter(y => y !== '0000' && (!startYear || y >= startYear)).map(y => <option key={y} value={y}>{y}</option>)}
+                                </select>
+                              </div>
+
+                              <div className="flex items-center justify-between gap-2 mt-2">
+                                <button onClick={() => { setStartYear(''); setEndYear(''); }} className="px-4 py-2 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-xl transition-all">Clear</button>
+                                <button onClick={() => setIsYearFilterOpen(false)} className="px-6 py-2 text-xs font-black text-white bg-amber-600 rounded-xl hover:bg-amber-700 transition-all shadow-md shadow-amber-200">OK</button>
+                              </div>
                             </div>
-                            
-                            <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
-                              <button onClick={() => setSelectedServices([])} className="px-4 py-2 text-xs font-black text-rose-500 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all">Clear Filter</button>
-                              <button onClick={() => setIsServiceFilterOpen(false)} className="px-6 py-2 text-xs font-black text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-200">OK</button>
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="flex items-center ml-2">
+                        <label className="flex items-center gap-2 cursor-pointer bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-md shadow-slate-100 hover:border-blue-300 transition-all">
+                          <input 
+                            type="checkbox" 
+                            className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                            checked={excludeNoWifi}
+                            onChange={(e) => setExcludeNoWifi(e.target.checked)}
+                          />
+                          <span className="text-sm font-black text-slate-700 select-none">นำรายการที่ไม่มีข้อมูล wifi ออก</span>
+                        </label>
+                      </div>
+                    </>
                   )}
                 </div>
 
-                {homeTab === 'circuit' && dashboardV2Stats && (
+                {homeTab === 'circuit' && (
                   <>
                     {/* --- Stats Cards (V2) --- */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
-                      {/* Card 1.1: ONU Type Breakdown */}
-                      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex flex-col gap-4">
-                        <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-                          <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Layout size={18} /></div>
-                          <h3 className="font-black text-slate-700 text-sm">จำนวน ONU (ตาม Type)</h3>
-                        </div>
-                        <div className="space-y-3 flex-1">
-                          {dashboardV2Stats.card11_type_breakdown?.slice(0,3).map((t: any, i: number) => (
-                            <div key={i} className="flex justify-between items-center text-xs">
-                              <span className="font-bold text-slate-500">{t.type}</span>
-                              <span className="font-black text-indigo-600">{Number(t.total).toLocaleString()}</span>
+                    {dashboardV2Stats ? (
+                      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+                        {/* Card 1.1: ALL IN ONE */}
+                        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col gap-3">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg"><Cpu size={16} /></div>
+                              <h3 className="font-black text-slate-700 text-xs">ONU ALL IN ONE</h3>
                             </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Card 1.2: FE Only */}
-                      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex flex-col gap-4">
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-rose-50 text-rose-600 rounded-lg"><Shield size={18} /></div>
-                            <h3 className="font-black text-slate-700 text-sm">ONU Port 100M</h3>
+                            <span className="font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded text-xs">{Number(dashboardV2Stats.card11_type_breakdown?.total || 0).toLocaleString()}</span>
                           </div>
-                          <span className="font-black text-rose-600 bg-rose-50 px-2 py-0.5 rounded text-sm">{Number(dashboardV2Stats.card12_fe_only?.total || 0).toLocaleString()}</span>
-                        </div>
-                        <div className="space-y-2 flex-1">
-                          {dashboardV2Stats.card12_fe_only?.brands?.slice(0,4).map((b: any, i: number) => (
-                            <div key={i} className="flex justify-between items-center text-xs border-b border-slate-50 pb-1">
-                              <span className="font-bold text-slate-500">{b.brand}</span>
-                              <span className="font-black text-rose-500">{Number(b.circuit_count).toLocaleString()}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Card 1.3: Service Names */}
-                      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex flex-col gap-4">
-                        <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-                          <div className="p-2 bg-blue-50 text-blue-600 rounded-lg"><Database size={18} /></div>
-                          <h3 className="font-black text-slate-700 text-sm">ข้อมูลแยกตาม Service</h3>
-                        </div>
-                        <div className="space-y-2 flex-1 overflow-y-auto max-h-[140px] scrollbar-thin">
-                          {dashboardV2Stats.card13_by_service?.map((s: any, i: number) => (
-                            <div key={i} className="flex justify-between items-center text-xs">
-                              <span className="font-bold text-slate-500 truncate max-w-[150px]">{s.service_name}</span>
-                              <span className="font-black text-blue-600">{Number(s.circuit_count).toLocaleString()}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Card 1.4: Speed Mismatch */}
-                      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex flex-col gap-4">
-                        <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-                          <div className="flex items-center gap-3">
-                            <div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><AlertCircle size={18} /></div>
-                            <h3 className="font-black text-slate-700 text-sm">สปีดไม่ถึงแพ็กเกจ</h3>
+                          <div className="space-y-2 flex-1">
+                            {dashboardV2Stats.card11_type_breakdown?.brands?.slice(0,3).map((t: any, i: number) => (
+                              <div key={i} className="flex justify-between items-center text-[10px]">
+                                <span className="font-bold text-slate-500">{t.type}</span>
+                                <span className="font-black text-indigo-600">{Number(t.total).toLocaleString()}</span>
+                              </div>
+                            ))}
                           </div>
-                          <span className="font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded text-sm">{dashboardV2Stats.card14_speed_mismatch?.reduce((a:any,b:any)=>a+Number(b.mismatch_count),0).toLocaleString()}</span>
                         </div>
-                        <div className="space-y-2 flex-1">
-                          {dashboardV2Stats.card14_speed_mismatch?.map((m: any, i: number) => (
-                            <div key={i} className="flex justify-between items-center text-[11px]">
-                              <span className="font-bold text-slate-500 truncate">{m.brand}</span>
-                              <span className="font-black text-amber-600 bg-amber-50 px-2 py-0.5 rounded">{Number(m.mismatch_count).toLocaleString()}</span>
+
+                        {/* Card 1.2: FE Ports */}
+                        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col gap-3">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 bg-rose-50 text-rose-600 rounded-lg"><Shield size={16} /></div>
+                              <h3 className="font-black text-slate-700 text-xs">ONU Port FE</h3>
                             </div>
-                          ))}
+                            <span className="font-black text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded text-xs">{Number(dashboardV2Stats.card12_fe_only?.total || 0).toLocaleString()}</span>
+                          </div>
+                          <div className="space-y-2 flex-1">
+                            {dashboardV2Stats.card12_fe_only?.brands?.slice(0,4).map((b: any, i: number) => (
+                              <div key={i} className="flex justify-between items-center text-[10px] border-b border-slate-50 pb-1">
+                                <span className="font-bold text-slate-500">{b.brand}</span>
+                                <span className="font-black text-rose-500">{Number(b.circuit_count).toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Card 1.3: GE Ports */}
+                        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col gap-3">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg"><Zap size={16} /></div>
+                              <h3 className="font-black text-slate-700 text-xs">ONU Port GE</h3>
+                            </div>
+                            <span className="font-black text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded text-xs">{Number(dashboardV2Stats.card13_ge?.total || 0).toLocaleString()}</span>
+                          </div>
+                          <div className="space-y-2 flex-1">
+                            {dashboardV2Stats.card13_ge?.brands?.slice(0,4).map((b: any, i: number) => (
+                              <div key={i} className="flex justify-between items-center text-[10px] border-b border-slate-50 pb-1">
+                                <span className="font-bold text-slate-500">{b.brand}</span>
+                                <span className="font-black text-emerald-500">{Number(b.circuit_count).toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Card 1.4: Speed Mismatch */}
+                        <div className="bg-white rounded-2xl p-4 border border-slate-200 shadow-sm flex flex-col gap-3">
+                          <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 bg-amber-50 text-amber-600 rounded-lg"><AlertCircle size={16} /></div>
+                              <h3 className="font-black text-slate-700 text-xs">สปีดไม่ถึงแพ็กเกจ</h3>
+                            </div>
+                            <span className="font-black text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded text-xs">{Number(dashboardV2Stats.card14_speed_mismatch?.total || 0).toLocaleString()}</span>
+                          </div>
+                          <div className="space-y-2 flex-1 overflow-y-auto max-h-[120px] scrollbar-thin">
+                            {dashboardV2Stats.card14_speed_mismatch?.brands?.map((m: any, i: number) => (
+                              <div key={i} className="flex justify-between items-center text-[10px] border-b border-slate-50 pb-1">
+                                <span className="font-bold text-slate-500 truncate mr-2">{m.brand}</span>
+                                <span className="font-black text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">{Number(m.mismatch_count).toLocaleString()}</span>
+                              </div>
+                            ))}
+                          </div>
                         </div>
                       </div>
-                    </div>
+                    ) : (
+                      <div className="h-[200px] flex items-center justify-center bg-white rounded-3xl border border-dashed border-slate-200">
+                        <div className="flex flex-col items-center gap-2 text-slate-400">
+                          <RefreshCw size={24} className="animate-spin" />
+                          <span className="text-sm font-bold">กำลังโหลดข้อมูลสถิติ...</span>
+                        </div>
+                      </div>
+                    )}
 
                     {/* --- Circuit Table --- */}
                     <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-xl overflow-hidden flex flex-col min-h-[600px]">
@@ -1398,7 +1584,12 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                             <Zap size={24} />
                           </div>
                           <div>
-                            <h2 className="text-xl font-black text-slate-800">สรุปข้อมูลระดับวงจร (Circuit Summary)</h2>
+                            <div className="flex items-center gap-4">
+                              <h2 className="text-xl font-black text-slate-800">สรุปข้อมูลระดับวงจร (Circuit Summary)</h2>
+                              <div className="px-3 py-1 bg-indigo-50 text-indigo-600 rounded-lg border border-indigo-100 text-sm font-black animate-in fade-in slide-in-from-left duration-300">
+                                ทั้งหมด {circuitTotal.toLocaleString()} รายการ
+                              </div>
+                            </div>
                             <p className="text-xs font-bold text-slate-400 mt-1">รวมศูนย์ข้อมูลอุปกรณ์จากทุกตาราง โดยใช้ Circuit ID เป็นหลัก</p>
                           </div>
                         </div>
@@ -1414,6 +1605,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               className="pl-11 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm w-[250px] focus:ring-2 focus:ring-indigo-100 focus:border-indigo-500 outline-none transition-all"
                             />
                           </div>
+                          <button onClick={() => setIsReplacementModalOpen(true)} className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 text-white rounded-xl text-sm font-black shadow-md hover:bg-amber-600 transition-all">
+                            <Settings2 size={16} /> ตั้งค่าอุปกรณ์ทดแทน
+                          </button>
                           <button onClick={handleRefreshData} disabled={isRefreshing} className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl text-sm font-black shadow-md hover:bg-blue-700 transition-all disabled:opacity-50">
                             <RefreshCw size={16} className={isRefreshing ? 'animate-spin' : ''} /> {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
                           </button>
@@ -1427,55 +1621,78 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                         <table className="w-full text-left whitespace-nowrap">
                           <thead>
                             <tr className="bg-slate-50 border-b border-slate-100">
-                              <th onClick={() => { if(circuitSortField==='circuit_norm') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('circuit_norm'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 text-[11px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">หมายเลขวงจร</th>
-                              <th onClick={() => { if(circuitSortField==='service_name') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('service_name'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 text-[11px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">Service Name</th>
-                              <th onClick={() => { if(circuitSortField==='speed') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('speed'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 text-[11px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ความเร็ว (Mbps)</th>
-                              <th onClick={() => { if(circuitSortField==='onu_brand') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('onu_brand'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 text-[11px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ONU Device</th>
-                              <th onClick={() => { if(circuitSortField==='onu_device_type') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('onu_device_type'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 text-[11px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ONU Type</th>
-                              <th onClick={() => { if(circuitSortField==='wifi_brand') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('wifi_brand'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 text-[11px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">WiFi Router</th>
-                              <th onClick={() => { if(circuitSortField==='effective_max_speed') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('effective_max_speed'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-6 py-4 text-[11px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">Max Speed รวม</th>
+                              <th onClick={() => { if(circuitSortField==='circuit_norm') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('circuit_norm'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">หมายเลขวงจร</th>
+                              <th onClick={() => { if(circuitSortField==='service_name') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('service_name'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">Service Name</th>
+                              <th onClick={() => { if(circuitSortField==='install_year') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('install_year'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ปีที่ติดตั้ง</th>
+                              <th onClick={() => { if(circuitSortField==='speed') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('speed'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ความเร็ว (Mbps)</th>
+                              <th onClick={() => { if(circuitSortField==='onu_brand') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('onu_brand'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ONU Device</th>
+                              <th onClick={() => { if(circuitSortField==='onu_device_type') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('onu_device_type'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ONU Type</th>
+                              <th onClick={() => { if(circuitSortField==='wifi_brand') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('wifi_brand'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">WiFi Router</th>
+                              <th onClick={() => { if(circuitSortField==='effective_max_speed') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('effective_max_speed'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">Max Speed รวม</th>
+                              <th className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500">สถานะ</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-50">
-                            {circuitData.map((row, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
-                                <td className="px-6 py-3 text-sm font-black text-indigo-600 flex items-center gap-2">
-                                  {row.circuit_norm}
-                                  {row.has_onu && row.has_olt && row.has_wifi ? <span className="w-2 h-2 rounded-full bg-slate-800" title="พบในทุกตาราง"></span> :
-                                   row.has_wifi ? <span className="w-2 h-2 rounded-full bg-green-500" title="พบใน WiFi Router"></span> :
-                                   row.has_olt ? <span className="w-2 h-2 rounded-full bg-blue-500" title="พบใน ONU Get OLT"></span> :
-                                   <span className="w-2 h-2 rounded-full bg-indigo-400" title="พบเฉพาะ ONU Records"></span>}
-                                </td>
-                                <td className="px-6 py-3 text-sm font-bold text-slate-600">{row.service_name || '-'}</td>
-                                <td className="px-6 py-3 text-sm font-bold text-slate-600">{(() => {
-                                  if (!row.speed) return '-';
-                                  const dlStr = row.speed.split('/')[0];
-                                  const numStr = dlStr.replace(/[^0-9.]/g, '');
-                                  if (!numStr) return row.speed;
-                                  let num = parseFloat(numStr);
-                                  if (dlStr.toLowerCase().includes('k')) {
-                                    num = num / 1024;
-                                  }
-                                  return Math.round(num).toString();
-                                })()}</td>
-                                <td className="px-6 py-3">
-                                  <div className="flex flex-col">
-                                    <span className="text-xs font-black text-blue-600">{row.has_onu || row.has_olt ? (row.onu_brand || 'Pending Mapping') : '-'}</span>
-                                    <span className="text-[10px] font-bold text-blue-400">{row.has_onu || row.has_olt ? row.onu_model : ''}</span>
-                                  </div>
-                                </td>
-                                <td className="px-6 py-3">
-                                  <span className="text-xs font-bold text-slate-600">{row.onu_device_type || '-'}</span>
-                                </td>
-                                <td className="px-6 py-3">
-                                  <div className="flex flex-col">
-                                    <span className="text-xs font-black text-emerald-600">{row.has_wifi ? (row.wifi_brand || 'Pending Mapping') : '-'}</span>
-                                    <span className="text-[10px] font-bold text-emerald-500">{row.has_wifi ? row.wifi_model : ''}</span>
-                                  </div>
-                                </td>
-                                <td className="px-6 py-3 text-sm font-black text-amber-600">{row.effective_max_speed || '-'}</td>
-                              </tr>
-                            ))}
+                            {circuitData.map((row, idx) => {
+                              const dlStr = row.speed ? row.speed.split('/')[0] : '';
+                              const rawVal = parseFloat(dlStr.replace(/[^0-9.]/g, '')) || 0;
+                              let pkgSpeed = 0;
+                              if (rawVal > 0) {
+                                if (dlStr.toLowerCase().includes('k') || rawVal > 5000) {
+                                  pkgSpeed = rawVal / 1024;
+                                } else {
+                                  pkgSpeed = rawVal;
+                                }
+                              }
+                              const deviceMax = parseInt(row.effective_max_speed) || 0;
+                              const isMismatch = pkgSpeed > deviceMax && deviceMax > 0;
+
+                              return (
+                                <tr key={idx} className={`transition-colors group ${isMismatch ? 'bg-red-50/70 hover:bg-red-100/70' : 'hover:bg-slate-50/50'}`}>
+                                  <td className="px-6 py-3 text-sm font-black text-indigo-600 flex items-center gap-2">
+                                    {row.circuit_norm}
+                                    {row.has_onu && row.has_olt && row.has_wifi ? <span className="w-2 h-2 rounded-full bg-slate-800" title="พบในทุกตาราง"></span> :
+                                     row.has_wifi ? <span className="w-2 h-2 rounded-full bg-green-500" title="พบใน WiFi Router"></span> :
+                                     row.has_olt ? <span className="w-2 h-2 rounded-full bg-blue-500" title="พบใน ONU Get OLT"></span> :
+                                     <span className="w-2 h-2 rounded-full bg-indigo-400" title="พบเฉพาะ ONU Records"></span>}
+                                  </td>
+                                  <td className="px-6 py-3 text-sm font-bold text-slate-600">{row.service_name || '-'}</td>
+                                  <td className="px-6 py-3 text-sm font-bold text-slate-600">{row.install_year || '-'}</td>
+                                  <td className="px-6 py-3 text-sm font-bold text-slate-600">
+                                    {rawVal > 0 ? Math.round(pkgSpeed).toLocaleString() : '-'}
+                                  </td>
+                                  <td className="px-6 py-3">
+                                    <div className="flex flex-col">
+                                      <span className="text-xs font-black text-blue-600">{row.has_onu || row.has_olt ? (row.onu_brand || row.onu_raw_name || 'Pending Mapping') : '-'}</span>
+                                      <span className="text-[10px] font-bold text-blue-400">{row.has_onu || row.has_olt ? (row.onu_brand ? row.onu_model : 'Raw Data') : ''}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-3">
+                                    <span className="text-xs font-bold text-slate-600">{row.onu_device_type || '-'}</span>
+                                  </td>
+                                  <td className="px-6 py-3">
+                                    <div className="flex flex-col">
+                                      <span className="text-xs font-black text-emerald-600">{row.has_wifi ? (row.wifi_brand || row.wifi_raw_brand || 'Pending Mapping') : '-'}</span>
+                                      <span className="text-[10px] font-bold text-emerald-500">{row.has_wifi ? (row.wifi_brand ? row.wifi_model : (row.wifi_raw_model || 'Raw Data')) : ''}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-3">
+                                    <span className={`text-xs font-black ${row.effective_max_speed ? 'text-slate-800' : 'text-slate-300'}`}>{row.effective_max_speed || '-'}</span>
+                                  </td>
+                                  <td className="px-6 py-3">
+                                     {rawVal === 0 ? (
+                                       <span className="px-2 py-0.5 bg-slate-100 text-slate-400 rounded-lg text-[9px] font-black border border-slate-200 uppercase tracking-tighter italic">Unknown</span>
+                                     ) : isMismatch ? (
+                                       <span className="px-2 py-0.5 bg-rose-100 text-rose-600 rounded-lg text-[9px] font-black border border-rose-200 uppercase tracking-tighter">Mismatch</span>
+                                     ) : deviceMax > 0 ? (
+                                       <span className="px-2 py-0.5 bg-emerald-100 text-emerald-600 rounded-lg text-[9px] font-black border border-emerald-200 uppercase tracking-tighter">Ready</span>
+                                     ) : (
+                                       <span className="px-2 py-0.5 bg-slate-100 text-slate-400 rounded-lg text-[9px] font-black border border-slate-200 uppercase tracking-tighter italic">N/A</span>
+                                     )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
@@ -1484,69 +1701,307 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       </div>
                     </div>
 
-                    {/* --- No WiFi / GE Section --- */}
-                    {noWifiData.no_wifi?.length > 0 && (
-                      <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm mt-6">
-                        <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
-                          <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl"><Network size={20} /></div>
-                          <div>
-                            <h3 className="font-black text-slate-800">กลุ่ม ONU ที่ไม่มี WiFi ต่อพ่วง (Bridge Mode / มี Port GE)</h3>
-                            <p className="text-xs font-bold text-slate-400">แยกตามยี่ห้อ (Top 10)</p>
+                    {/* --- Group 1: FE Only Section (Minimal) --- */}
+                    {(noWifiData.fe_only || []).length > 0 && (
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm mt-4 overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-rose-50 text-rose-600 rounded-lg"><Shield size={18} /></div>
+                            <div>
+                              <h3 className="font-black text-slate-800 text-sm">
+                                กลุ่มที่ 1: ONU Port FE ล้วน (ทุกประเภท)
+                                <span className="ml-2 text-red-600 font-black">({Number(noWifiData.fe_only_total || 0).toLocaleString()})</span>
+                              </h3>
+                            </div>
                           </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                          {noWifiData.no_wifi.map((d, idx) => (
-                            <div key={idx} className="bg-slate-50 rounded-2xl p-5 border border-slate-100 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow">
-                              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                                <span className="text-lg font-black text-slate-800 truncate" title={d.brand}>{d.brand}</span>
-                                <span className="text-sm font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md">{Number(d.total).toLocaleString()}</span>
-                              </div>
-                              <div className="flex flex-col gap-4">
-                                <div>
-                                  <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto scrollbar-thin">
-                                    {d.models?.length > 0 ? d.models.map((m: any, i: number) => (
-                                      <div key={i} className="flex justify-between text-[11px] bg-white px-2 py-1.5 rounded border border-slate-100">
-                                        <span className="font-bold text-slate-600 truncate mr-2" title={m.model}>{m.model}</span>
-                                        <span className="font-black text-slate-800">{Number(m.count).toLocaleString()}</span>
-                                      </div>
-                                    )) : <span className="text-[10px] text-slate-400 italic">ไม่มีข้อมูล</span>}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+                        <div className="overflow-x-auto -mx-5">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="bg-slate-50 border-y border-slate-100">
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">ยี่ห้อ</th>
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">รุ่น</th>
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">ประเภท</th>
+                                <th className="px-5 py-2 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider">จำนวน</th>
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">รุ่นที่ซื้อทดแทน</th>
+                                <th className="px-5 py-2 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider">รวมราคา</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                              {(() => {
+                                const rows: any[] = [];
+                                (noWifiData.fe_only || []).forEach((d: any) => {
+                                  (d.models || []).forEach((m: any) => {
+                                    if (m.bridge_count > 0) rows.push({ brand: d.brand, model: m.model, type: 'ONU Bridge', count: m.bridge_count });
+                                    if (m.aio_count > 0) rows.push({ brand: d.brand, model: m.model, type: 'ONU ALL IN ONE', count: m.aio_count });
+                                  });
+                                });
+                                return rows.slice(0, 5).map((row, idx) => {
+                                  const replacement = replacementConfigs.find(c => c.brand.toLowerCase() === row.brand.toLowerCase() && c.type === row.type);
+                                  const totalPrice = row.count * (replacement?.price || 0);
+                                  return (
+                                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
+                                      <td className="px-5 py-1.5 whitespace-nowrap text-xs font-black text-slate-800">{row.brand}</td>
+                                      <td className="px-5 py-1.5 whitespace-nowrap text-xs font-bold text-slate-600">{row.model}</td>
+                                      <td className="px-5 py-1.5 whitespace-nowrap">
+                                        <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${row.type.includes('AIO') ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-blue-50 text-blue-600 border border-blue-100'}`}>
+                                          {row.type}
+                                        </span>
+                                      </td>
+                                      <td className="px-5 py-1.5 text-right whitespace-nowrap text-xs font-black text-slate-800 tabular-nums">{Number(row.count).toLocaleString()}</td>
+                                      <td className="px-5 py-1.5 whitespace-nowrap">
+                                        {replacement ? <span className="text-[11px] font-black text-indigo-600">{replacement.brand} {replacement.model}</span> : <span className="text-[10px] text-slate-300 italic">ไม่มีข้อมูล</span>}
+                                      </td>
+                                      <td className="px-5 py-1.5 text-right whitespace-nowrap text-xs font-black text-rose-600 tabular-nums">{totalPrice.toLocaleString()}</td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
                         </div>
                       </div>
                     )}
 
-                    {/* --- FE Only Section --- */}
-                    {noWifiData.fe_only?.length > 0 && (
-                      <div className="bg-white rounded-3xl p-8 border border-slate-200 shadow-sm mt-6">
-                        <div className="flex items-center gap-3 border-b border-slate-100 pb-4 mb-6">
-                          <div className="p-2.5 bg-amber-50 text-amber-600 rounded-xl"><AlertCircle size={20} /></div>
-                          <div>
-                            <h3 className="font-black text-slate-800">กลุ่ม ONU ที่เป็น Port FE ล้วน</h3>
-                            <p className="text-xs font-bold text-slate-400">แยกตามยี่ห้อ (Top 10)</p>
+                    {/* --- Group 2: Outdated AP Section (Minimal) --- */}
+                    {true && (
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm mt-4 overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-indigo-50 text-indigo-600 rounded-lg"><Wifi size={18} /></div>
+                            <div>
+                              <h3 className="font-black text-slate-800 text-sm">
+                                กลุ่มที่ 2: อุปกรณ์ AP (WiFi Router) ล้าสมัย
+                                <span className="ml-2 text-indigo-600 font-black">({Number(noWifiData.outdated_ap_total || 0).toLocaleString()})</span>
+                              </h3>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">ความเร็วไม่เกิน {apThreshold} Mbps</p>
+                                <select 
+                                  value={apThreshold} 
+                                  onChange={(e) => setApThreshold(Number(e.target.value))}
+                                  className="px-1.5 py-0 bg-slate-50 border border-slate-200 rounded text-[9px] font-black text-slate-600 outline-none"
+                                >
+                                  {[100, 200, 300, 400, 500, 600, 800, 1000].map(v => <option key={v} value={v}>{v}</option>)}
+                                </select>
+                              </div>
+                            </div>
                           </div>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                          {noWifiData.fe_only.map((d, idx) => (
-                            <div key={idx} className="bg-slate-50 rounded-2xl p-5 border border-slate-100 flex flex-col gap-3 shadow-sm hover:shadow-md transition-shadow">
-                              <div className="flex items-center justify-between border-b border-slate-200 pb-2">
-                                <span className="text-lg font-black text-slate-800 truncate" title={d.brand}>{d.brand}</span>
-                                <span className="text-sm font-black text-amber-600 bg-amber-50 px-2 py-1 rounded-md">{Number(d.total).toLocaleString()}</span>
+                        <div className="overflow-x-auto -mx-5">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="bg-slate-50 border-y border-slate-100">
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">ยี่ห้อ</th>
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">รุ่น</th>
+                                <th className="px-5 py-2 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider">จำนวน</th>
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">รุ่นที่ซื้อทดแทน</th>
+                                <th className="px-5 py-2 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider">รวมราคา</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                              {(() => {
+                                const rows: any[] = [];
+                                (noWifiData.outdated_ap || []).forEach((d: any) => {
+                                  (d.models || []).forEach((m: any) => {
+                                    rows.push({ brand: d.brand, model: m.model, type: 'AP (Router WiFi)', count: m.count });
+                                  });
+                                });
+                                return rows.slice(0, 5).map((row, idx) => {
+                                  const replacement = replacementConfigs.find(c => c.type === 'AP (Router WiFi)');
+                                  const totalPrice = row.count * (replacement?.price || 0);
+                                  return (
+                                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
+                                      <td className="px-5 py-2 whitespace-nowrap text-xs font-black text-slate-800">{row.brand}</td>
+                                      <td className="px-5 py-2 whitespace-nowrap text-xs font-bold text-slate-600">{row.model}</td>
+                                      <td className="px-5 py-2 text-right whitespace-nowrap text-xs font-black text-slate-800 tabular-nums">{Number(row.count).toLocaleString()}</td>
+                                      <td className="px-5 py-2 whitespace-nowrap">
+                                        {replacement ? <span className="text-[11px] font-black text-indigo-600">{replacement.brand} {replacement.model}</span> : <span className="text-[10px] text-slate-300 italic">ไม่มีข้อมูล</span>}
+                                      </td>
+                                      <td className="px-5 py-2 text-right whitespace-nowrap text-xs font-black text-rose-600 tabular-nums">{totalPrice.toLocaleString()}</td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
+                          {(noWifiData.outdated_ap || []).length === 0 && (
+                            <div className="py-10 text-center text-slate-400 text-xs font-bold">ไม่พบข้อมูลอุปกรณ์ที่มีความเร็วไม่เกิน {apThreshold} Mbps</div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* --- Group 2.1: Speed Mismatch Section (Minimal) --- */}
+                    {(noWifiData.speed_mismatch || []).length > 0 && (
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm mt-4 overflow-hidden">
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-amber-50 text-amber-600 rounded-lg"><AlertCircle size={18} /></div>
+                            <div>
+                              <h3 className="font-black text-slate-800 text-sm">
+                                กลุ่มที่ 2.1: สปีดไม่ถึงแพ็กเกจ (WiFi Router เป็นคอขวด)
+                                <span className="ml-2 text-amber-600 font-black">({Number(noWifiData.speed_mismatch_total || 0).toLocaleString()})</span>
+                              </h3>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Package Speed &gt; Device Max Speed</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="overflow-x-auto -mx-5">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="bg-slate-50 border-y border-slate-100">
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">ยี่ห้อ</th>
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">รุ่น</th>
+                                <th className="px-3 py-2 text-center text-[10px] font-black text-amber-600 uppercase tracking-wider">Device Max</th>
+                                <th className="px-5 py-2 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider bg-slate-100/50">รวมทั้งหมด</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">1000M</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">600M</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">500M</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">400M</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">300M</th>
+                                <th className="px-5 py-2 text-right text-[10px] font-black text-rose-600 uppercase tracking-wider">งบประมาณ</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                              {(() => {
+                                const rows: any[] = [];
+                                (noWifiData.speed_mismatch || []).forEach((d: any) => {
+                                  (d.models || []).forEach((m: any) => {
+                                    rows.push({ brand: d.brand, model: m.model, type: 'AP (Router WiFi)', count: m.count, speeds: m.speeds || {}, max_speed: m.max_speed });
+                                  });
+                                });
+                                return rows.slice(0, 5).map((row, idx) => {
+                                  const replacement = replacementConfigs.find(c => c.type === 'AP (Router WiFi)');
+                                  const totalPrice = row.count * (replacement?.price || 0);
+                                  return (
+                                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
+                                      <td className="px-5 py-1.5 whitespace-nowrap text-xs font-black text-slate-800">{row.brand}</td>
+                                      <td className="px-5 py-1.5 whitespace-nowrap text-xs font-bold text-slate-600">{row.model}</td>
+                                      <td className="px-3 py-1.5 text-center whitespace-nowrap">
+                                        <span className="px-2 py-0.5 bg-amber-50 text-amber-600 rounded text-[9px] font-black border border-amber-100">
+                                          {row.max_speed} Mbps
+                                        </span>
+                                      </td>
+                                      <td className="px-5 py-1.5 text-right whitespace-nowrap text-xs font-black text-slate-900 tabular-nums bg-slate-50/30">{Number(row.count).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-black text-indigo-600 tabular-nums">{(row.speeds['1000'] || 0).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-bold text-slate-500 tabular-nums">{(row.speeds['600'] || 0).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-bold text-slate-500 tabular-nums">{(row.speeds['500'] || 0).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-bold text-slate-500 tabular-nums">{(row.speeds['400'] || 0).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-bold text-slate-500 tabular-nums">{(row.speeds['300'] || 0).toLocaleString()}</td>
+                                      <td className="px-5 py-1.5 text-right whitespace-nowrap text-xs font-black text-rose-600 tabular-nums">
+                                        {replacement ? `฿ ${totalPrice.toLocaleString()}` : <span className="text-[10px] text-slate-300 italic">N/A</span>}
+                                      </td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Group 2.2: Overall Speed Mismatch (Focus on ONU) */}
+                    {(noWifiData.overall_mismatch || []).length > 0 && (
+                      <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm flex flex-col gap-5 mt-4">
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-4">
+                            <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl">
+                              <AlertCircle size={24} />
+                            </div>
+                            <div>
+                              <h3 className="font-black text-slate-800 text-sm">
+                                กลุ่มที่ 2.2: สปีดไม่ถึงแพ็กเกจ (ภาพรวม ONU)
+                                <span className="ml-2 text-rose-600 font-black">({Number(noWifiData.overall_mismatch_total || 0).toLocaleString()})</span>
+                              </h3>
+                              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Overall Package Speed &gt; Device Max Speed</p>
+                            </div>
+                          </div>
+                        </div>
+                        <div className="overflow-x-auto -mx-5">
+                          <table className="w-full">
+                            <thead>
+                              <tr className="bg-slate-50 border-y border-slate-100">
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">ยี่ห้อ</th>
+                                <th className="px-5 py-2 text-left text-[10px] font-black text-slate-500 uppercase tracking-wider">รุ่น</th>
+                                <th className="px-3 py-2 text-center text-[10px] font-black text-amber-600 uppercase tracking-wider">Device Max</th>
+                                <th className="px-5 py-2 text-right text-[10px] font-black text-slate-500 uppercase tracking-wider bg-slate-100/50">รวมทั้งหมด</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">1000M</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">600M</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">500M</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">400M</th>
+                                <th className="px-3 py-2 text-right text-[10px] font-black text-indigo-500 uppercase tracking-wider">300M</th>
+                                <th className="px-5 py-2 text-right text-[10px] font-black text-rose-600 uppercase tracking-wider">งบประมาณ</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-50">
+                              {(() => {
+                                const rows: any[] = [];
+                                (noWifiData.overall_mismatch || []).forEach((d: any) => {
+                                  (d.models || []).forEach((m: any) => {
+                                    rows.push({ brand: d.brand, model: m.model, count: m.count, speeds: m.speeds || {}, max_speed: m.max_speed, type: m.type });
+                                  });
+                                });
+                                return rows.slice(0, 5).map((row, idx) => {
+                                  const replacement = replacementConfigs.find(c => 
+                                    c.brand.toLowerCase() === row.brand.toLowerCase() && 
+                                    (row.type && c.type === row.type)
+                                  );
+                                  const totalPrice = row.count * (replacement?.price || 0);
+                                  return (
+                                    <tr key={idx} className="hover:bg-slate-50/50 transition-colors group">
+                                      <td className="px-5 py-1.5 whitespace-nowrap text-xs font-black text-slate-800">{row.brand}</td>
+                                      <td className="px-5 py-1.5 whitespace-nowrap text-xs font-bold text-slate-600">{row.model}</td>
+                                      <td className="px-3 py-1.5 text-center whitespace-nowrap">
+                                        <span className="px-2 py-0.5 bg-amber-50 text-amber-600 rounded text-[9px] font-black border border-amber-100">
+                                          {row.max_speed} Mbps
+                                        </span>
+                                      </td>
+                                      <td className="px-5 py-1.5 text-right whitespace-nowrap text-xs font-black text-slate-900 tabular-nums bg-slate-50/30">{Number(row.count).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-black text-indigo-600 tabular-nums">{(row.speeds['1000'] || 0).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-bold text-slate-500 tabular-nums">{(row.speeds['600'] || 0).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-bold text-slate-500 tabular-nums">{(row.speeds['500'] || 0).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-bold text-slate-500 tabular-nums">{(row.speeds['400'] || 0).toLocaleString()}</td>
+                                      <td className="px-3 py-1.5 text-right whitespace-nowrap text-xs font-bold text-slate-500 tabular-nums">{(row.speeds['300'] || 0).toLocaleString()}</td>
+                                      <td className="px-5 py-1.5 text-right whitespace-nowrap text-xs font-black text-rose-600 tabular-nums">
+                                        {replacement ? `฿ ${totalPrice.toLocaleString()}` : <span className="text-[10px] text-slate-300 italic">N/A</span>}
+                                      </td>
+                                    </tr>
+                                  );
+                                });
+                              })()}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* --- Group 3: GE Bridge Section (Minimal) --- */}
+                    {(noWifiData.no_wifi || []).length > 0 && (
+                      <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm mt-4">
+                        <div className="flex items-center gap-3 border-b border-slate-100 pb-3 mb-4">
+                          <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Network size={18} /></div>
+                          <div>
+                            <h3 className="font-black text-slate-800 text-sm">
+                              กลุ่มที่ 3: ONU Bridge มีพอร์ต GE (ไม่มี WiFi ต่อพ่วง)
+                              <span className="ml-2 text-emerald-600 font-black">({Number(noWifiData.no_wifi_total || 0).toLocaleString()})</span>
+                            </h3>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+                          {noWifiData.no_wifi.slice(0, 5).map((d: any, idx: number) => (
+                            <div key={idx} className="bg-slate-50 rounded-xl p-3 border border-slate-100 flex flex-col gap-2 shadow-sm hover:shadow-md transition-shadow">
+                              <div className="flex items-center justify-between border-b border-slate-200 pb-1.5">
+                                <span className="text-sm font-black text-slate-800 truncate" title={d.brand}>{d.brand}</span>
+                                <span className="text-[11px] font-black text-indigo-600 bg-indigo-50 px-1.5 py-0.5 rounded">{Number(d.total).toLocaleString()}</span>
                               </div>
-                              <div className="flex flex-col gap-4">
-                                <div>
-                                  <div className="flex flex-col gap-1 max-h-[160px] overflow-y-auto scrollbar-thin">
-                                    {d.models?.length > 0 ? d.models.map((m: any, i: number) => (
-                                      <div key={i} className="flex justify-between text-[11px] bg-white px-2 py-1.5 rounded border border-slate-100">
-                                        <span className="font-bold text-slate-600 truncate mr-2" title={m.model}>{m.model}</span>
-                                        <span className="font-black text-slate-800">{Number(m.count).toLocaleString()}</span>
-                                      </div>
-                                    )) : <span className="text-[10px] text-slate-400 italic">ไม่มีข้อมูล</span>}
+                              <div className="flex flex-col gap-1 max-h-[100px] overflow-y-auto scrollbar-thin">
+                                {(d.models || []).slice(0, 3).map((m: any, i: number) => (
+                                  <div key={i} className="flex justify-between text-[10px] font-bold text-slate-600 bg-white px-1.5 py-1 rounded border border-slate-100">
+                                    <span className="truncate mr-2" title={m.model}>{m.model}</span>
+                                    <span className="font-black text-slate-800">{Number(m.count).toLocaleString()}</span>
                                   </div>
-                                </div>
+                                ))}
                               </div>
                             </div>
                           ))}
@@ -1668,6 +2123,240 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                         </div>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {/* --- Executive Dashboard (Tab C) --- */}
+                {homeTab === 'executive' && (
+                  <div className="flex flex-col gap-12 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-20">
+                    {!executiveStats ? (
+                      <div className="bg-white rounded-[2.5rem] p-12 border border-slate-200 shadow-xl flex flex-col items-center justify-center text-center gap-6 min-h-[600px]">
+                        <Loader2 size={48} className="animate-spin text-indigo-500" />
+                        <p className="text-slate-400 font-bold">กำลังรวบรวมข้อมูลสรุปสำหรับผู้บริหาร...</p>
+                      </div>
+                    ) : (
+                      <>
+                        {isExecutiveLoading && (
+                          <div className="fixed inset-0 z-[100] bg-white/20 backdrop-blur-[2px] flex items-center justify-center transition-all duration-300">
+                            <div className="bg-white/90 p-8 rounded-[2.5rem] shadow-2xl border border-slate-200 flex flex-col items-center gap-4 animate-in zoom-in duration-300">
+                              <div className="w-16 h-16 border-4 border-indigo-600/20 border-t-indigo-600 rounded-full animate-spin"></div>
+                              <p className="text-slate-800 font-black text-sm">กำลังอัปเดตข้อมูลสรุป (Updating Dashboard)...</p>
+                            </div>
+                          </div>
+                        )}
+                        {/* --- Section 1: Inventory Flow --- */}
+                        <div className="flex flex-col gap-6">
+                          <div className="flex items-center gap-4 px-2">
+                            <div className="w-1 h-8 bg-indigo-600 rounded-full" />
+                            <h3 className="text-2xl font-black text-slate-800 tracking-tight">1. Hardware Inventory Breakdown (จำนวนอุปกรณ์ทั้งหมด)</h3>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-center">
+                            {/* Root */}
+                            <div className="flex justify-center">
+                              <div className="bg-gradient-to-br from-indigo-600 to-violet-700 rounded-[2.5rem] p-8 text-white shadow-2xl shadow-indigo-200 flex flex-col items-center gap-4 w-full max-w-[320px] relative">
+                                <div className="w-16 h-16 bg-white/20 backdrop-blur-md rounded-3xl flex items-center justify-center">
+                                  <Layout size={32} />
+                                </div>
+                                <div className="text-center">
+                                  <p className="text-indigo-100 font-black text-xs uppercase tracking-widest mb-1">จำนวนอุปกรณ์ทั้งหมด</p>
+                                  <h2 className="text-5xl font-black">{Number(executiveStats.total_circuits).toLocaleString()}</h2>
+                                  <p className="text-indigo-200 text-[10px] font-bold mt-2 uppercase">Circuits Managed</p>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Column 2 */}
+                            <div className="flex flex-col gap-6 relative">
+                              <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex items-center gap-6 group hover:border-indigo-400 transition-all relative hover:z-50">
+                                <BrandTooltip brands={executiveStats.brand_breakdown?.total_onu} title="Top 5 ONU Brands" position="bottom" />
+                                <div className="w-14 h-14 bg-emerald-500 rounded-2xl flex items-center justify-center text-white shadow-lg group-hover:rotate-6 transition-transform">
+                                  <Zap size={24} />
+                                </div>
+                                <div className="flex-1">
+                                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">ONU (Optical Network Unit)</p>
+                                  <h3 className="text-3xl font-black text-slate-800">{Number(executiveStats.total_onu).toLocaleString()}</h3>
+                                </div>
+                              </div>
+                              <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex items-center gap-6 group hover:border-blue-400 transition-all relative hover:z-50">
+                                <BrandTooltip brands={executiveStats.brand_breakdown?.total_ap} title="Top 5 AP Brands" position="bottom" />
+                                <div className="w-14 h-14 bg-blue-500 rounded-2xl flex items-center justify-center text-white shadow-lg group-hover:rotate-6 transition-transform">
+                                  <Wifi size={24} />
+                                </div>
+                                <div className="flex-1">
+                                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">AP (Access Point / Router)</p>
+                                  <h3 className="text-3xl font-black text-slate-800">{Number(executiveStats.total_ap).toLocaleString()}</h3>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Column 3 */}
+                            <div className="flex flex-col gap-6">
+                              <div className="grid grid-cols-2 lg:grid-cols-1 gap-4">
+                                <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 flex flex-col gap-2 group relative cursor-help hover:z-50">
+                                  <BrandTooltip brands={executiveStats.brand_breakdown?.total_aio} title="Top 5 All-in-One" position="bottom" />
+                                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ONU All In One</p>
+                                  <h4 className="text-2xl font-black text-emerald-600">{Number(executiveStats.total_aio).toLocaleString()}</h4>
+                                  <div className="w-full h-1.5 bg-slate-200 rounded-full mt-2 overflow-hidden">
+                                    <div className="h-full bg-emerald-500" style={{ width: `${(executiveStats.total_aio / executiveStats.total_onu) * 100}%` }} />
+                                  </div>
+                                </div>
+                                <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 flex flex-col gap-2 group relative cursor-help hover:z-50">
+                                  <BrandTooltip brands={executiveStats.brand_breakdown?.total_bridge} title="Top 5 Bridge ONUs" position="bottom" />
+                                  <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">ONU Bridge Only</p>
+                                  <h4 className="text-2xl font-black text-slate-700">{Number(executiveStats.total_bridge).toLocaleString()}</h4>
+                                  <div className="w-full h-1.5 bg-slate-200 rounded-full mt-2 overflow-hidden">
+                                    <div className="h-full bg-slate-500" style={{ width: `${(executiveStats.total_bridge / executiveStats.total_onu) * 100}%` }} />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* --- Section 2: Specification Flow --- */}
+                        <div className="flex flex-col gap-6">
+                          <div className="flex items-center gap-4 px-2">
+                            <div className="w-1 h-8 bg-amber-500 rounded-full" />
+                            <h3 className="text-2xl font-black text-slate-800 tracking-tight">2. Specification Overview (รายละเอียดเชิงเทคนิค)</h3>
+                          </div>
+
+                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col gap-8">
+                               <div className="flex items-center gap-4">
+                                 <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
+                                   <Zap size={24} />
+                                 </div>
+                                 <h4 className="text-xl font-black text-slate-800">ONU Specs</h4>
+                               </div>
+                               <div className="flex flex-col gap-4">
+                                 <div className="flex items-center justify-between p-6 bg-rose-50 border border-rose-100 rounded-3xl group relative cursor-help hover:z-50">
+                                   <BrandTooltip brands={executiveStats.brand_breakdown?.total_fe} title="Top 5 FE ONUs" />
+                                   <div>
+                                     <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">Port FE (Max 100Mbps)</p>
+                                     <h5 className="text-2xl font-black text-rose-600">{Number(executiveStats.total_fe).toLocaleString()} <span className="text-sm font-bold text-rose-300 ml-1">Units</span></h5>
+                                   </div>
+                                   <div className="text-right">
+                                     <span className="px-3 py-1 bg-rose-100 text-rose-600 rounded-full text-[10px] font-black">LEGACY</span>
+                                   </div>
+                                 </div>
+                                 <div className="flex items-center justify-between p-6 bg-emerald-50 border border-emerald-100 rounded-3xl group relative cursor-help hover:z-50">
+                                   <BrandTooltip brands={executiveStats.brand_breakdown?.total_ge} title="Top 5 GE ONUs" />
+                                   <div>
+                                     <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-1">Port GE (Gigabit)</p>
+                                     <h5 className="text-2xl font-black text-emerald-600">{Number(executiveStats.total_ge).toLocaleString()} <span className="text-sm font-bold text-emerald-300 ml-1">Units</span></h5>
+                                   </div>
+                                   <div className="text-right">
+                                     <span className="px-3 py-1 bg-emerald-100 text-emerald-600 rounded-full text-[10px] font-black">MODERN</span>
+                                   </div>
+                                 </div>
+                               </div>
+                            </div>
+
+                            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col gap-8">
+                               <div className="flex items-center gap-4">
+                                 <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
+                                   <Wifi size={24} />
+                                 </div>
+                                 <h4 className="text-xl font-black text-slate-800">AP Performance</h4>
+                               </div>
+                               <div className="flex flex-col gap-4">
+                                 <div className="flex items-center justify-between p-6 bg-indigo-50 border border-indigo-100 rounded-3xl group relative cursor-help hover:z-50">
+                                   <BrandTooltip brands={executiveStats.brand_breakdown?.total_ax_3000} title="Top 5 AX3000+ Brands" />
+                                   <div>
+                                     <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">AX3000 / WiFi 6 High-End</p>
+                                     <h5 className="text-2xl font-black text-indigo-600">{Number(executiveStats.total_ax_3000).toLocaleString()} <span className="text-sm font-bold text-indigo-300 ml-1">Units</span></h5>
+                                   </div>
+                                   <div className="text-right">
+                                     <span className="px-3 py-1 bg-indigo-100 text-indigo-600 rounded-full text-[10px] font-black">BEST PERFORMANCE</span>
+                                   </div>
+                                 </div>
+                                 <div className="flex items-center justify-between p-6 bg-slate-50 border border-slate-100 rounded-3xl group relative cursor-help hover:z-50">
+                                   <BrandTooltip brands={executiveStats.brand_breakdown?.total_below_ax_3000} title="Top 5 Standard APs" />
+                                   <div>
+                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Lower than AX3000</p>
+                                     <h5 className="text-2xl font-black text-slate-600">{Number(executiveStats.total_below_ax_3000).toLocaleString()} <span className="text-sm font-bold text-slate-300 ml-1">Units</span></h5>
+                                   </div>
+                                   <div className="text-right">
+                                     <span className="px-3 py-1 bg-slate-200 text-slate-500 rounded-full text-[10px] font-black">STANDARD</span>
+                                   </div>
+                                 </div>
+                               </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* --- Section 3: Customer Package Flow --- */}
+                        <div className="flex flex-col gap-6">
+                          <div className="flex items-center gap-4 px-2">
+                            <div className="w-1 h-8 bg-emerald-500 rounded-full" />
+                            <h3 className="text-2xl font-black text-slate-800 tracking-tight">3. User Experience & Package Capability (ความสามารถในการรองรับแพ็กเกจ)</h3>
+                          </div>
+
+                          <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-xl relative">
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full -mr-32 -mt-32 blur-3xl opacity-50" />
+                            
+                            <div className="flex flex-col lg:flex-row gap-12 items-stretch">
+                              {/* Left: Speed Tiers */}
+                              <div className="flex-1 flex flex-col gap-4">
+                                <h4 className="text-sm font-black text-slate-400 uppercase tracking-[0.2em] mb-4">กลุ่มลูกค้าตามความเร็วแพ็กเกจ</h4>
+                                {Object.entries(executiveStats.speed_packages).sort((a, b) => {
+                                  const order = ['2000', '1000', '600', '500', '300', 'below_300'];
+                                  return order.indexOf(a[0]) - order.indexOf(b[0]);
+                                }).map(([key, val]: any) => (
+                                  <div key={key} className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                    <div className="flex items-center gap-4">
+                                      <div className="w-2 h-2 bg-indigo-500 rounded-full" />
+                                      <span className="font-black text-slate-700">{key === 'below_300' ? '< 300' : key} Mbps</span>
+                                    </div>
+                                    <span className="font-black text-indigo-600">{Number(val).toLocaleString()} ราย</span>
+                                  </div>
+                                ))}
+                              </div>
+
+                              {/* Center: Visual Flow Arrow */}
+                              <div className="hidden lg:flex items-center justify-center px-4">
+                                <div className="flex flex-col items-center gap-2">
+                                  <div className="w-1 h-24 bg-gradient-to-b from-indigo-500 to-rose-500 rounded-full" />
+                                  <ChevronRight size={32} className="text-rose-500" />
+                                </div>
+                              </div>
+
+                              {/* Right: Mismatches (Bottlenecks) */}
+                              <div className="flex-1 flex flex-col gap-4">
+                                <h4 className="text-sm font-black text-rose-400 uppercase tracking-[0.2em] mb-4">อุปกรณ์ที่ไม่รองรับแพ็กเกจ (Bottlenecks)</h4>
+                                <div className="flex flex-col gap-6 h-full justify-center">
+                                  <div className="p-6 bg-rose-50 border border-rose-100 rounded-3xl flex items-center justify-between group hover:scale-105 transition-all relative cursor-help hover:z-50">
+                                    <BrandTooltip brands={executiveStats.brand_breakdown?.aio_mismatch} title="Top 5 AIO Mismatch" />
+                                    <div>
+                                      <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">ONU All In One Mismatch</p>
+                                      <h5 className="text-3xl font-black text-rose-600">{Number(executiveStats.mismatch_stats.aio_mismatch).toLocaleString()}</h5>
+                                    </div>
+                                    <AlertCircle size={32} className="text-rose-300" />
+                                  </div>
+                                  <div className="p-6 bg-rose-50 border border-rose-100 rounded-3xl flex items-center justify-between group hover:scale-105 transition-all relative cursor-help hover:z-50">
+                                    <BrandTooltip brands={executiveStats.brand_breakdown?.bridge_mismatch} title="Top 5 Bridge Mismatch" />
+                                    <div>
+                                      <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">ONU Bridge Mismatch</p>
+                                      <h5 className="text-3xl font-black text-rose-600">{Number(executiveStats.mismatch_stats.bridge_mismatch).toLocaleString()}</h5>
+                                    </div>
+                                    <AlertCircle size={32} className="text-rose-300" />
+                                  </div>
+                                  <div className="p-6 bg-rose-50 border border-rose-100 rounded-3xl flex items-center justify-between group hover:scale-105 transition-all relative cursor-help hover:z-50">
+                                    <BrandTooltip brands={executiveStats.brand_breakdown?.ap_mismatch} title="Top 5 AP Mismatch" />
+                                    <div>
+                                      <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">AP / WiFi Router Mismatch</p>
+                                      <h5 className="text-3xl font-black text-rose-600">{Number(executiveStats.mismatch_stats.ap_mismatch).toLocaleString()}</h5>
+                                    </div>
+                                    <AlertCircle size={32} className="text-rose-300" />
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
                 )}
               </div>
@@ -2359,8 +3048,6 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             )}
           </div>
         </div>
-      </main>
-    </div>
 
       {/* --- MODALS --- */}
 
@@ -2648,6 +3335,140 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           </form>
         </div>
       )}
+      {/* Modal - Replacement Config */}
+      {isReplacementModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#0f172a]/60 backdrop-blur-md">
+          <div className="bg-white w-full max-w-4xl rounded-2xl shadow-2xl border border-slate-200 flex flex-col max-h-[90vh]">
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50 shrink-0">
+              <h2 className="text-base font-black text-slate-800">ตั้งค่าราคาอุปกรณ์ทดแทนและรุ่นที่ใช้แทน</h2>
+              <button onClick={() => setIsReplacementModalOpen(false)} className="w-8 h-8 flex items-center justify-center hover:bg-red-50 hover:text-red-500 text-slate-400 rounded-xl transition-all">
+                <Plus size={20} className="rotate-45" />
+              </button>
+            </div>
+            <div className="p-5 overflow-auto flex-1 space-y-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {replacementConfigs.map((cfg) => (
+                  <div key={cfg.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-3 group hover:border-indigo-200 transition-all">
+                    <div className="flex justify-between items-start">
+                      <div className="space-y-1">
+                        <span className="px-2 py-0.5 bg-indigo-100 text-indigo-600 rounded text-[10px] font-black uppercase">{cfg.type}</span>
+                        <h4 className="text-sm font-black text-slate-800">{cfg.brand} {cfg.model}</h4>
+                      </div>
+                      <button onClick={() => setEditingReplacement(cfg)} className="p-2 text-slate-400 hover:text-indigo-600 transition-all opacity-0 group-hover:opacity-100">
+                        <Edit2 size={14} />
+                      </button>
+                    </div>
+                    <div className="flex justify-between items-center border-t border-slate-200 pt-2">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">ราคาต่อหน่วย</span>
+                      <span className="text-sm font-black text-emerald-600">฿ {Number(cfg.price).toLocaleString()}</span>
+                    </div>
+                  </div>
+                ))}
+                <button 
+                  onClick={() => setEditingReplacement({ brand: '', model: '', type: 'ONU Bridge', price: 0 })}
+                  className="p-4 border-2 border-dashed border-slate-200 rounded-xl flex flex-col items-center justify-center gap-2 text-slate-400 hover:border-indigo-400 hover:text-indigo-500 transition-all group"
+                >
+                  <Plus size={24} className="group-hover:scale-110 transition-transform" />
+                  <span className="text-xs font-black uppercase tracking-widest">เพิ่มรายการใหม่</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal - Edit/Add Replacement Config */}
+      {editingReplacement && (
+        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-[#0f172a]/40 backdrop-blur-sm">
+          <form 
+            onSubmit={async (e) => {
+              e.preventDefault();
+              try {
+                if (editingReplacement.id) {
+                  await axios.put(`${API_BASE}/replacement-configs/${editingReplacement.id}`, editingReplacement);
+                } else {
+                  await axios.post(`${API_BASE}/replacement-configs`, editingReplacement);
+                }
+                fetchReplacementConfigs();
+                setEditingReplacement(null);
+              } catch (err) { console.error(err); }
+            }}
+            className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 flex flex-col"
+          >
+            <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <h2 className="text-sm font-black text-slate-800">{editingReplacement.id ? 'แก้ไขอุปกรณ์ทดแทน' : 'เพิ่มอุปกรณ์ทดแทน'}</h2>
+              <button type="button" onClick={() => setEditingReplacement(null)} className="w-8 h-8 flex items-center justify-center hover:bg-red-50 hover:text-red-500 text-slate-400 rounded-xl"><Plus size={20} className="rotate-45" /></button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ประเภทอุปกรณ์</label>
+                <select 
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 outline-none focus:ring-2 focus:ring-indigo-100"
+                  value={editingReplacement.type}
+                  onChange={(e) => setEditingReplacement({...editingReplacement, type: e.target.value})}
+                  required
+                >
+                  <option value="ONU Bridge">ONU Bridge</option>
+                  <option value="ONU ALL IN ONE">ONU ALL IN ONE</option>
+                  <option value="AP (Router WiFi)">AP (Router WiFi)</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ยี่ห้อ (ทดแทน)</label>
+                  <input 
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-indigo-600 outline-none"
+                    value={editingReplacement.brand || ''}
+                    onChange={(e) => setEditingReplacement({...editingReplacement, brand: e.target.value})}
+                    placeholder="e.g. ZTE"
+                    required
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">รุ่น (ทดแทน)</label>
+                  <input 
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-slate-800 outline-none"
+                    value={editingReplacement.model || ''}
+                    onChange={(e) => setEditingReplacement({...editingReplacement, model: e.target.value})}
+                    placeholder="e.g. F670L"
+                    required
+                  />
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-1">ราคาต่อหน่วย (บาท)</label>
+                <input 
+                  type="number"
+                  className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm font-black text-emerald-600 outline-none"
+                  value={editingReplacement.price || 0}
+                  onChange={(e) => setEditingReplacement({...editingReplacement, price: Number(e.target.value)})}
+                  required
+                />
+              </div>
+            </div>
+            <div className="px-5 py-3 bg-slate-50 border-t border-slate-100 flex justify-end gap-3">
+              {editingReplacement.id && (
+                <button 
+                  type="button" 
+                  onClick={async () => {
+                    if (window.confirm('ยืนยันการลบรายการนี้?')) {
+                      await axios.delete(`${API_BASE}/replacement-configs/${editingReplacement.id}`);
+                      fetchReplacementConfigs();
+                      setEditingReplacement(null);
+                    }
+                  }}
+                  className="px-6 py-2 text-sm font-bold text-red-500 hover:bg-red-50 rounded-xl transition-all"
+                >
+                  ลบรายการ
+                </button>
+              )}
+              <button type="submit" className="px-8 py-2.5 bg-indigo-600 text-white rounded-xl text-sm font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">
+                บันทึก
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* Modal - New Discoveries */}
       {showNewDiscoveries && (
@@ -2696,7 +3517,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           </div>
         </div>
       )}
+        </main>
       </div>
+    </div>
   );
 };
 
