@@ -1109,6 +1109,17 @@ app.put('/api/device-catalog/:id', authenticate, async (req, res) => {
         if (oldRes.rows.length === 0) throw new Error('Catalog entry not found');
         const old = oldRes.rows[0];
         
+        // 1.5. Check for duplicate brand/model in other entries
+        const duplicateCheck = await client.query(
+            'SELECT id FROM device_catalog WHERE brand = $1 AND model = $2 AND id != $3',
+            [brand, model, id]
+        );
+        if (duplicateCheck.rows.length > 0) {
+            const err = new Error(`ไม่สามารถแก้ไขเป็น ยี่ห้อ: "${brand}" และ รุ่น: "${model}" ได้ เนื่องจากมีรุ่นนี้อยู่ในฐานข้อมูลแล้ว (มี ID: ${duplicateCheck.rows[0].id})`);
+            err.statusCode = 400;
+            throw err;
+        }
+        
         // 2. Update catalog
         const result = await client.query(`
             UPDATE device_catalog SET 
@@ -1132,7 +1143,7 @@ app.put('/api/device-catalog/:id', authenticate, async (req, res) => {
         res.json(result.rows[0]);
     } catch (err) {
         await client.query('ROLLBACK');
-        res.status(500).json({ message: err.message });
+        res.status(err.statusCode || 500).json({ message: err.message });
     } finally {
         client.release();
     }

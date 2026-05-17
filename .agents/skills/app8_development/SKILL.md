@@ -252,6 +252,12 @@ App8 ทำงานบนระบบ Docker Container ภายใต้เค
     - **Drill-down Feature**: เพิ่มระบบ **Brand Tooltip** เมื่อนำ Mouse ไปวางที่กล่องต่างๆ จะแสดง Top 5 Brands และจำนวนอุปกรณ์ของกลุ่มนั้นๆ ทันที
     - **Aesthetics**: ใช้ Indigo & Rose Theme, Glassmorphism, และ Framer-style animations เพื่อความ Premium สำหรับผู้บริหาร
 
+- **2026-05-17 (session 21)**: Device Catalog Pre-check & Executive Dashboard Cell Color/Typography Compression:
+    - **Backend**: เพิ่มการตรวจสอบความซ้ำซ้อนของ Brand และ Model ก่อนทำการบันทึกข้อมูลแก้ไขใน `PUT /api/device-catalog/:id` โดยหากพบรายการซ้ำซ้อนจะโยน Error `400` พร้อมข้อความแจ้งเตือนภาษาไทยที่เข้าใจง่าย แทนการปล่อยให้เกิด Unique Constraint Error `500` จากฐานข้อมูล
+    - **Frontend (Error UX)**: ปรับปรุงส่วนดักจับข้อผิดพลาดใน `handleSaveSpec` ให้ดึงข้อความเตือนเฉพาะเจาะจงจาก Backend ส่งต่อผ่าน Modal Alert ไปหาผู้ใช้โดยตรง
+    - **Frontend (Executive Dashboard Cell Colors)**: สร้างฟังก์ชัน `getMatrixCellColor` ใน `App.tsx` เพื่อเปรียบเทียบขนาดแพ็กเกจความเร็วเทียบกับความจุสูงสุดทางเทคนิคของอุปกรณ์ WiFi (คลาสที่เหมาะสมแสดงผล **สีน้ำเงิน** `text-blue-600`, คลาสที่เป็นคอขวดสะท้อนความไม่เหมาะสมแสดงผล **สีแดง** `text-red-600`, คลาสไม่มี WiFi/ไม่มีข้อมูล แสดงสี Slate ปกติ)
+    - **Frontend (Executive Dashboard Typography & Compressed Layout)**: ปรับเพิ่มขนาดฟอนต์ในตาราง Matrix สถิติข้อที่ 5 ขึ้นอีกรวมทั้งหมด **4px** (headers/cells ➡️ `text-base` / `text-sm`) ควบคู่กับการ**ลดความสูงของแถวลงครึ่งหนึ่ง** (Vertical padding จาก `py-4` ➡️ `py-2` และ `py-3` ➡️ `py-1.5`) เพื่อให้แสดงผลข้อมูลได้หนา ชัดเจน โดดเด่น แต่กระชับ สวยงาม สไตล์ Minimalist
+
 ---
 
 ## **Best Practices & Troubleshooting**

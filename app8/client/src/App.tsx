@@ -96,6 +96,50 @@ const WIFI_DISPLAY_MAP = {
   'version': 'version'
 };
 
+const getMatrixCellColor = (row: string, col: string): string => {
+  // Neutral classes (no styling or standard styling)
+  if (col === 'No WiFi' || col === 'ไม่มีข้อมูล') {
+    return 'text-slate-800';
+  }
+
+  // Parse speed range (row) to a numeric representation of package speed in Mbps
+  let rowSpeed = 0;
+  if (row === '<=50Mbps') rowSpeed = 50;
+  else if (row === '50-100Mbps') rowSpeed = 100;
+  else if (row === '101-300Mbps') rowSpeed = 300;
+  else if (row === '301-400Mbps') rowSpeed = 400;
+  else if (row === '401-500Mbps') rowSpeed = 500;
+  else if (row === '501-600Mbps') rowSpeed = 600;
+  else if (row === '601-700Mbps') rowSpeed = 700;
+  else if (row === '701-900Mbps') rowSpeed = 900;
+  else if (row === '901-1,000 Mbps') rowSpeed = 1000;
+  else if (row === 'Over 1,000 Mbps') rowSpeed = 1500;
+
+  // Max speeds for WiFi classes
+  let maxSupportedSpeed = 0;
+  const colUpper = col.toUpperCase();
+
+  if (colUpper === 'WIRELESS N') {
+    maxSupportedSpeed = 100;
+  } else if (colUpper === 'AC1200') {
+    maxSupportedSpeed = 300;
+  } else if (colUpper === 'AC1600' || colUpper === 'AC1750') {
+    maxSupportedSpeed = 500;
+  } else if (colUpper === 'AC2100') {
+    maxSupportedSpeed = 600;
+  } else if (colUpper === 'AX3000' || colUpper === 'AX5400') {
+    maxSupportedSpeed = 1000;
+  } else if (colUpper === 'AX6000') {
+    maxSupportedSpeed = 2000; // Supports everything
+  }
+
+  if (rowSpeed <= maxSupportedSpeed) {
+    return 'text-blue-600'; // Appropriate -> Blue
+  } else {
+    return 'text-red-600'; // Inappropriate -> Red
+  }
+};
+
 // --- TYPES ---
 // --- HELPER COMPONENTS ---
 const BrandTooltip = ({ brands, title, position = 'top', replacementConfigs, type }: { 
@@ -1136,7 +1180,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       // Refresh mappings in case brand/model names changed
       fetchCPEGroups();
       fetchWifiMappings();
-    } catch { alert('Save failed'); }
+    } catch (err: any) {
+      alert(err.response?.data?.message || 'Save failed');
+    }
   };
 
   const handleDeleteMapping = async (id: number) => {
@@ -2733,13 +2779,13 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                 <thead>
                                   {/* Super Header */}
                                   <tr className="bg-slate-100/80">
-                                    <th className="py-4 px-6 border-b border-slate-200 text-left text-xs font-black text-slate-700" rowSpan={2}>
+                                    <th className="py-2 px-6 border-b border-slate-200 text-left text-base font-black text-slate-700" rowSpan={2}>
                                       ความเร็ว Package ลูกค้า / ชนิดอุปกรณ์
                                     </th>
-                                    <th className="py-2.5 px-4 border-b border-slate-200 text-center text-xs font-black text-slate-700 tracking-wider" colSpan={10}>
+                                    <th className="py-1.5 px-4 border-b border-slate-200 text-center text-base font-black text-slate-700 tracking-wider" colSpan={10}>
                                       ชนิดอุปกรณ์ลูกค้า
                                     </th>
-                                    <th className="py-4 px-6 border-b border-slate-200 text-center text-xs font-black text-indigo-700 tracking-wider bg-indigo-50/50" rowSpan={2}>
+                                    <th className="py-2 px-6 border-b border-slate-200 text-center text-base font-black text-indigo-700 tracking-wider bg-indigo-50/50" rowSpan={2}>
                                       รวมทั้งหมด
                                     </th>
                                   </tr>
@@ -2757,7 +2803,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                       'No WiFi',
                                       'ไม่มีข้อมูล'
                                     ].map(col => (
-                                      <th key={col} className="py-3 px-4 border-b border-slate-200 text-center text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                                      <th key={col} className="py-1.5 px-4 border-b border-slate-200 text-center text-sm font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
                                         {col}
                                       </th>
                                     ))}
@@ -2798,7 +2844,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
                                     return (
                                       <tr key={row} className="hover:bg-indigo-50/20 transition-all duration-150 group">
-                                        <td className="py-4 px-6 border-b border-slate-200 border-r border-slate-100 text-xs font-black text-slate-700 bg-slate-50/30 whitespace-nowrap">
+                                        <td className="py-2 px-6 border-b border-slate-200 border-r border-slate-100 text-base font-black text-slate-700 bg-slate-50/30 whitespace-nowrap">
                                           {row}
                                         </td>
                                         {cols.map(col => {
@@ -2810,9 +2856,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                             count = found ? Number(found.count) : 0;
                                           }
                                           return (
-                                            <td key={col} className="py-4 px-4 border-b border-slate-100 border-r border-slate-50 text-center text-xs font-bold font-mono text-slate-600">
+                                            <td key={col} className="py-2 px-4 border-b border-slate-100 border-r border-slate-50 text-center text-base font-bold font-mono text-slate-600">
                                               {count > 0 ? (
-                                                <span className="text-slate-800 font-extrabold">{count.toLocaleString()}</span>
+                                                <span className={`${getMatrixCellColor(row, col)} font-extrabold`}>{count.toLocaleString()}</span>
                                               ) : (
                                                 <span className="text-slate-300 font-normal">-</span>
                                               )}
@@ -2820,7 +2866,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                           );
                                         })}
                                         {/* Row Total */}
-                                        <td className="py-4 px-6 border-b border-slate-200 text-center text-xs font-extrabold font-mono text-indigo-700 bg-indigo-50/20 whitespace-nowrap">
+                                        <td className="py-2 px-6 border-b border-slate-200 text-center text-base font-extrabold font-mono text-indigo-700 bg-indigo-50/20 whitespace-nowrap">
                                           {rowTotal > 0 ? rowTotal.toLocaleString() : '-'}
                                         </td>
                                       </tr>
@@ -2829,7 +2875,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
                                   {/* Columns Totals Row */}
                                   <tr className="bg-slate-100/60 font-black border-t-2 border-slate-300">
-                                    <td className="py-4 px-6 border-b border-slate-200 border-r border-slate-200 text-xs font-black text-slate-800">
+                                    <td className="py-2 px-6 border-b border-slate-200 border-r border-slate-200 text-base font-black text-slate-800">
                                       รวม (Total)
                                     </td>
                                     {[
@@ -2864,13 +2910,13 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                         return sum + (found ? Number(found.count) : 0);
                                       }, 0);
                                       return (
-                                        <td key={col} className="py-4 px-4 border-b border-slate-200 border-r border-slate-50 text-center text-xs font-black font-mono text-slate-800">
+                                        <td key={col} className="py-2 px-4 border-b border-slate-200 border-r border-slate-50 text-center text-base font-black font-mono text-slate-800">
                                           {colTotal > 0 ? colTotal.toLocaleString() : '-'}
                                         </td>
                                       );
                                     })}
                                     {/* Grand Total */}
-                                    <td className="py-4 px-6 border-b border-slate-200 text-center text-xs font-black font-mono text-white bg-indigo-600">
+                                    <td className="py-2 px-6 border-b border-slate-200 text-center text-base font-black font-mono text-white bg-indigo-600">
                                       {(() => {
                                         if (!executiveStats?.matrix_stats) return '-';
                                         const grandTotal = executiveStats.matrix_stats.reduce((sum: number, item: any) => sum + Number(item.count), 0);
