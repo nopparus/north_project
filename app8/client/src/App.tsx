@@ -7,7 +7,7 @@ import {
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
   ArrowUpDown, ArrowUp, ArrowDown, Cpu, CheckCircle2, XCircle, 
   Database, Network, Wifi, FileBarChart, Download, Settings2,
-  Zap, Banknote, Layout, Bell, Users, RefreshCw, Calendar
+  Zap, Banknote, Layout, Bell, Users, RefreshCw, Calendar, Clock
 } from 'lucide-react';
 
 // --- CONFIG ---
@@ -98,7 +98,13 @@ const WIFI_DISPLAY_MAP = {
 
 // --- TYPES ---
 // --- HELPER COMPONENTS ---
-const BrandTooltip = ({ brands, title, position = 'top' }: { brands: any[], title?: string, position?: 'top' | 'bottom' }) => {
+const BrandTooltip = ({ brands, title, position = 'top', replacementConfigs, type }: { 
+  brands: any[], 
+  title?: string, 
+  position?: 'top' | 'bottom',
+  replacementConfigs?: any[],
+  type?: string 
+}) => {
   const posClasses = position === 'top' 
     ? "bottom-full mb-4 origin-bottom" 
     : "top-full mt-4 origin-top";
@@ -107,16 +113,45 @@ const BrandTooltip = ({ brands, title, position = 'top' }: { brands: any[], titl
     ? "top-full border-t-slate-900/95"
     : "bottom-full border-b-slate-900/95";
 
+  const getBrandPrice = (brandName: string) => {
+    if (!replacementConfigs || !type) return null;
+    
+    // 1. Try to find exact brand match for this type
+    const exactMatch = replacementConfigs.find(c => 
+      c.type === type && (brandName || '').toLowerCase().includes(c.brand.toLowerCase())
+    );
+    if (exactMatch) return Number(exactMatch.price);
+
+    // 2. Fallback to first config for this type (generic price)
+    const fallback = replacementConfigs.find(c => c.type === type);
+    if (fallback) return Number(fallback.price);
+
+    return null;
+  };
+
   return (
-    <div className={`absolute z-[100] left-1/2 -translate-x-1/2 w-64 bg-slate-900/95 backdrop-blur-md text-white rounded-2xl p-4 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all scale-95 group-hover:scale-100 border border-white/10 ${posClasses}`}>
+    <div className={`absolute z-[100] left-1/2 -translate-x-1/2 w-80 bg-slate-900/95 backdrop-blur-md text-white rounded-2xl p-5 shadow-2xl opacity-0 group-hover:opacity-100 pointer-events-none transition-all scale-95 group-hover:scale-100 border border-white/10 ${posClasses}`}>
       <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 border-b border-white/5 pb-2">{title || 'Top 5 Brands'}</h5>
-      <div className="flex flex-col gap-2.5">
-        {brands && brands.length > 0 ? brands.map((b: any, i: number) => (
-          <div key={i} className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-slate-200 truncate mr-2">{b.brand || 'Unknown'}</span>
-            <span className="text-[11px] font-black text-indigo-400">{Number(b.count).toLocaleString()}</span>
-          </div>
-        )) : <span className="text-[10px] text-slate-500 italic">ไม่มีข้อมูล</span>}
+      <div className="flex flex-col gap-3">
+        {brands && brands.length > 0 ? brands.map((b: any, i: number) => {
+          const price = getBrandPrice(b.brand);
+          const totalCost = price ? b.count * price : null;
+          
+          return (
+            <div key={i} className="flex flex-col gap-1">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-bold text-slate-200 truncate mr-2">{b.brand || 'Unknown'}</span>
+                <span className="text-[11px] font-black text-indigo-400">{Number(b.count).toLocaleString()}</span>
+              </div>
+              {totalCost && (
+                <div className="flex items-center justify-between text-[9px] text-emerald-400 font-bold bg-white/5 px-2 py-0.5 rounded-md">
+                  <span>Estimated Budget:</span>
+                  <span>฿ {Number(totalCost).toLocaleString()}</span>
+                </div>
+              )}
+            </div>
+          );
+        }) : <span className="text-[10px] text-slate-500 italic">ไม่มีข้อมูล</span>}
       </div>
       <div className={`absolute left-1/2 -translate-x-1/2 border-8 border-transparent ${arrowClasses}`} />
     </div>
@@ -506,6 +541,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [serviceSearchTerm, setServiceSearchTerm] = useState('');
   const [isServiceFilterOpen, setIsServiceFilterOpen] = useState(false);
   const [isExportingCircuit, setIsExportingCircuit] = useState(false);
+  const [isExportingGroup, setIsExportingGroup] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   // Year filters
   const [startYear, setStartYear] = useState('');
@@ -517,6 +553,15 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [apThreshold, setApThreshold] = useState(500);
   const [isExecutiveLoading, setIsExecutiveLoading] = useState(false);
   const [executiveStats, setExecutiveStats] = useState<any>(null);
+
+  const [priorityYears, setPriorityYears] = useState(3);
+  const [priorityPrice, setPriorityPrice] = useState(500);
+  const [priorityOnlyMismatch, setPriorityOnlyMismatch] = useState(false);
+
+  // Local editing states to prevent premature auto-triggering on keyup
+  const [localPriorityYears, setLocalPriorityYears] = useState(3);
+  const [localPriorityPrice, setLocalPriorityPrice] = useState(500);
+  const [localPriorityOnlyMismatch, setLocalPriorityOnlyMismatch] = useState(false);
 
   const [isReplacementModalOpen, setIsReplacementModalOpen] = useState(false);
   const [editingReplacement, setEditingReplacement] = useState<Partial<ReplacementConfig> | null>(null);
@@ -663,7 +708,10 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           serviceFilter: selectedServices.join(','),
           startYear,
           endYear,
-          excludeNoWifi: excludeNoWifi ? 'true' : 'false'
+          excludeNoWifi: excludeNoWifi ? 'true' : 'false',
+          priorityYears,
+          priorityPrice,
+          priorityOnlyMismatch: priorityOnlyMismatch ? 'true' : 'false'
         }
       });
       setExecutiveStats(res.data.data);
@@ -672,7 +720,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     } finally {
       setIsExecutiveLoading(false);
     }
-  }, [selectedServices, startYear, endYear, excludeNoWifi]);
+  }, [selectedServices, startYear, endYear, excludeNoWifi, priorityYears, priorityPrice, priorityOnlyMismatch]);
 
   useEffect(() => {
     if (homeTab === 'executive') {
@@ -771,6 +819,52 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       console.error('Circuit export error:', err);
       alert('Export failed'); 
     } finally { setIsExportingCircuit(false); }
+  };
+
+  const handleExportGroup = async (groupName: string) => {
+    try {
+      setIsExportingGroup(groupName);
+      const params: any = { 
+        group: groupName,
+        threshold: apThreshold,
+        excludeNoWifi: excludeNoWifi ? 'true' : 'false'
+      };
+      if (selectedServices.length > 0) params.serviceFilter = selectedServices.join(',');
+      if (startYear && endYear) { params.startYear = startYear; params.endYear = endYear; }
+
+      if (groupName === 'priority_1' || groupName === 'priority_2') {
+        params.priorityPrice = priorityPrice;
+        params.priorityYears = priorityYears;
+        params.priorityOnlyMismatch = priorityOnlyMismatch ? 'true' : 'false';
+      }
+
+      const res = await axios.get(`${API_BASE}/dashboard/circuit-summary/export`, {
+        params: params,
+        responseType: 'blob'
+      });
+      
+      const fileNames: any = {
+        fe_only: 'onu_port_fe_only',
+        outdated_ap: `wifi_router_outdated_below_${apThreshold}mbps`,
+        speed_mismatch: 'speed_mismatch_wifi_bottleneck',
+        overall_mismatch: 'speed_mismatch_overall_onu',
+        no_wifi: 'onu_bridge_ge_no_wifi',
+        priority_1: 'equipment_replacement_priority_1_urgent',
+        priority_2: 'equipment_replacement_priority_2_medium'
+      };
+      const name = fileNames[groupName] || 'group_summary';
+
+      const url = window.URL.createObjectURL(new Blob([res.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `${name}_${Date.now()}.xlsx`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err) { 
+      console.error('Group export error:', err);
+      alert('Export failed'); 
+    } finally { setIsExportingGroup(null); }
   };
 
   const handleRefreshData = async () => {
@@ -1629,6 +1723,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               <th onClick={() => { if(circuitSortField==='onu_device_type') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('onu_device_type'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ONU Type</th>
                               <th onClick={() => { if(circuitSortField==='wifi_brand') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('wifi_brand'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">WiFi Router</th>
                               <th onClick={() => { if(circuitSortField==='effective_max_speed') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('effective_max_speed'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">Max Speed รวม</th>
+                              <th onClick={() => { if(circuitSortField==='price') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('price'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ราคา (บาท/เดือน)</th>
                               <th className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500">สถานะ</th>
                             </tr>
                           </thead>
@@ -1680,6 +1775,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                     <span className={`text-xs font-black ${row.effective_max_speed ? 'text-slate-800' : 'text-slate-300'}`}>{row.effective_max_speed || '-'}</span>
                                   </td>
                                   <td className="px-6 py-3">
+                                    <span className="text-xs font-black text-emerald-600">{row.price ? `฿${Number(row.price).toLocaleString()}` : '-'}</span>
+                                  </td>
+                                  <td className="px-6 py-3">
                                      {rawVal === 0 ? (
                                        <span className="px-2 py-0.5 bg-slate-100 text-slate-400 rounded-lg text-[9px] font-black border border-slate-200 uppercase tracking-tighter italic">Unknown</span>
                                      ) : isMismatch ? (
@@ -1714,6 +1812,14 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               </h3>
                             </div>
                           </div>
+                          <button 
+                            onClick={() => handleExportGroup('fe_only')} 
+                            disabled={isExportingGroup !== null}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                          >
+                            <Download size={14} />
+                            <span>{isExportingGroup === 'fe_only' ? 'กำลังส่งออก...' : 'ดาวน์โหลด Excel (ทุกคอลัมน์)'}</span>
+                          </button>
                         </div>
                         <div className="overflow-x-auto -mx-5">
                           <table className="w-full">
@@ -1786,6 +1892,14 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               </div>
                             </div>
                           </div>
+                          <button 
+                            onClick={() => handleExportGroup('outdated_ap')} 
+                            disabled={isExportingGroup !== null}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                          >
+                            <Download size={14} />
+                            <span>{isExportingGroup === 'outdated_ap' ? 'กำลังส่งออก...' : 'ดาวน์โหลด Excel (ทุกคอลัมน์)'}</span>
+                          </button>
                         </div>
                         <div className="overflow-x-auto -mx-5">
                           <table className="w-full">
@@ -1845,6 +1959,14 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Package Speed &gt; Device Max Speed</p>
                             </div>
                           </div>
+                          <button 
+                            onClick={() => handleExportGroup('speed_mismatch')} 
+                            disabled={isExportingGroup !== null}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                          >
+                            <Download size={14} />
+                            <span>{isExportingGroup === 'speed_mismatch' ? 'กำลังส่งออก...' : 'ดาวน์โหลด Excel (ทุกคอลัมน์)'}</span>
+                          </button>
                         </div>
                         <div className="overflow-x-auto -mx-5">
                           <table className="w-full">
@@ -1917,6 +2039,14 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Overall Package Speed &gt; Device Max Speed</p>
                             </div>
                           </div>
+                          <button 
+                            onClick={() => handleExportGroup('overall_mismatch')} 
+                            disabled={isExportingGroup !== null}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                          >
+                            <Download size={14} />
+                            <span>{isExportingGroup === 'overall_mismatch' ? 'กำลังส่งออก...' : 'ดาวน์โหลด Excel (ทุกคอลัมน์)'}</span>
+                          </button>
                         </div>
                         <div className="overflow-x-auto -mx-5">
                           <table className="w-full">
@@ -1979,14 +2109,24 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     {/* --- Group 3: GE Bridge Section (Minimal) --- */}
                     {(noWifiData.no_wifi || []).length > 0 && (
                       <div className="bg-white rounded-2xl p-5 border border-slate-200 shadow-sm mt-4">
-                        <div className="flex items-center gap-3 border-b border-slate-100 pb-3 mb-4">
-                          <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Network size={18} /></div>
-                          <div>
-                            <h3 className="font-black text-slate-800 text-sm">
-                              กลุ่มที่ 3: ONU Bridge มีพอร์ต GE (ไม่มี WiFi ต่อพ่วง)
-                              <span className="ml-2 text-emerald-600 font-black">({Number(noWifiData.no_wifi_total || 0).toLocaleString()})</span>
-                            </h3>
+                        <div className="flex items-center justify-between border-b border-slate-100 pb-3 mb-4">
+                          <div className="flex items-center gap-3">
+                            <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg"><Network size={18} /></div>
+                            <div>
+                              <h3 className="font-black text-slate-800 text-sm">
+                                กลุ่มที่ 3: ONU Bridge มีพอร์ต GE (ไม่มี WiFi ต่อพ่วง)
+                                <span className="ml-2 text-emerald-600 font-black">({Number(noWifiData.no_wifi_total || 0).toLocaleString()})</span>
+                              </h3>
+                            </div>
                           </div>
+                          <button 
+                            onClick={() => handleExportGroup('no_wifi')} 
+                            disabled={isExportingGroup !== null}
+                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all disabled:opacity-50"
+                          >
+                            <Download size={14} />
+                            <span>{isExportingGroup === 'no_wifi' ? 'กำลังส่งออก...' : 'ดาวน์โหลด Excel (ทุกคอลัมน์)'}</span>
+                          </button>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
                           {noWifiData.no_wifi.slice(0, 5).map((d: any, idx: number) => (
@@ -2221,7 +2361,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                             <h3 className="text-2xl font-black text-slate-800 tracking-tight">2. Specification Overview (รายละเอียดเชิงเทคนิค)</h3>
                           </div>
 
-                          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                          <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">
                             <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col gap-8">
                                <div className="flex items-center gap-4">
                                  <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
@@ -2258,28 +2398,59 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                  <div className="w-12 h-12 bg-blue-50 text-blue-600 rounded-2xl flex items-center justify-center">
                                    <Wifi size={24} />
                                  </div>
-                                 <h4 className="text-xl font-black text-slate-800">AP Performance</h4>
+                                 <h4 className="text-xl font-black text-slate-800">ประสิทธิภาพ WiFi (WiFi Performance)</h4>
                                </div>
                                <div className="flex flex-col gap-4">
                                  <div className="flex items-center justify-between p-6 bg-indigo-50 border border-indigo-100 rounded-3xl group relative cursor-help hover:z-50">
                                    <BrandTooltip brands={executiveStats.brand_breakdown?.total_ax_3000} title="Top 5 AX3000+ Brands" />
                                    <div>
-                                     <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">AX3000 / WiFi 6 High-End</p>
+                                     <p className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">WiFi 6 / AX3000 ขึ้นไป</p>
                                      <h5 className="text-2xl font-black text-indigo-600">{Number(executiveStats.total_ax_3000).toLocaleString()} <span className="text-sm font-bold text-indigo-300 ml-1">Units</span></h5>
                                    </div>
                                    <div className="text-right">
-                                     <span className="px-3 py-1 bg-indigo-100 text-indigo-600 rounded-full text-[10px] font-black">BEST PERFORMANCE</span>
+                                     <span className="px-3 py-1 bg-indigo-100 text-indigo-600 rounded-full text-[10px] font-black">HIGH-END</span>
                                    </div>
                                  </div>
                                  <div className="flex items-center justify-between p-6 bg-slate-50 border border-slate-100 rounded-3xl group relative cursor-help hover:z-50">
-                                   <BrandTooltip brands={executiveStats.brand_breakdown?.total_below_ax_3000} title="Top 5 Standard APs" />
+                                   <BrandTooltip brands={executiveStats.brand_breakdown?.total_below_ax_3000} title="Top 5 Standard WiFi" />
                                    <div>
-                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">Lower than AX3000</p>
+                                     <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">ต่ำกว่า AX3000</p>
                                      <h5 className="text-2xl font-black text-slate-600">{Number(executiveStats.total_below_ax_3000).toLocaleString()} <span className="text-sm font-bold text-slate-300 ml-1">Units</span></h5>
                                    </div>
                                    <div className="text-right">
                                      <span className="px-3 py-1 bg-slate-200 text-slate-500 rounded-full text-[10px] font-black">STANDARD</span>
                                    </div>
+                                 </div>
+                               </div>
+                            </div>
+
+                            <div className="bg-white rounded-[2.5rem] p-8 border border-slate-200 shadow-sm flex flex-col gap-8">
+                               <div className="flex items-center gap-4">
+                                 <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center">
+                                   <Banknote size={24} />
+                                 </div>
+                                 <h4 className="text-xl font-black text-slate-800">กลุ่ม FE แยกตามราคาแพ็กเกจ</h4>
+                               </div>
+                               <div className="flex flex-col gap-3">
+                                 <div className="flex items-center justify-between p-4 bg-emerald-50 border border-emerald-100 rounded-2xl group relative cursor-help hover:z-50">
+                                   <BrandTooltip brands={executiveStats.brand_breakdown?.fe_below_300} title="Top FE ONUs (< 300 บาท)" />
+                                   <span className="text-xs font-black text-emerald-800">ต่ำกว่า 300 บาท</span>
+                                   <span className="text-xs font-black text-emerald-600">{Number(executiveStats.fe_price_groups?.below_300 || 0).toLocaleString()} วงจร</span>
+                                 </div>
+                                 <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl group relative cursor-help hover:z-50">
+                                   <BrandTooltip brands={executiveStats.brand_breakdown?.fe_300_399} title="Top FE ONUs (300-399 บาท)" />
+                                   <span className="text-xs font-black text-slate-800">300 - 399 บาท</span>
+                                   <span className="text-xs font-black text-slate-600">{Number(executiveStats.fe_price_groups?.['300_399'] || 0).toLocaleString()} วงจร</span>
+                                 </div>
+                                 <div className="flex items-center justify-between p-4 bg-amber-50 border border-amber-100 rounded-2xl group relative cursor-help hover:z-50">
+                                   <BrandTooltip brands={executiveStats.brand_breakdown?.fe_400_499} title="Top FE ONUs (400-499 บาท)" />
+                                   <span className="text-xs font-black text-amber-800">400 - 499 บาท</span>
+                                   <span className="text-xs font-black text-amber-600">{Number(executiveStats.fe_price_groups?.['400_499'] || 0).toLocaleString()} วงจร</span>
+                                 </div>
+                                 <div className="flex items-center justify-between p-4 bg-rose-50 border border-rose-100 rounded-2xl group relative cursor-help hover:z-50">
+                                   <BrandTooltip brands={executiveStats.brand_breakdown?.fe_500_above} title="Top FE ONUs (500+ บาท)" />
+                                   <span className="text-xs font-black text-rose-800">500 บาทขึ้นไป</span>
+                                   <span className="text-xs font-black text-rose-600">{Number(executiveStats.fe_price_groups?.['500_above'] || 0).toLocaleString()} วงจร</span>
                                  </div>
                                </div>
                             </div>
@@ -2296,7 +2467,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                           <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-xl relative">
                             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full -mr-32 -mt-32 blur-3xl opacity-50" />
                             
-                            <div className="flex flex-col lg:flex-row gap-12 items-stretch">
+                            <div className="flex flex-col xl:flex-row gap-10 items-stretch">
                               {/* Left: Speed Tiers */}
                               <div className="flex-1 flex flex-col gap-4">
                                 <h4 className="text-sm font-black text-slate-400 uppercase tracking-[0.2em] mb-4">กลุ่มลูกค้าตามความเร็วแพ็กเกจ</h4>
@@ -2314,20 +2485,52 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                 ))}
                               </div>
 
-                              {/* Center: Visual Flow Arrow */}
-                              <div className="hidden lg:flex items-center justify-center px-4">
-                                <div className="flex flex-col items-center gap-2">
-                                  <div className="w-1 h-24 bg-gradient-to-b from-indigo-500 to-rose-500 rounded-full" />
-                                  <ChevronRight size={32} className="text-rose-500" />
+                              {/* Center: Price Tiers (All 300k+ Customers) */}
+                              <div className="flex-1 flex flex-col gap-4 border-l xl:border-l border-slate-100 xl:pl-10">
+                                <h4 className="text-sm font-black text-emerald-500 uppercase tracking-[0.2em] mb-4">กลุ่มลูกค้าตามค่าบริการรายเดือน</h4>
+                                <div className="flex flex-col gap-4">
+                                  <div className="flex items-center justify-between p-4 bg-emerald-50/50 border border-emerald-100/50 rounded-2xl">
+                                    <div className="flex items-center gap-4">
+                                      <div className="w-2 h-2 bg-emerald-500 rounded-full" />
+                                      <span className="font-black text-slate-700">ต่ำกว่า 300 บาท</span>
+                                    </div>
+                                    <span className="font-black text-emerald-600">{Number(executiveStats.price_groups?.below_300 || 0).toLocaleString()} ราย</span>
+                                  </div>
+                                  <div className="flex items-center justify-between p-4 bg-slate-50 border border-slate-100 rounded-2xl">
+                                    <div className="flex items-center gap-4">
+                                      <div className="w-2 h-2 bg-slate-500 rounded-full" />
+                                      <span className="font-black text-slate-700">300 - 399 บาท</span>
+                                    </div>
+                                    <span className="font-black text-slate-600">{Number(executiveStats.price_groups?.['300_399'] || 0).toLocaleString()} ราย</span>
+                                  </div>
+                                  <div className="flex items-center justify-between p-4 bg-amber-50/50 border border-amber-100/50 rounded-2xl">
+                                    <div className="flex items-center gap-4">
+                                      <div className="w-2 h-2 bg-amber-500 rounded-full" />
+                                      <span className="font-black text-slate-700">400 - 499 บาท</span>
+                                    </div>
+                                    <span className="font-black text-amber-600">{Number(executiveStats.price_groups?.['400_499'] || 0).toLocaleString()} ราย</span>
+                                  </div>
+                                  <div className="flex items-center justify-between p-4 bg-rose-50/50 border border-rose-100/50 rounded-2xl">
+                                    <div className="flex items-center gap-4">
+                                      <div className="w-2 h-2 bg-rose-500 rounded-full" />
+                                      <span className="font-black text-slate-700">500 บาทขึ้นไป</span>
+                                    </div>
+                                    <span className="font-black text-rose-600">{Number(executiveStats.price_groups?.['500_above'] || 0).toLocaleString()} ราย</span>
+                                  </div>
                                 </div>
                               </div>
 
                               {/* Right: Mismatches (Bottlenecks) */}
-                              <div className="flex-1 flex flex-col gap-4">
+                              <div className="flex-1 flex flex-col gap-4 border-l xl:border-l border-slate-100 xl:pl-10">
                                 <h4 className="text-sm font-black text-rose-400 uppercase tracking-[0.2em] mb-4">อุปกรณ์ที่ไม่รองรับแพ็กเกจ (Bottlenecks)</h4>
                                 <div className="flex flex-col gap-6 h-full justify-center">
                                   <div className="p-6 bg-rose-50 border border-rose-100 rounded-3xl flex items-center justify-between group hover:scale-105 transition-all relative cursor-help hover:z-50">
-                                    <BrandTooltip brands={executiveStats.brand_breakdown?.aio_mismatch} title="Top 5 AIO Mismatch" />
+                                    <BrandTooltip 
+                                      brands={executiveStats.brand_breakdown?.aio_mismatch} 
+                                      title="Top 5 AIO Mismatch" 
+                                      replacementConfigs={executiveStats.replacement_configs}
+                                      type="ONU ALL IN ONE"
+                                    />
                                     <div>
                                       <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">ONU All In One Mismatch</p>
                                       <h5 className="text-3xl font-black text-rose-600">{Number(executiveStats.mismatch_stats.aio_mismatch).toLocaleString()}</h5>
@@ -2335,7 +2538,12 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                     <AlertCircle size={32} className="text-rose-300" />
                                   </div>
                                   <div className="p-6 bg-rose-50 border border-rose-100 rounded-3xl flex items-center justify-between group hover:scale-105 transition-all relative cursor-help hover:z-50">
-                                    <BrandTooltip brands={executiveStats.brand_breakdown?.bridge_mismatch} title="Top 5 Bridge Mismatch" />
+                                    <BrandTooltip 
+                                      brands={executiveStats.brand_breakdown?.bridge_mismatch} 
+                                      title="Top 5 Bridge Mismatch" 
+                                      replacementConfigs={executiveStats.replacement_configs}
+                                      type="ONU Bridge"
+                                    />
                                     <div>
                                       <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">ONU Bridge Mismatch</p>
                                       <h5 className="text-3xl font-black text-rose-600">{Number(executiveStats.mismatch_stats.bridge_mismatch).toLocaleString()}</h5>
@@ -2343,7 +2551,12 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                     <AlertCircle size={32} className="text-rose-300" />
                                   </div>
                                   <div className="p-6 bg-rose-50 border border-rose-100 rounded-3xl flex items-center justify-between group hover:scale-105 transition-all relative cursor-help hover:z-50">
-                                    <BrandTooltip brands={executiveStats.brand_breakdown?.ap_mismatch} title="Top 5 AP Mismatch" />
+                                    <BrandTooltip 
+                                      brands={executiveStats.brand_breakdown?.ap_mismatch} 
+                                      title="Top 5 AP Mismatch" 
+                                      replacementConfigs={executiveStats.replacement_configs}
+                                      type="AP (Router WiFi)"
+                                    />
                                     <div>
                                       <p className="text-[10px] font-black text-rose-400 uppercase tracking-widest mb-1">AP / WiFi Router Mismatch</p>
                                       <h5 className="text-3xl font-black text-rose-600">{Number(executiveStats.mismatch_stats.ap_mismatch).toLocaleString()}</h5>
@@ -2352,6 +2565,321 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                   </div>
                                 </div>
                               </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* --- Section 4: Equipment Replacement Priority --- */}
+                        <div className="flex flex-col gap-6 font-sans">
+                          <div className="flex items-center gap-4 px-2">
+                            <div className="w-12 h-12 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center">
+                              <Clock size={24} />
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-800 tracking-tight">4. Equipment Replacement Priority (การจัดลำดับความสำคัญในการเปลี่ยนอุปกรณ์)</h3>
+                          </div>
+
+                          <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-xl relative overflow-hidden">
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-amber-50 rounded-full -mr-32 -mt-32 blur-3xl opacity-50" />
+                            
+                            <div className="flex flex-col gap-8">
+                              {/* Filter Bar */}
+                              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 bg-slate-50 p-6 rounded-[2rem] border border-slate-100">
+                                <div>
+                                  <h4 className="text-base font-black text-slate-800 font-black">กำหนดเกณฑ์ความเร่งด่วน</h4>
+                                  <p className="text-xs font-bold text-slate-500 mt-1">กำหนดเงื่อนไขอายุการใช้งานและค่าบริการของเขต นป. เพื่อประเมินจำนวนอุปกรณ์ที่จำเป็นต้องเปลี่ยน</p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-4">
+                                  <div className="flex flex-col gap-1.5 min-w-[140px]">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider font-bold">จำนวนปีที่ใช้งาน (y ปี)</label>
+                                    <select 
+                                      value={localPriorityYears} 
+                                      onChange={(e) => setLocalPriorityYears(Number(e.target.value))}
+                                      className="bg-white border border-slate-200 rounded-2xl px-4 py-2.5 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 shadow-sm font-bold"
+                                    >
+                                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(y => (
+                                        <option key={y} value={y}>{y} ปี</option>
+                                      ))}
+                                    </select>
+                                  </div>
+                                  <div className="flex flex-col gap-1.5 min-w-[140px]">
+                                    <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider font-bold">ยอดค่าบริการรายเดือน (บาท)</label>
+                                    <input 
+                                      type="number"
+                                      value={localPriorityPrice} 
+                                      onChange={(e) => setLocalPriorityPrice(Number(e.target.value))}
+                                      step={50}
+                                      min={0}
+                                      className="bg-white border border-slate-200 rounded-2xl px-4 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 shadow-sm font-bold"
+                                    />
+                                  </div>
+                                  <div className="flex items-center gap-3 bg-white border border-slate-200 rounded-2xl px-4 py-3 shadow-sm self-end">
+                                    <input 
+                                      type="checkbox" 
+                                      id="priorityOnlyMismatch"
+                                      checked={localPriorityOnlyMismatch}
+                                      onChange={(e) => setLocalPriorityOnlyMismatch(e.target.checked)}
+                                      className="w-4 h-4 text-amber-500 border-slate-300 rounded focus:ring-amber-500 cursor-pointer"
+                                    />
+                                    <label htmlFor="priorityOnlyMismatch" className="text-xs font-black text-slate-700 cursor-pointer select-none">
+                                      เฉพาะอุปกรณ์ที่ไม่รองรับแพ็กเกจ (Bottleneck)
+                                    </label>
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      setPriorityYears(localPriorityYears);
+                                      setPriorityPrice(localPriorityPrice);
+                                      setPriorityOnlyMismatch(localPriorityOnlyMismatch);
+                                    }}
+                                    className="flex items-center gap-2 px-6 py-3 bg-amber-500 hover:bg-amber-600 active:scale-95 text-white text-xs font-black rounded-2xl shadow-md shadow-amber-500/20 hover:shadow-lg hover:shadow-amber-500/30 transition-all self-end h-[46px] font-bold"
+                                  >
+                                    <RefreshCw size={14} className={isExecutiveLoading ? 'animate-spin' : ''} />
+                                    <span>คำนวณผลใหม่</span>
+                                  </button>
+                                </div>
+                              </div>
+
+                              {/* Priority Big Cards for นป. */}
+                              {(() => {
+                                const npRow = executiveStats?.priority_stats?.find((r: any) => r.dept === 'นป.');
+                                const p1Val = npRow ? Number(npRow.priority_1) : 0;
+                                const p2Val = npRow ? Number(npRow.priority_2) : 0;
+
+                                return (
+                                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                    {/* Priority 1 Card */}
+                                    <div className="bg-gradient-to-br from-amber-50/60 to-orange-50/40 border border-amber-100 rounded-[2.5rem] p-8 flex flex-col justify-between gap-6 hover:shadow-lg transition-all relative overflow-hidden group">
+                                      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-100 rounded-full -mr-16 -mt-16 blur-2xl opacity-40 group-hover:scale-125 transition-transform" />
+                                      <div className="flex items-center justify-between">
+                                        <span className="px-4 py-1.5 bg-amber-100 text-amber-700 rounded-full text-[11px] font-black tracking-wider uppercase font-extrabold">
+                                          ลำดับความสำคัญที่ 1 (URGENT)
+                                        </span>
+                                        <div className="w-10 h-10 bg-amber-500 text-white rounded-2xl flex items-center justify-center font-black shadow-md shadow-amber-500/20 font-black">
+                                          1
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2 font-black">เขต นป. (North Project)</p>
+                                        <h4 className="text-5xl font-black text-amber-600 tracking-tight font-black">
+                                          {p1Val.toLocaleString()} <span className="text-lg font-bold text-amber-400/80 ml-1 font-bold">วงจร</span>
+                                        </h4>
+                                      </div>
+                                      <div className="border-t border-amber-100/80 pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                        <p className="text-xs font-bold text-slate-600 leading-relaxed max-w-[70%]">
+                                          เกณฑ์ประเมิน: ค่าบริการรายเดือนมากกว่า <span className="font-extrabold text-amber-700">{priorityPrice}</span> บาท และใช้งานอุปกรณ์นานกว่า <span className="font-extrabold text-amber-700">{priorityYears}</span> ปี{priorityOnlyMismatch && <span className="text-rose-600 font-extrabold"> (เฉพาะอุปกรณ์ที่ไม่รองรับความเร็วแพ็กเกจ)</span>}
+                                        </p>
+                                        <button 
+                                          onClick={() => handleExportGroup('priority_1')} 
+                                          disabled={isExportingGroup !== null}
+                                          className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 active:scale-95 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all disabled:opacity-50 self-end sm:self-center shrink-0"
+                                        >
+                                          <Download size={14} />
+                                          <span>{isExportingGroup === 'priority_1' ? 'กำลังส่งออก...' : 'ดาวน์โหลด Excel'}</span>
+                                        </button>
+                                      </div>
+                                    </div>
+
+                                    {/* Priority 2 Card */}
+                                    <div className="bg-gradient-to-br from-blue-50/60 to-indigo-50/40 border border-blue-100 rounded-[2.5rem] p-8 flex flex-col justify-between gap-6 hover:shadow-lg transition-all relative overflow-hidden group">
+                                      <div className="absolute top-0 right-0 w-32 h-32 bg-blue-100 rounded-full -mr-16 -mt-16 blur-2xl opacity-40 group-hover:scale-125 transition-transform" />
+                                      <div className="flex items-center justify-between">
+                                        <span className="px-4 py-1.5 bg-blue-100 text-blue-700 rounded-full text-[11px] font-black tracking-wider uppercase font-extrabold">
+                                          ลำดับความสำคัญที่ 2 (MEDIUM)
+                                        </span>
+                                        <div className="w-10 h-10 bg-blue-500 text-white rounded-2xl flex items-center justify-center font-black shadow-md shadow-blue-500/20 font-black">
+                                          2
+                                        </div>
+                                      </div>
+                                      <div>
+                                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest mb-2 font-black">เขต นป. (North Project)</p>
+                                        <h4 className="text-5xl font-black text-blue-600 tracking-tight font-black">
+                                          {p2Val.toLocaleString()} <span className="text-lg font-bold text-blue-400/80 ml-1 font-bold">วงจร</span>
+                                        </h4>
+                                      </div>
+                                      <div className="border-t border-blue-100/80 pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                        <p className="text-xs font-bold text-slate-600 leading-relaxed max-w-[70%]">
+                                          เกณฑ์ประเมิน: ค่าบริการรายเดือนมากกว่า <span className="font-extrabold text-blue-700">{priorityPrice}</span> บาท และใช้งานอุปกรณ์ตั้งแต่ <span className="font-extrabold text-blue-700">1 - {priorityYears}</span> ปี{priorityOnlyMismatch && <span className="text-rose-600 font-extrabold"> (เฉพาะอุปกรณ์ที่ไม่รองรับความเร็วแพ็กเกจ)</span>}
+                                        </p>
+                                        <button 
+                                          onClick={() => handleExportGroup('priority_2')} 
+                                          disabled={isExportingGroup !== null}
+                                          className="flex items-center justify-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 active:scale-95 text-white rounded-xl text-xs font-black shadow-md hover:shadow-lg transition-all disabled:opacity-50 self-end sm:self-center shrink-0"
+                                        >
+                                          <Download size={14} />
+                                          <span>{isExportingGroup === 'priority_2' ? 'กำลังส่งออก...' : 'ดาวน์โหลด Excel'}</span>
+                                        </button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* --- Section 5: WiFi Device Specification by Package Speed --- */}
+                        <div className="flex flex-col gap-6 font-sans">
+                          <div className="flex items-center gap-4 px-2">
+                            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                              <Wifi size={24} />
+                            </div>
+                            <h3 className="text-2xl font-black text-slate-800 tracking-tight">5. สถิติชนิดอุปกรณ์ WiFi ลูกค้า แยกตามระดับความเร็วแพ็กเกจ</h3>
+                          </div>
+
+                          <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-xl overflow-hidden relative">
+                            <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full -mr-32 -mt-32 blur-3xl opacity-40" />
+                            
+                            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+                              <table className="w-full text-left border-collapse min-w-[1000px] rounded-2xl overflow-hidden border border-slate-200">
+                                <thead>
+                                  {/* Super Header */}
+                                  <tr className="bg-slate-100/80">
+                                    <th className="py-4 px-6 border-b border-slate-200 text-left text-xs font-black text-slate-700" rowSpan={2}>
+                                      ความเร็ว Package ลูกค้า / ชนิดอุปกรณ์
+                                    </th>
+                                    <th className="py-2.5 px-4 border-b border-slate-200 text-center text-xs font-black text-slate-700 tracking-wider" colSpan={10}>
+                                      ชนิดอุปกรณ์ลูกค้า
+                                    </th>
+                                    <th className="py-4 px-6 border-b border-slate-200 text-center text-xs font-black text-indigo-700 tracking-wider bg-indigo-50/50" rowSpan={2}>
+                                      รวมทั้งหมด
+                                    </th>
+                                  </tr>
+                                  {/* Sub Columns */}
+                                  <tr className="bg-slate-50">
+                                    {[
+                                      'Wireless N',
+                                      'AC1200',
+                                      'AC1600',
+                                      'AC1750',
+                                      'AC2100',
+                                      'AX3000',
+                                      'AX5400',
+                                      'AX6000',
+                                      'No WiFi',
+                                      'ไม่มีข้อมูล'
+                                    ].map(col => (
+                                      <th key={col} className="py-3 px-4 border-b border-slate-200 text-center text-[10px] font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                                        {col}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {[
+                                    '<=50Mbps',
+                                    '50-100Mbps',
+                                    '101-300Mbps',
+                                    '301-400Mbps',
+                                    '401-500Mbps',
+                                    '501-600Mbps',
+                                    '601-700Mbps',
+                                    '701-900Mbps',
+                                    '901-1,000 Mbps',
+                                    'Over 1,000 Mbps'
+                                  ].map(row => {
+                                    const cols = [
+                                      'Wireless N',
+                                      'AC1200',
+                                      'AC1600',
+                                      'AC1750',
+                                      'AC2100',
+                                      'AX3000',
+                                      'AX5400',
+                                      'AX6000',
+                                      'No WiFi',
+                                      'ไม่มีข้อมูล'
+                                    ];
+                                    const rowTotal = cols.reduce((sum, col) => {
+                                      if (!executiveStats?.matrix_stats) return sum;
+                                      const found = executiveStats.matrix_stats.find(
+                                        (item: any) => item.speed_range === row && item.wifi_class === col
+                                      );
+                                      return sum + (found ? Number(found.count) : 0);
+                                    }, 0);
+
+                                    return (
+                                      <tr key={row} className="hover:bg-indigo-50/20 transition-all duration-150 group">
+                                        <td className="py-4 px-6 border-b border-slate-200 border-r border-slate-100 text-xs font-black text-slate-700 bg-slate-50/30 whitespace-nowrap">
+                                          {row}
+                                        </td>
+                                        {cols.map(col => {
+                                          let count = 0;
+                                          if (executiveStats?.matrix_stats) {
+                                            const found = executiveStats.matrix_stats.find(
+                                              (item: any) => item.speed_range === row && item.wifi_class === col
+                                            );
+                                            count = found ? Number(found.count) : 0;
+                                          }
+                                          return (
+                                            <td key={col} className="py-4 px-4 border-b border-slate-100 border-r border-slate-50 text-center text-xs font-bold font-mono text-slate-600">
+                                              {count > 0 ? (
+                                                <span className="text-slate-800 font-extrabold">{count.toLocaleString()}</span>
+                                              ) : (
+                                                <span className="text-slate-300 font-normal">-</span>
+                                              )}
+                                            </td>
+                                          );
+                                        })}
+                                        {/* Row Total */}
+                                        <td className="py-4 px-6 border-b border-slate-200 text-center text-xs font-extrabold font-mono text-indigo-700 bg-indigo-50/20 whitespace-nowrap">
+                                          {rowTotal > 0 ? rowTotal.toLocaleString() : '-'}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+
+                                  {/* Columns Totals Row */}
+                                  <tr className="bg-slate-100/60 font-black border-t-2 border-slate-300">
+                                    <td className="py-4 px-6 border-b border-slate-200 border-r border-slate-200 text-xs font-black text-slate-800">
+                                      รวม (Total)
+                                    </td>
+                                    {[
+                                      'Wireless N',
+                                      'AC1200',
+                                      'AC1600',
+                                      'AC1750',
+                                      'AC2100',
+                                      'AX3000',
+                                      'AX5400',
+                                      'AX6000',
+                                      'No WiFi',
+                                      'ไม่มีข้อมูล'
+                                    ].map(col => {
+                                      const rows = [
+                                        '<=50Mbps',
+                                        '50-100Mbps',
+                                        '101-300Mbps',
+                                        '301-400Mbps',
+                                        '401-500Mbps',
+                                        '501-600Mbps',
+                                        '601-700Mbps',
+                                        '701-900Mbps',
+                                        '901-1,000 Mbps',
+                                        'Over 1,000 Mbps'
+                                      ];
+                                      const colTotal = rows.reduce((sum, row) => {
+                                        if (!executiveStats?.matrix_stats) return sum;
+                                        const found = executiveStats.matrix_stats.find(
+                                          (item: any) => item.speed_range === row && item.wifi_class === col
+                                        );
+                                        return sum + (found ? Number(found.count) : 0);
+                                      }, 0);
+                                      return (
+                                        <td key={col} className="py-4 px-4 border-b border-slate-200 border-r border-slate-50 text-center text-xs font-black font-mono text-slate-800">
+                                          {colTotal > 0 ? colTotal.toLocaleString() : '-'}
+                                        </td>
+                                      );
+                                    })}
+                                    {/* Grand Total */}
+                                    <td className="py-4 px-6 border-b border-slate-200 text-center text-xs font-black font-mono text-white bg-indigo-600">
+                                      {(() => {
+                                        if (!executiveStats?.matrix_stats) return '-';
+                                        const grandTotal = executiveStats.matrix_stats.reduce((sum: number, item: any) => sum + Number(item.count), 0);
+                                        return grandTotal > 0 ? grandTotal.toLocaleString() : '-';
+                                      })()}
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
                             </div>
                           </div>
                         </div>

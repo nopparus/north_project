@@ -2,3 +2,7 @@ node_modules/
 dist/
 .env
 *.log
+app8/db-data/
+*.sqlite
+*.db
+uploads/

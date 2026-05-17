@@ -2095,7 +2095,7 @@ app.get('/api/dashboard/service-names', authenticate, async (req, res) => {
             FROM mv_circuit_summary
             WHERE service_name IS NOT NULL AND service_name != '' AND service_name != 'UNKNOWN'
             GROUP BY service_name
-            ORDER BY COUNT(*) DESC
+            ORDER BY service_name ASC
         `);
         res.json({ data: result.rows });
     } catch (err) {
@@ -2256,16 +2256,17 @@ app.get('/api/dashboard/executive-stats', authenticate, async (req, res) => {
         const result = await pool.query(`
             WITH base AS (
                 SELECT 
-                    circuit_norm,
-                    onu_device_type,
-                    onu_wifi_spec,
-                    onu_brand,
-                    wifi_model,
-                    wifi_brand,
-                    is_fe_only,
-                    speed_mbps,
-                    effective_max_speed_mbps,
-                    is_onu_without_wifi,
+                    m.circuit_norm,
+                    m.onu_device_type,
+                    m.onu_wifi_spec,
+                    m.onu_brand,
+                    m.wifi_model,
+                    m.wifi_brand,
+                    m.is_fe_only,
+                    m.speed_mbps,
+                    m.effective_max_speed_mbps,
+                    m.is_onu_without_wifi,
+                    m.price,
                     CASE 
                         WHEN m.onu_wifi_spec ILIKE '%AX3000%' OR m.onu_wifi_spec ILIKE '%AX6000%' THEN true 
                         ELSE false 
@@ -2288,6 +2289,14 @@ app.get('/api/dashboard/executive-stats', authenticate, async (req, res) => {
                 SELECT 'total_bridge' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE onu_device_type = 'ONU Bridge' GROUP BY onu_brand
                 UNION ALL
                 SELECT 'total_fe' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE is_fe_only GROUP BY onu_brand
+                UNION ALL
+                SELECT 'fe_below_300' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE is_fe_only AND price < 300 GROUP BY onu_brand
+                UNION ALL
+                SELECT 'fe_300_399' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE is_fe_only AND price >= 300 AND price < 400 GROUP BY onu_brand
+                UNION ALL
+                SELECT 'fe_400_499' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE is_fe_only AND price >= 400 AND price < 500 GROUP BY onu_brand
+                UNION ALL
+                SELECT 'fe_500_above' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE is_fe_only AND price >= 500 GROUP BY onu_brand
                 UNION ALL
                 SELECT 'total_ge' as category, onu_brand as brand, COUNT(*) as count FROM base WHERE NOT is_fe_only AND onu_device_type ILIKE '%onu%' GROUP BY onu_brand
                 UNION ALL
@@ -2324,8 +2333,27 @@ app.get('/api/dashboard/executive-stats', authenticate, async (req, res) => {
                 -- Specs
                 COUNT(*) FILTER (WHERE is_fe_only) as total_fe,
                 COUNT(*) FILTER (WHERE NOT is_fe_only AND onu_device_type ILIKE '%onu%') as total_ge,
-                COUNT(*) FILTER (WHERE (is_onu_ax OR is_wifi_ax)) as total_ax_3000,
-                COUNT(*) FILTER (WHERE wifi_brand IS NOT NULL AND NOT (is_onu_ax OR is_wifi_ax)) as total_below_ax_3000,
+                COUNT(*) FILTER (WHERE (onu_device_type ILIKE '%all in one%' OR wifi_brand IS NOT NULL) AND (is_onu_ax OR is_wifi_ax)) as total_ax_3000,
+                COUNT(*) FILTER (WHERE (onu_device_type ILIKE '%all in one%' OR wifi_brand IS NOT NULL) AND NOT (is_onu_ax OR is_wifi_ax)) as total_below_ax_3000,
+                
+                -- FE Revenue
+                COALESCE(SUM(price) FILTER (WHERE is_fe_only), 0) as total_fe_revenue,
+
+                -- Entire Base Price Breakdown
+                jsonb_build_object(
+                    'below_300', COUNT(*) FILTER (WHERE price < 300),
+                    '300_399', COUNT(*) FILTER (WHERE price >= 300 AND price < 400),
+                    '400_499', COUNT(*) FILTER (WHERE price >= 400 AND price < 500),
+                    '500_above', COUNT(*) FILTER (WHERE price >= 500)
+                ) as price_groups,
+
+                -- FE Group Price Breakdown
+                jsonb_build_object(
+                    'below_300', COUNT(*) FILTER (WHERE is_fe_only AND price < 300),
+                    '300_399', COUNT(*) FILTER (WHERE is_fe_only AND price >= 300 AND price < 400),
+                    '400_499', COUNT(*) FILTER (WHERE is_fe_only AND price >= 400 AND price < 500),
+                    '500_above', COUNT(*) FILTER (WHERE is_fe_only AND price >= 500)
+                ) as fe_price_groups,
                 
                 -- Package/Speed Breakdown (Flow)
                 jsonb_build_object(
@@ -2350,7 +2378,127 @@ app.get('/api/dashboard/executive-stats', authenticate, async (req, res) => {
             FROM base
         `, params);
 
-        res.json({ data: result.rows[0] });
+        const priorityYears = parseInt(req.query.priorityYears) || 3;
+        const priorityPrice = parseFloat(req.query.priorityPrice) || 500;
+        const priorityOnlyMismatch = req.query.priorityOnlyMismatch === 'true';
+
+        const pParams = [priorityPrice, priorityYears];
+        let pFilterSql = '';
+        let paramIdx = 3;
+        if (serviceFilter) {
+            pFilterSql += ` AND service_name = ANY($${paramIdx}::text[])`;
+            pParams.push(serviceFilter.split(','));
+            paramIdx++;
+        }
+        if (excludeNoWifi === 'true') {
+            pFilterSql += ` AND is_onu_without_wifi = false`;
+        }
+        if (priorityOnlyMismatch) {
+            pFilterSql += ` AND speed_mbps > effective_max_speed_mbps`;
+        }
+
+        const priorityQueryResult = await pool.query(`
+            SELECT 
+                COALESCE(SUBSTRING(section FROM 2 FOR 2) || '.', 'UNKNOWN.') as dept,
+                COUNT(*) FILTER (
+                    WHERE price > $1 
+                      AND install_year IS NOT NULL 
+                      AND install_year != '' 
+                      AND install_year != '0000' 
+                      AND (2026 - CAST(install_year AS INTEGER)) > $2
+                ) as priority_1,
+                COUNT(*) FILTER (
+                    WHERE price > $1 
+                      AND install_year IS NOT NULL 
+                      AND install_year != '' 
+                      AND install_year != '0000' 
+                      AND (2026 - CAST(install_year AS INTEGER)) >= 1
+                      AND (2026 - CAST(install_year AS INTEGER)) <= $2
+                ) as priority_2
+            FROM mv_circuit_summary
+            WHERE section IS NOT NULL AND section != '' ${pFilterSql}
+            GROUP BY dept
+            ORDER BY dept;
+        `, pParams);
+
+        const configs = await pool.query('SELECT type, brand, price FROM replacement_configs');
+
+        const matrixResult = await pool.query(`
+            WITH classified AS (
+                SELECT
+                    CASE
+                        WHEN speed_mbps <= 50 THEN '<=50Mbps'
+                        WHEN speed_mbps > 50 AND speed_mbps <= 100 THEN '50-100Mbps'
+                        WHEN speed_mbps > 100 AND speed_mbps <= 300 THEN '101-300Mbps'
+                        WHEN speed_mbps > 300 AND speed_mbps <= 400 THEN '301-400Mbps'
+                        WHEN speed_mbps > 400 AND speed_mbps <= 500 THEN '401-500Mbps'
+                        WHEN speed_mbps > 500 AND speed_mbps <= 600 THEN '501-600Mbps'
+                        WHEN speed_mbps > 600 AND speed_mbps <= 700 THEN '601-700Mbps'
+                        WHEN speed_mbps > 700 AND speed_mbps <= 900 THEN '701-900Mbps'
+                        WHEN speed_mbps > 900 AND speed_mbps <= 1000 THEN '901-1,000 Mbps'
+                        ELSE 'Over 1,000 Mbps'
+                    END as speed_range,
+                    CASE
+                        -- Wireless N
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%N300%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%802.11n%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%802.11b/g/n%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%Wireless N%'
+                             THEN 'Wireless N'
+                        -- AC1200
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC1200%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC1300%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC750%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC1000%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC1350%'
+                             THEN 'AC1200'
+                        -- AC1600
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC1600%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC1900%'
+                             THEN 'AC1600'
+                        -- AC1750
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC1750%'
+                             THEN 'AC1750'
+                        -- AC2100
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC2100%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC2400%'
+                             THEN 'AC2100'
+                        -- AX3000
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX3000%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX1800%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX3200%'
+                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%WiFi 6%'
+                             THEN 'AX3000'
+                        -- AX5400
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX5400%'
+                             THEN 'AX5400'
+                        -- AX6000
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX6000%'
+                             THEN 'AX6000'
+                        -- No WiFi
+                        WHEN m.is_onu_without_wifi = true THEN 'No WiFi'
+                        -- Missing
+                        ELSE 'ไม่มีข้อมูล'
+                    END as wifi_class
+                FROM mv_circuit_summary m
+                LEFT JOIN device_catalog dc ON dc.brand = m.wifi_brand AND dc.model = m.wifi_model
+                LEFT JOIN device_catalog dconu ON dconu.brand = m.onu_brand AND dconu.model = m.onu_model
+                LEFT JOIN cpe_devices cpe ON cpe.raw_name = m.onu_raw_name
+                WHERE 1=1 ${combinedFilter}
+            )
+            SELECT speed_range, wifi_class, COUNT(*) as count
+            FROM classified
+            GROUP BY speed_range, wifi_class
+        `, params);
+
+        res.json({
+            data: {
+                ...result.rows[0],
+                replacement_configs: configs.rows,
+                priority_stats: priorityQueryResult.rows,
+                matrix_stats: matrixResult.rows
+            }
+        });
     } catch (err) {
         console.error('Executive stats error:', err);
         res.status(500).json({ message: err.message });
@@ -2364,7 +2512,7 @@ app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const searchPattern = `%${search}%`;
 
-    const validSorts = ['circuit_norm', 'speed', 'service_name', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed'];
+    const validSorts = ['circuit_norm', 'speed', 'service_name', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price'];
     const finalSort = validSorts.includes(sortField) ? sortField : 'circuit_norm';
     const finalOrder = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
@@ -2439,9 +2587,9 @@ app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
 });
 
 app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) => {
-    const { search = '', sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '', startYear = '', endYear = '', excludeNoWifi } = req.query;
+    const { search = '', sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '', startYear = '', endYear = '', excludeNoWifi, group, threshold, priorityPrice, priorityYears, priorityOnlyMismatch } = req.query;
     const searchPattern = `%${search}%`;
-    const validSorts = ['circuit_norm', 'speed', 'service_name', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed'];
+    const validSorts = ['circuit_norm', 'speed', 'service_name', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price'];
     const finalSort = validSorts.includes(sortField) ? sortField : 'circuit_norm';
     const finalOrder = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     
@@ -2490,6 +2638,51 @@ app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) 
             whereClauses.push(`f.is_onu_without_wifi = false`);
         }
 
+        if (group === 'fe_only') {
+            whereClauses.push(`f.is_fe_only = true`);
+        } else if (group === 'outdated_ap') {
+            const apLimit = parseInt(threshold) || 500;
+            whereClauses.push(`f.wifi_brand IS NOT NULL AND f.wifi_brand != '' AND f.wifi_model IS NOT NULL AND f.wifi_model != '' AND f.is_fe_only = false AND f.effective_max_speed_mbps > 0 AND f.effective_max_speed_mbps <= $${pIndex}`);
+            params.push(apLimit);
+            pIndex++;
+        } else if (group === 'speed_mismatch') {
+            whereClauses.push(`f.speed_mbps > f.effective_max_speed_mbps AND f.wifi_brand IS NOT NULL AND f.wifi_brand != '' AND f.wifi_model IS NOT NULL AND f.wifi_model != ''`);
+        } else if (group === 'overall_mismatch') {
+            whereClauses.push(`f.speed_mbps > f.effective_max_speed_mbps AND f.effective_max_speed_mbps > 0`);
+        } else if (group === 'no_wifi') {
+            whereClauses.push(`f.onu_device_type = 'ONU Bridge' AND f.is_onu_without_wifi = true`);
+        } else if (group === 'priority_1') {
+            const prPrice = parseFloat(priorityPrice) || 500;
+            const prYears = parseInt(priorityYears) || 3;
+            const prOnlyMismatch = priorityOnlyMismatch === 'true';
+
+            whereClauses.push(`COALESCE(SUBSTRING(f.section FROM 2 FOR 2) || '.', 'UNKNOWN.') = 'นป.'`);
+            whereClauses.push(`f.price > $${pIndex}`);
+            params.push(prPrice);
+            pIndex++;
+            whereClauses.push(`f.install_year IS NOT NULL AND f.install_year != '' AND f.install_year != '0000' AND (2026 - CAST(f.install_year AS INTEGER)) > $${pIndex}`);
+            params.push(prYears);
+            pIndex++;
+            if (prOnlyMismatch) {
+                whereClauses.push(`f.speed_mbps > f.effective_max_speed_mbps`);
+            }
+        } else if (group === 'priority_2') {
+            const prPrice = parseFloat(priorityPrice) || 500;
+            const prYears = parseInt(priorityYears) || 3;
+            const prOnlyMismatch = priorityOnlyMismatch === 'true';
+
+            whereClauses.push(`COALESCE(SUBSTRING(f.section FROM 2 FOR 2) || '.', 'UNKNOWN.') = 'นป.'`);
+            whereClauses.push(`f.price > $${pIndex}`);
+            params.push(prPrice);
+            pIndex++;
+            whereClauses.push(`f.install_year IS NOT NULL AND f.install_year != '' AND f.install_year != '0000' AND (2026 - CAST(f.install_year AS INTEGER)) >= 1 AND (2026 - CAST(f.install_year AS INTEGER)) <= $${pIndex}`);
+            params.push(prYears);
+            pIndex++;
+            if (prOnlyMismatch) {
+                whereClauses.push(`f.speed_mbps > f.effective_max_speed_mbps`);
+            }
+        }
+
         const finalWhereClause = `WHERE ${whereClauses.join(' AND ')}`;
 
         const queryText = `
@@ -2517,6 +2710,7 @@ app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) 
                 f.wifi_brand as "WiFi Router Brand", 
                 f.wifi_model as "WiFi Router Model",
                 f.effective_max_speed as "Max Speed รวม (Mbps)",
+                f.price as "ราคา (บาท/เดือน)",
                 CASE WHEN f.is_onu_without_wifi THEN 'ใช่' ELSE 'ไม่' END as "ไม่มี WiFi ต่อพ่วง"
             FROM mv_circuit_summary f
             ${finalWhereClause}
