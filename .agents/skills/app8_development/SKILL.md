@@ -9,23 +9,17 @@ description: Comprehensive summary of App8 architecture, proxy setup, and develo
 
 ---
 
-## ✅ งานล่าสุดที่พัฒนาเสร็จสมบูรณ์ (2026-05-13)
+## ✅ งานล่าสุดที่พัฒนาเสร็จสมบูรณ์ (2026-05-18)
 
-**ชื่อ Feature:** New Dashboard — Circuit-Based Summary View  
-**สถานะ:** เสร็จสมบูรณ์ (Phase 1-4 Complete)
+**ชื่อ Feature:** New Dashboard Layout & Status Filter Upgrade  
+**สถานะ:** เสร็จสมบูรณ์ (Phase 5 Complete)
 
 ### รายละเอียดการพัฒนาที่ทำเสร็จ
-- **Backend**: สร้าง 4 API ใหม่รองรับ Circuit-Based Dashboard (`stats-v2`, `circuit-summary`, `service-names`, `no-wifi-summary`) โดยใช้ CTEs
-- **Materialized View**: เพิ่มตาราง `mv_circuit_summary` เพื่อเพิ่มความเร็วในการโหลดข้อมูลจาก >60s เหลือ <100ms พร้อมระบบ Refresh View
-- **Frontend**: ปรับโครงสร้างหน้า Home ใหม่ ให้เป็น 2 Tab (Circuit Summary เป็นค่าเริ่มต้น และ Overview สำหรับของเก่า)
-- **Stats Cards**: สร้าง 4 Card แบบใหม่ (Type Breakdown, FE Only, Service Names แบบ Multi-select Dropdown, และ Speed Mismatch)
-- **Data Conversion**: Parse ค่า Download Speed (ลบ M, แปลง k->M) เพื่อนำมาหา Speed Mismatch 
-- **Export**: รองรับระบบ Export to Excel สำหรับตาราง Circuit Summary ใหม่
-- **Deployment**: Re-build Docker container ทั้ง frontend และ backend สำเร็จ
-- **Dashboard v2.1**: แยกกลุ่มสรุปด้านล่างเป็น "ONU ไม่มี WiFi (GE)" และ "ONU Port FE ล้วน" พร้อมปรับ Logic Max Speed ให้เปรียบเทียบค่าที่สูงที่สุดระหว่าง ONU All-in-One และ WiFi Router
-- **Bug Fixes**: แก้ไข 401 Unauthorized ของปุ่ม Refresh Data (Typo ใน localStorage key) และ 404 API URL
-- **Dashboard v2.2**: เพิ่มตัวกรอง (Checkbox) "นำรายการที่ไม่มีข้อมูล wifi ออก" เพื่อซ่อนวงจรที่เป็น ONU Bridge แต่ไม่มี WiFi ต่อพ่วง โดยยังคงแสดง All-in-One และวงจรที่มี WiFi ปกติ
-
+- **Layout Refactoring**: แยกแถวของตัวเลือกแท็บ (Row 1) และแถวของแผงตัวกรองแยกขาดจากกันชัดเจน (Row 2) ขจัดปัญหา UI ซ้อนทับและอัดแน่น
+- **Usage Status Filter**: เพิ่มตัวกรองสถานะการใช้งานแบบ Excel multi-select dropdown ในระดับ Global เพื่อกรองตาม 6 สถานะหลักใน DB
+- **Materialized View v3.0**: เพิ่มคอลัมน์ `service_status` จาก `onu_records` พร้อมสร้าง Index ประสิทธิภาพสูง (`idx_mv_service_status`)
+- **Visual Badges**: แสดงสถานะการใช้งานด้วยสีพรีเมียม (สีเขียว `ใช้งาน`, สีแดง `ยกเลิกถาวร`, สีส้ม อื่นๆ) ในคอลัมน์ใหม่ถัดจาก Service Name
+- **Excel Export**: บันทึกสถานะการใช้งานลงใน Excel sheet ที่ส่งออกทันที
 
 ---
 
@@ -255,8 +249,16 @@ App8 ทำงานบนระบบ Docker Container ภายใต้เค
 - **2026-05-17 (session 21)**: Device Catalog Pre-check & Executive Dashboard Cell Color/Typography Compression:
     - **Backend**: เพิ่มการตรวจสอบความซ้ำซ้อนของ Brand และ Model ก่อนทำการบันทึกข้อมูลแก้ไขใน `PUT /api/device-catalog/:id` โดยหากพบรายการซ้ำซ้อนจะโยน Error `400` พร้อมข้อความแจ้งเตือนภาษาไทยที่เข้าใจง่าย แทนการปล่อยให้เกิด Unique Constraint Error `500` จากฐานข้อมูล
     - **Frontend (Error UX)**: ปรับปรุงส่วนดักจับข้อผิดพลาดใน `handleSaveSpec` ให้ดึงข้อความเตือนเฉพาะเจาะจงจาก Backend ส่งต่อผ่าน Modal Alert ไปหาผู้ใช้โดยตรง
-    - **Frontend (Executive Dashboard Cell Colors)**: สร้างฟังก์ชัน `getMatrixCellColor` ใน `App.tsx` เพื่อเปรียบเทียบขนาดแพ็กเกจความเร็วเทียบกับความจุสูงสุดทางเทคนิคของอุปกรณ์ WiFi (คลาสที่เหมาะสมแสดงผล **สีน้ำเงิน** `text-blue-600`, คลาสที่เป็นคอขวดสะท้อนความไม่เหมาะสมแสดงผล **สีแดง** `text-red-600`, คลาสไม่มี WiFi/ไม่มีข้อมูล แสดงสี Slate ปกติ)
+    - **Frontend (Executive Dashboard Cell Colors)**: สร้างฟังก์ชัน `getMatrixCellColor` in `App.tsx` เพื่อเปรียบเทียบขนาดแพ็กเกจความเร็วเทียบกับความจุสูงสุดทางเทคนิคของอุปกรณ์ WiFi (คลาสที่เหมาะสมแสดงผล **สีน้ำเงิน** `text-blue-600`, คลาสที่เป็นคอขวดสะท้อนความไม่เหมาะสมแสดงผล **สีแดง** `text-red-600`, คลาสไม่มี WiFi/ไม่มีข้อมูล แสดงสี Slate ปกติ)
     - **Frontend (Executive Dashboard Typography & Compressed Layout)**: ปรับเพิ่มขนาดฟอนต์ในตาราง Matrix สถิติข้อที่ 5 ขึ้นอีกรวมทั้งหมด **4px** (headers/cells ➡️ `text-base` / `text-sm`) ควบคู่กับการ**ลดความสูงของแถวลงครึ่งหนึ่ง** (Vertical padding จาก `py-4` ➡️ `py-2` และ `py-3` ➡️ `py-1.5`) เพื่อให้แสดงผลข้อมูลได้หนา ชัดเจน โดดเด่น แต่กระชับ สวยงาม สไตล์ Minimalist
+
+- **2026-05-18 (session 22)**: Dashboard Layout Refactoring & Status Filter Upgrade (Phase 5 Complete):
+    - **Schema & MV Update**: อัปเดต `update_mv_v3.sql` ให้ Join และ Select ฟิลด์ `service_status` ไปยัง `mv_circuit_summary` และสร้าง Index `idx_mv_service_status` เพื่อประสิทธิภาพสูงสุดในการค้นหาข้อมูลกว่า 370k แถว
+    - **Backend API**: ปรับปรุง Endpoint `/circuit-summary` และ `/export` รวมถึง `/stats-v2` และ `/executive-stats` ให้กรองข้อมูลด้วยพารามิเตอร์ `statusFilter` (รองรับ Multi-select ผ่านเงื่อนไข `ANY`) และรองรับ Sorting ฟิลด์ `service_status`
+    - **Frontend UI/UX**:
+        - แยกแถวควบคุมแท็บ (`Tab Navigation Row` - Row 1) และแผงควบคุมตัวกรอง (`Global Filters Row` - Row 2) ให้เป็นระเบียบ สวยงาม สไตล์ Glassmorphism
+        - เพิ่มตัวกรอง `"สถานะการใช้งาน"` แบบ Dropdown Checkbox Multi-select ครอบคลุมทั้ง 6 สถานะหลัก
+        - อัปเดตตารางแสดงรายการลูกค้าให้มีคอลัมน์และ Badge สีที่ชัดเจนสวยงาม (เช่น `ใช้งาน` สีเขียวมรกต, `ยกเลิกถาวร` สีแดงกุหลาบ) พร้อมรองรับการคลิก Sort หัวตาราง
 
 ---
 

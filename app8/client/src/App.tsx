@@ -489,7 +489,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [isExporting, setIsExporting] = useState(false);
   
   // Persistence
-  type AppView = 'home' | 'onu' | 'wifi' | 'onu-get-olt' | 'cpe' | 'catalog' | 'report' | 'logs' | 'missing-mapping' | 'replacements';
+  type AppView = 'home' | 'onu' | 'wifi' | 'onu-get-olt' | 'cpe' | 'catalog' | 'report' | 'logs' | 'missing-mapping' | 'replacements' | 'restore';
   const savedView = (localStorage.getItem('app8_view') as AppView) || 'home';
   const savedLimit = Number(localStorage.getItem('app8_limit')) || 10;
   const savedSearch = localStorage.getItem('app8_search') || '';
@@ -526,14 +526,22 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   // WiFi Sorting
   const [wifiSortField, setWifiSortField] = useState<keyof WiFiRouter>('id');
   const [wifiSortOrder, setWifiSortOrder] = useState<'ASC' | 'DESC'>('DESC');
-  const [wifiSearchTerm, setWifiSearchTerm] = useState('');
-  const [wifiSearchInput, setWifiSearchInput] = useState('');
+
 
   const [showReportSettings, setShowReportSettings] = useState(true);
   const [jumpPage, setJumpPage] = useState('');
   const [confirmAction, setConfirmAction] = useState<{ title: string; message: string; onConfirm: () => void } | null>(null);
-  const [catalogBackupCount, setCatalogBackupCount] = useState(0);
+
   const catalogFileInputRef = useRef<HTMLInputElement>(null);
+  const onuFileInputRef = useRef<HTMLInputElement>(null);
+  const wifiFileInputRef = useRef<HTMLInputElement>(null);
+  const onuGetOltFileInputRef = useRef<HTMLInputElement>(null);
+  const [importConfirmData, setImportConfirmData] = useState<{
+    type: 'onu' | 'wifi' | 'onu-get-olt';
+    count: number;
+    fileName: string;
+  } | null>(null);
+  const [restoreStatus, setRestoreStatus] = useState<any>(null);
 
   // CPE Sorting (Frontend)
   const [cpeSortField, setCpeSortField] = useState<keyof CPEGroup>('raw_name');
@@ -587,6 +595,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [isExportingCircuit, setIsExportingCircuit] = useState(false);
   const [isExportingGroup, setIsExportingGroup] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  // Status filters
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [isStatusFilterOpen, setIsStatusFilterOpen] = useState(false);
   // Year filters
   const [startYear, setStartYear] = useState('');
   const [endYear, setEndYear] = useState('');
@@ -629,7 +640,57 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setTotal(res.data.total);
     } catch (err) { console.error(err); } finally { setLoading(false); }
   }, [page, limit, sortField, sortOrder]);
+  const fetchRestoreStatus = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/restore/status`);
+      setRestoreStatus(res.data);
+    } catch (err) {
+      console.error('Failed to fetch restore status:', err);
+    }
+  }, []);
 
+  const handleDatabaseRestore = async (type: 'onu' | 'wifi' | 'onu-get-olt' | 'catalog') => {
+    let title = '';
+    let message = '';
+    if (type === 'onu') {
+      title = 'กู้คืนข้อมูล ONU Records';
+      message = 'คุณต้องการกู้คืนข้อมูล ONU Records จากข้อมูลสำรองระดับล่าสุดใช่หรือไม่? ข้อมูลปัจจุบันในตารางจะถูกเขียนทับด้วยข้อมูลสำรองล่าสุด';
+    } else if (type === 'wifi') {
+      title = 'กู้คืนข้อมูล WiFi Routers';
+      message = 'คุณต้องการกู้คืนข้อมูล WiFi Routers จากข้อมูลสำรองระดับล่าสุดใช่หรือไม่? ข้อมูลปัจจุบันในตารางจะถูกเขียนทับด้วยข้อมูลสำรองล่าสุด';
+    } else if (type === 'onu-get-olt') {
+      title = 'กู้คืนข้อมูล ONU Get OLT';
+      message = 'คุณต้องการกู้คืนข้อมูล ONU Get OLT จากข้อมูลสำรองระดับล่าสุดใช่หรือไม่? ข้อมูลปัจจุบันในตารางจะถูกเขียนทับด้วยข้อมูลสำรองล่าสุด';
+    } else if (type === 'catalog') {
+      title = 'กู้คืนข้อมูล Device Catalog';
+      message = 'คุณต้องการกู้คืนข้อมูล Device Catalog จากข้อมูลสำรองระดับล่าสุดใช่หรือไม่? ข้อมูลปัจจุบันในตารางจะถูกเขียนทับด้วยข้อมูลสำรองล่าสุด';
+    }
+
+    setConfirmAction({
+      title,
+      message,
+      onConfirm: async () => {
+        setLoading(true);
+        setConfirmAction(null);
+        try {
+          let endpoint = '';
+          if (type === 'onu') endpoint = '/restore/onu-records';
+          else if (type === 'wifi') endpoint = '/restore/wifi-routers';
+          else if (type === 'onu-get-olt') endpoint = '/restore/onu-get-olt';
+          else if (type === 'catalog') endpoint = '/restore/device-catalog';
+
+          const res = await axios.post(`${API_BASE}${endpoint}`);
+          alert(res.data.message || 'กู้คืนข้อมูลสำเร็จ');
+          fetchRestoreStatus();
+        } catch (err: any) {
+          console.error(err);
+          alert(err.response?.data?.message || 'เกิดข้อผิดพลาดในการกู้คืนข้อมูล');
+        } finally {
+          setLoading(false);
+        }
+      }
+    });
+  };
   const fetchCPEGroups = useCallback(async () => {
     setLoading(true);
     try {
@@ -707,11 +768,11 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const fetchWiFiRouters = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/wifi-routers`, { params: { page, limit, search: wifiSearchTerm, sortField: wifiSortField, sortOrder: wifiSortOrder } });
+      const res = await axios.get(`${API_BASE}/wifi-routers`, { params: { page, limit, search: searchTerm, sortField: wifiSortField, sortOrder: wifiSortOrder } });
       setWifiRouters(res.data.data);
       setTotal(res.data.total);
     } catch (err) { console.error(err); } finally { setLoading(false); }
-  }, [page, limit, wifiSearchTerm, wifiSortField, wifiSortOrder]);
+  }, [page, limit, searchTerm, wifiSortField, wifiSortOrder]);
 
   const fetchOnuGetOlt = useCallback(async () => {
     setLoading(true);
@@ -747,24 +808,25 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const fetchExecutiveStats = useCallback(async () => {
     setIsExecutiveLoading(true);
     try {
-      const res = await axios.get(`${API_BASE}/dashboard/executive-stats`, {
-        params: {
-          serviceFilter: selectedServices.join(','),
-          startYear,
-          endYear,
-          excludeNoWifi: excludeNoWifi ? 'true' : 'false',
-          priorityYears,
-          priorityPrice,
-          priorityOnlyMismatch: priorityOnlyMismatch ? 'true' : 'false'
-        }
-      });
+      const params: any = {
+        startYear,
+        endYear,
+        excludeNoWifi: excludeNoWifi ? 'true' : 'false',
+        priorityYears,
+        priorityPrice,
+        priorityOnlyMismatch: priorityOnlyMismatch ? 'true' : 'false'
+      };
+      if (selectedServices.length > 0) params.serviceFilter = selectedServices.join(',');
+      if (selectedStatuses.length > 0) params.statusFilter = selectedStatuses.join(',');
+
+      const res = await axios.get(`${API_BASE}/dashboard/executive-stats`, { params });
       setExecutiveStats(res.data.data);
     } catch (err) {
       console.error('Fetch executive stats error:', err);
     } finally {
       setIsExecutiveLoading(false);
     }
-  }, [selectedServices, startYear, endYear, excludeNoWifi, priorityYears, priorityPrice, priorityOnlyMismatch]);
+  }, [selectedServices, selectedStatuses, startYear, endYear, excludeNoWifi, priorityYears, priorityPrice, priorityOnlyMismatch]);
 
   useEffect(() => {
     if (homeTab === 'executive') {
@@ -785,25 +847,27 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     try {
       const params: any = {};
       if (selectedServices.length > 0) params.serviceFilter = selectedServices.join(',');
+      if (selectedStatuses.length > 0) params.statusFilter = selectedStatuses.join(',');
       if (startYear && endYear) { params.startYear = startYear; params.endYear = endYear; }
       if (excludeNoWifi) params.excludeNoWifi = 'true';
       const res = await axios.get(`${API_BASE}/dashboard/stats-v2`, { params });
       setDashboardV2Stats(res.data);
     } catch (err) { console.error('stats-v2 error:', err); }
-  }, [selectedServices, startYear, endYear, excludeNoWifi]);
+  }, [selectedServices, selectedStatuses, startYear, endYear, excludeNoWifi]);
 
   const fetchCircuitSummary = useCallback(async () => {
     setLoading(true);
     try {
       const params: any = { search: circuitSearch, page: circuitPage, limit, sortField: circuitSortField, sortOrder: circuitSortOrder };
       if (selectedServices.length > 0) params.serviceFilter = selectedServices.join(',');
+      if (selectedStatuses.length > 0) params.statusFilter = selectedStatuses.join(',');
       if (startYear && endYear) { params.startYear = startYear; params.endYear = endYear; }
       if (excludeNoWifi) params.excludeNoWifi = 'true';
       const res = await axios.get(`${API_BASE}/dashboard/circuit-summary`, { params });
       setCircuitData(res.data.data || []);
       setCircuitTotal(res.data.total || 0);
     } catch (err) { console.error('circuit-summary error:', err); } finally { setLoading(false); }
-  }, [circuitSearch, circuitPage, limit, circuitSortField, circuitSortOrder, selectedServices, startYear, endYear, excludeNoWifi]);
+  }, [circuitSearch, circuitPage, limit, circuitSortField, circuitSortOrder, selectedServices, selectedStatuses, startYear, endYear, excludeNoWifi]);
 
   const fetchYears = useCallback(async () => {
     try {
@@ -835,6 +899,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setIsExportingCircuit(true);
       const params1: any = { search: circuitSearch, page: 1, limit: 999999, sortField: circuitSortField, sortOrder: circuitSortOrder };
       if (selectedServices.length > 0) params1.serviceFilter = selectedServices.join(',');
+      if (selectedStatuses.length > 0) params1.statusFilter = selectedStatuses.join(',');
       await axios.get(`${API_BASE}/dashboard/circuit-summary`, {
         params: params1,
         responseType: 'blob'
@@ -847,6 +912,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         excludeNoWifi: excludeNoWifi ? 'true' : 'false'
       };
       if (selectedServices.length > 0) params2.serviceFilter = selectedServices.join(',');
+      if (selectedStatuses.length > 0) params2.statusFilter = selectedStatuses.join(',');
       if (startYear && endYear) { params2.startYear = startYear; params2.endYear = endYear; }
       const res2 = await axios.get(`${API_BASE}/dashboard/circuit-summary/export`, {
         params: params2,
@@ -874,6 +940,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         excludeNoWifi: excludeNoWifi ? 'true' : 'false'
       };
       if (selectedServices.length > 0) params.serviceFilter = selectedServices.join(',');
+      if (selectedStatuses.length > 0) params.statusFilter = selectedStatuses.join(',');
       if (startYear && endYear) { params.startYear = startYear; params.endYear = endYear; }
 
       if (groupName === 'priority_1' || groupName === 'priority_2') {
@@ -1026,22 +1093,22 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     else if (view === 'catalog') {
       fetchCatalog();
       fetchCatalogDiscovery();
-      axios.get(`${API_BASE}/device-catalog/backup-status`).then(res => setCatalogBackupCount(res.data.count)).catch(() => {});
     }
     else if (view === 'report') fetchReport();
     else if (view === 'wifi') { fetchWiFiRouters(); }
     else if (view === 'onu-get-olt') { fetchOnuGetOlt(); }
-  }, [view, mappingTab, fetchData, fetchLogs, fetchCPEGroups, fetchWifiMappings, fetchCatalog, fetchReport, fetchWiFiRouters, fetchDashboard, fetchOnuGetOlt, fetchStatsV2, fetchCircuitSummary, fetchServiceNames, fetchNoWifiSummary, fetchYears, fetchReplacementConfigs]);
+    else if (view === 'restore') { fetchRestoreStatus(); }
+  }, [view, mappingTab, fetchData, fetchLogs, fetchCPEGroups, fetchWifiMappings, fetchCatalog, fetchReport, fetchWiFiRouters, fetchDashboard, fetchOnuGetOlt, fetchStatsV2, fetchCircuitSummary, fetchServiceNames, fetchNoWifiSummary, fetchYears, fetchReplacementConfigs, fetchRestoreStatus]);
 
   // Re-fetch circuit when pagination/sort changes
   useEffect(() => {
     if (view === 'home') fetchCircuitSummary();
-  }, [circuitPage, circuitSearch, circuitSortField, circuitSortOrder, selectedServices, startYear, endYear]);
+  }, [circuitPage, circuitSearch, circuitSortField, circuitSortOrder, selectedServices, selectedStatuses, startYear, endYear]);
 
   // Re-fetch stats when service filter changes
   useEffect(() => {
     if (view === 'home') fetchStatsV2();
-  }, [selectedServices]);
+  }, [selectedServices, selectedStatuses]);
 
 
   const handleSort = (field: string) => {
@@ -1069,12 +1136,8 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (view === 'wifi') {
-      setWifiSearchTerm(wifiSearchInput);
-    } else {
-      setSearchTerm(searchInput);
-      localStorage.setItem('app8_search', searchInput);
-    }
+    setSearchTerm(searchInput);
+    localStorage.setItem('app8_search', searchInput);
     setPage(1);
   };
 
@@ -1300,8 +1363,6 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         try {
           const res = await axios.post(`${API_BASE}/device-catalog/upload`, formData);
           fetchCatalog();
-          const bkRes = await axios.get(`${API_BASE}/device-catalog/backup-status`);
-          setCatalogBackupCount(bkRes.data.count);
           alert(`นำเข้าสำเร็จ: อัปเดต ${res.data.updated} รายการ, เพิ่มใหม่ ${res.data.inserted} รายการ`);
         } catch (err: any) {
           alert('Upload failed: ' + (err.response?.data?.message || err.message));
@@ -1313,27 +1374,84 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     });
   };
 
-  const handleCatalogRestore = async () => {
-    setConfirmAction({
-      title: 'ยืนยันการกู้คืนข้อมูล Catalog',
-      message: 'การกู้คืนจะเขียนทับข้อมูล Catalog ทั้งหมดด้วยข้อมูลสำรองล่าสุด ยืนยันหรือไม่?',
-      onConfirm: async () => {
-        setLoading(true);
-        setConfirmAction(null);
-        try {
-          await axios.post(`${API_BASE}/device-catalog/restore`);
-          fetchCatalog();
-          alert('กู้คืนข้อมูลสำเร็จ');
-        } catch (err: any) {
-          alert('Restore failed: ' + (err.response?.data?.message || err.message));
-        } finally {
-          setLoading(false);
-        }
-      }
-    });
+  // Excel Import Handlers
+  const handleImportUpload = async (e: React.ChangeEvent<HTMLInputElement>, type: 'onu' | 'wifi' | 'onu-get-olt') => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    setLoading(true);
+    try {
+      let endpoint = '';
+      if (type === 'onu') endpoint = '/onu/import';
+      else if (type === 'wifi') endpoint = '/wifi-routers/import';
+      else if (type === 'onu-get-olt') endpoint = '/onu-get-olt/import';
+
+      const res = await axios.post(`${API_BASE}${endpoint}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+
+      setImportConfirmData({
+        type,
+        count: res.data.count,
+        fileName: file.name
+      });
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.message || 'เกิดข้อผิดพลาดในการตรวจสอบไฟล์');
+    } finally {
+      setLoading(false);
+      e.target.value = '';
+    }
   };
 
-  // Removed unused WiFi handlers
+  const handleImportConfirm = async () => {
+    if (!importConfirmData) return;
+    const { type } = importConfirmData;
+
+    setLoading(true);
+    try {
+      let endpoint = '';
+      if (type === 'onu') endpoint = '/onu/import/confirm';
+      else if (type === 'wifi') endpoint = '/wifi-routers/import/confirm';
+      else if (type === 'onu-get-olt') endpoint = '/onu-get-olt/import/confirm';
+
+      const res = await axios.post(`${API_BASE}${endpoint}`);
+      alert(res.data.message || 'นำเข้าข้อมูลสำเร็จ');
+      
+      // Refresh current view
+      if (type === 'onu') fetchData();
+      else if (type === 'wifi') fetchWiFiRouters();
+      else if (type === 'onu-get-olt') fetchOnuGetOlt();
+
+      setImportConfirmData(null);
+    } catch (err: any) {
+      console.error(err);
+      alert(err.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleImportCancel = async () => {
+    if (!importConfirmData) return;
+    const { type } = importConfirmData;
+    try {
+      let endpoint = '';
+      if (type === 'onu') endpoint = '/onu/import/cancel';
+      else if (type === 'wifi') endpoint = '/wifi-routers/import/cancel';
+      else if (type === 'onu-get-olt') endpoint = '/onu-get-olt/import/cancel';
+      
+      await axios.post(`${API_BASE}${endpoint}`);
+    } catch (err) {
+      console.error(err);
+    }
+    setImportConfirmData(null);
+  };
+
+
 
   // Brand options
   const uniqueBrands = Array.from(new Set(allCatalog.map(d => d.brand))).filter(Boolean) as string[];
@@ -1410,6 +1528,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             { id: 'catalog', icon: <Database size={20} />, label: 'Device Catalog' },
             { id: 'report', icon: <FileBarChart size={20} />, label: 'Integrated Report' },
             { id: 'logs', icon: <History size={20} />, label: 'Activity Logs', admin: true },
+            { id: 'restore', icon: <Shield size={20} />, label: 'Database Restore', admin: true },
           ].map((item) => {
             if (item.admin && user.role !== 'admin') return null;
             return (
@@ -1451,15 +1570,15 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             )}
           </div>
           <div className="flex items-center gap-6">
-            {(view === 'home' || view === 'onu' || view === 'report' || view === 'wifi' || view === 'onu-get-olt' || view === 'cpe' || view === 'catalog') && (
+            {(view === 'home' || view === 'onu' || view === 'report' || view === 'wifi' || view === 'onu-get-olt' || view === 'cpe' || view === 'catalog' || view === 'missing-mapping') && (
               <form onSubmit={handleSearchSubmit} className="flex items-center gap-3">
                 <div className="relative">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
                   <input 
                     type="text" 
                     placeholder="ค้นหาข้อมูล..." 
-                    value={view === 'wifi' ? wifiSearchInput : searchInput} 
-                    onChange={(e) => view === 'wifi' ? setWifiSearchInput(e.target.value) : setSearchInput(e.target.value)} 
+                    value={searchInput} 
+                    onChange={(e) => setSearchInput(e.target.value)} 
                     className="pl-12 pr-6 py-3.5 bg-slate-50 border border-slate-200 rounded-2xl text-base font-medium outline-none focus:ring-4 focus:ring-indigo-100 focus:border-indigo-500 w-[400px] flex-shrink-0 transition-all" 
                   />
                 </div>
@@ -1481,150 +1600,206 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
           {view === 'home' && (
             <div className="flex-1 overflow-y-auto p-8 scrollbar-thin bg-slate-50/30">
               <div className="flex flex-col gap-8 max-w-[1600px] mx-auto">
-                {/* --- Tab Navigation & Global Filters --- */}
-                <div className="flex flex-col md:flex-row md:items-center gap-4">
+                {/* --- Tab Navigation Row --- */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-4 rounded-3xl border border-slate-200/60 shadow-sm shrink-0">
                   <div className="flex p-1.5 bg-slate-100/80 backdrop-blur-sm rounded-2xl w-fit border border-slate-200">
                     <button onClick={() => setHomeTab('circuit')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'circuit' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Circuit Summary (New)</button>
                     <button onClick={() => setHomeTab('overview')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'overview' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Overview (Classic)</button>
                     <button onClick={() => setHomeTab('executive')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'executive' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Executive Dashboard</button>
                   </div>
-
-                  {(homeTab === 'circuit' || homeTab === 'executive') && (
-                    <>
-                      <div className="relative z-20">
-                        <button 
-                          onClick={() => setIsServiceFilterOpen(!isServiceFilterOpen)}
-                          className={`flex items-center gap-2 px-5 py-3 bg-white border ${selectedServices.length > 0 ? 'border-blue-500 text-blue-600 shadow-blue-100' : 'border-slate-200 text-slate-600 hover:border-slate-300 shadow-slate-100'} rounded-2xl text-sm font-black shadow-md transition-all`}
-                        >
-                          <Database size={18} />
-                          <span>ตัวกรอง Service Name {selectedServices.length > 0 ? `(${selectedServices.length})` : ''}</span>
-                          <ChevronDown size={18} className={`ml-2 transition-transform duration-200 ${isServiceFilterOpen ? 'rotate-180' : ''}`} />
-                        </button>
-                        {isServiceFilterOpen && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setIsServiceFilterOpen(false)}></div>
-                            <div className="absolute top-[calc(100%+8px)] left-0 w-[360px] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden flex flex-col origin-top-left animate-in fade-in zoom-in-95 duration-200">
-                              <div className="p-3 border-b border-slate-100 bg-slate-50/50">
-                                <div className="relative">
-                                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                  <input 
-                                    type="text" 
-                                    placeholder="ค้นหา (Search)..." 
-                                    value={serviceSearchTerm}
-                                    onChange={(e) => setServiceSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 placeholder-slate-400"
-                                    autoFocus
-                                  />
-                                </div>
-                              </div>
-                              <div className="max-h-[320px] overflow-y-auto scrollbar-thin p-2 flex flex-col gap-0.5">
-                                <label className="flex items-center gap-3 p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer transition-all">
-                                   <input 
-                                     type="checkbox" 
-                                     className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                                     checked={serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).length > 0 && serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).every(s => selectedServices.includes(s.service_name))}
-                                     onChange={(e) => {
-                                       const filtered = serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).map(s => s.service_name);
-                                       if (e.target.checked) setSelectedServices(prev => Array.from(new Set([...prev, ...filtered])));
-                                       else setSelectedServices(prev => prev.filter(s => !filtered.includes(s)));
-                                     }}
-                                   />
-                                   <span className="text-sm font-black text-slate-800">(Select All{serviceSearchTerm ? ' Search Results' : ''})</span>
-                                </label>
-                                <div className="h-px w-full bg-slate-100 my-1"></div>
-                                {serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).map((s, i) => (
-                                  <label key={i} className={`flex items-center justify-between p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer group transition-all ${selectedServices.includes(s.service_name) ? 'bg-blue-50/50' : ''}`}>
-                                    <div className="flex items-center gap-3">
-                                      <input 
-                                        type="checkbox" 
-                                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                                        checked={selectedServices.includes(s.service_name)}
-                                        onChange={(e) => {
-                                          if (e.target.checked) setSelectedServices(prev => [...prev, s.service_name]);
-                                          else setSelectedServices(prev => prev.filter(v => v !== s.service_name));
-                                        }}
-                                      />
-                                      <span className={`text-sm font-bold truncate max-w-[200px] ${selectedServices.includes(s.service_name) ? 'text-blue-700' : 'text-slate-600'}`} title={s.service_name}>{s.service_name}</span>
-                                    </div>
-                                    <span className={`text-xs font-black ${selectedServices.includes(s.service_name) ? 'text-blue-500' : 'text-slate-400 group-hover:text-blue-400'}`}>{Number(s.circuit_count).toLocaleString()}</span>
-                                  </label>
-                                ))}
-                              </div>
-                              <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
-                                <button onClick={() => setSelectedServices([])} className="px-4 py-2 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-xl transition-all">Clear Filter</button>
-                                <button onClick={() => setIsServiceFilterOpen(false)} className="px-6 py-2 text-xs font-black text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-200">OK</button>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-
-                      <div className="relative z-20">
-                        <button 
-                          onClick={() => setIsYearFilterOpen(!isYearFilterOpen)}
-                          className={`flex items-center gap-2 px-5 py-3 bg-white border ${startYear && endYear ? 'border-amber-500 text-amber-600 shadow-amber-100' : 'border-slate-200 text-slate-600 hover:border-slate-300 shadow-slate-100'} rounded-2xl text-sm font-black shadow-md transition-all`}
-                        >
-                          <Calendar size={18} />
-                          <span>ตัวกรอง ปีที่ติดตั้ง {startYear && endYear ? `(${startYear === '0000' ? 'ข้อมูลปี 0000' : `${startYear}-${endYear}`})` : ''}</span>
-                          <ChevronDown size={18} className={`ml-2 transition-transform duration-200 ${isYearFilterOpen ? 'rotate-180' : ''}`} />
-                        </button>
-
-                        {isYearFilterOpen && (
-                          <>
-                            <div className="fixed inset-0 z-40" onClick={() => setIsYearFilterOpen(false)}></div>
-                            <div className="absolute top-[calc(100%+8px)] left-0 w-[300px] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 p-4 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200">
-                              <div className="flex flex-col gap-2">
-                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">ปีเริ่มต้น</label>
-                                <select 
-                                  value={startYear} 
-                                  onChange={(e) => {
-                                    setStartYear(e.target.value);
-                                    if (e.target.value === '0000') setEndYear('0000');
-                                    else if (endYear === '0000') setEndYear('');
-                                  }}
-                                  className="w-full px-4 py-2 text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-100 text-slate-700"
-                                >
-                                  <option value="">(ทั้งหมด)</option>
-                                  {availableYears.map(y => <option key={y} value={y}>{y === '0000' ? '0000 (ไม่มีข้อมูล)' : y}</option>)}
-                                </select>
-                              </div>
-
-                              <div className="flex flex-col gap-2">
-                                <label className="text-xs font-black text-slate-400 uppercase tracking-widest">ปีสิ้นสุด</label>
-                                <select 
-                                  value={endYear} 
-                                  onChange={(e) => setEndYear(e.target.value)}
-                                  disabled={startYear === '0000'}
-                                  className="w-full px-4 py-2 text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-100 text-slate-700 disabled:opacity-50"
-                                >
-                                  <option value="">(ทั้งหมด)</option>
-                                  {availableYears.filter(y => y !== '0000' && (!startYear || y >= startYear)).map(y => <option key={y} value={y}>{y}</option>)}
-                                </select>
-                              </div>
-
-                              <div className="flex items-center justify-between gap-2 mt-2">
-                                <button onClick={() => { setStartYear(''); setEndYear(''); }} className="px-4 py-2 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-xl transition-all">Clear</button>
-                                <button onClick={() => setIsYearFilterOpen(false)} className="px-6 py-2 text-xs font-black text-white bg-amber-600 rounded-xl hover:bg-amber-700 transition-all shadow-md shadow-amber-200">OK</button>
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-
-                      <div className="flex items-center ml-2">
-                        <label className="flex items-center gap-2 cursor-pointer bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-md shadow-slate-100 hover:border-blue-300 transition-all">
-                          <input 
-                            type="checkbox" 
-                            className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
-                            checked={excludeNoWifi}
-                            onChange={(e) => setExcludeNoWifi(e.target.checked)}
-                          />
-                          <span className="text-sm font-black text-slate-700 select-none">นำรายการที่ไม่มีข้อมูล wifi ออก</span>
-                        </label>
-                      </div>
-                    </>
+                  {homeTab === 'circuit' && (
+                    <div className="text-xs font-bold text-slate-400 mr-2">
+                      แสดงรายการวงจรลูกค้าทั้งหมดจาก ONU Records
+                    </div>
+                  )}
+                  {homeTab === 'executive' && (
+                    <div className="text-xs font-bold text-slate-400 mr-2">
+                      สรุปสถิติลำดับชั้นระดับผู้บริหาร (Executive Dashboard)
+                    </div>
                   )}
                 </div>
+
+                {/* --- Dynamic Global Filters Row (Separate Card) --- */}
+                {(homeTab === 'circuit' || homeTab === 'executive') && (
+                  <div className="flex flex-wrap items-center gap-4 bg-white p-5 rounded-3xl border border-slate-200/80 shadow-sm relative z-30 animate-in fade-in duration-200">
+                    {/* 1. ตัวกรอง Service Name */}
+                    <div className="relative z-20">
+                      <button 
+                        onClick={() => setIsServiceFilterOpen(!isServiceFilterOpen)}
+                        className={`flex items-center gap-2 px-5 py-3 bg-white border ${selectedServices.length > 0 ? 'border-blue-500 text-blue-600 shadow-blue-100' : 'border-slate-200 text-slate-600 hover:border-slate-300 shadow-slate-100'} rounded-2xl text-sm font-black shadow-md transition-all`}
+                      >
+                        <Database size={18} />
+                        <span>ตัวกรอง Service Name {selectedServices.length > 0 ? `(${selectedServices.length})` : ''}</span>
+                        <ChevronDown size={18} className={`ml-2 transition-transform duration-200 ${isServiceFilterOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {isServiceFilterOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setIsServiceFilterOpen(false)}></div>
+                          <div className="absolute top-[calc(100%+8px)] left-0 w-[360px] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden flex flex-col origin-top-left animate-in fade-in zoom-in-95 duration-200">
+                            <div className="p-3 border-b border-slate-100 bg-slate-50/50">
+                              <div className="relative">
+                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <input 
+                                  type="text" 
+                                  placeholder="ค้นหา (Search)..." 
+                                  value={serviceSearchTerm}
+                                  onChange={(e) => setServiceSearchTerm(e.target.value)}
+                                  className="w-full pl-10 pr-3 py-2 text-sm font-bold bg-white border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-100 text-slate-700 placeholder-slate-400"
+                                  autoFocus
+                                />
+                              </div>
+                            </div>
+                            <div className="max-h-[320px] overflow-y-auto scrollbar-thin p-2 flex flex-col gap-0.5">
+                              <label className="flex items-center gap-3 p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer transition-all">
+                                 <input 
+                                   type="checkbox" 
+                                   className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                                   checked={serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).length > 0 && serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).every(s => selectedServices.includes(s.service_name))}
+                                   onChange={(e) => {
+                                     const filtered = serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).map(s => s.service_name);
+                                     if (e.target.checked) setSelectedServices(prev => Array.from(new Set([...prev, ...filtered])));
+                                     else setSelectedServices(prev => prev.filter(s => !filtered.includes(s)));
+                                   }}
+                                 />
+                                 <span className="text-sm font-black text-slate-800">(Select All{serviceSearchTerm ? ' Search Results' : ''})</span>
+                              </label>
+                              <div className="h-px w-full bg-slate-100 my-1"></div>
+                              {serviceNames.filter(s => s.service_name.toLowerCase().includes(serviceSearchTerm.toLowerCase())).map((s, i) => (
+                                <label key={i} className={`flex items-center justify-between p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer group transition-all ${selectedServices.includes(s.service_name) ? 'bg-blue-50/50' : ''}`}>
+                                  <div className="flex items-center gap-3">
+                                    <input 
+                                      type="checkbox" 
+                                      className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                                      checked={selectedServices.includes(s.service_name)}
+                                      onChange={(e) => {
+                                        if (e.target.checked) setSelectedServices(prev => [...prev, s.service_name]);
+                                        else setSelectedServices(prev => prev.filter(v => v !== s.service_name));
+                                      }}
+                                    />
+                                    <span className={`text-sm font-bold truncate max-w-[200px] ${selectedServices.includes(s.service_name) ? 'text-blue-700' : 'text-slate-600'}`} title={s.service_name}>{s.service_name}</span>
+                                  </div>
+                                  <span className={`text-xs font-black ${selectedServices.includes(s.service_name) ? 'text-blue-500' : 'text-slate-400 group-hover:text-blue-400'}`}>{Number(s.circuit_count).toLocaleString()}</span>
+                                </label>
+                              ))}
+                            </div>
+                            <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
+                              <button onClick={() => setSelectedServices([])} className="px-4 py-2 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-xl transition-all">Clear Filter</button>
+                              <button onClick={() => setIsServiceFilterOpen(false)} className="px-6 py-2 text-xs font-black text-white bg-blue-600 rounded-xl hover:bg-blue-700 transition-all shadow-md shadow-blue-200">OK</button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* 2. ตัวกรอง สถานะการใช้งาน (New Multi-select) */}
+                    <div className="relative z-20">
+                      <button 
+                        onClick={() => setIsStatusFilterOpen(!isStatusFilterOpen)}
+                        className={`flex items-center gap-2 px-5 py-3 bg-white border ${selectedStatuses.length > 0 ? 'border-emerald-500 text-emerald-600 shadow-emerald-100' : 'border-slate-200 text-slate-600 hover:border-slate-300 shadow-slate-100'} rounded-2xl text-sm font-black shadow-md transition-all`}
+                      >
+                        <CheckCircle2 size={18} />
+                        <span>ตัวกรอง สถานะการใช้งาน {selectedStatuses.length > 0 ? `(${selectedStatuses.length})` : ''}</span>
+                        <ChevronDown size={18} className={`ml-2 transition-transform duration-200 ${isStatusFilterOpen ? 'rotate-180' : ''}`} />
+                      </button>
+                      {isStatusFilterOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setIsStatusFilterOpen(false)}></div>
+                          <div className="absolute top-[calc(100%+8px)] left-0 w-[280px] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 overflow-hidden flex flex-col origin-top-left animate-in fade-in zoom-in-95 duration-200">
+                            <div className="p-3 border-b border-slate-100 bg-slate-50/50">
+                              <span className="text-xs font-black text-slate-400 uppercase tracking-widest">เลือกสถานะการใช้งาน</span>
+                            </div>
+                            <div className="max-h-[320px] overflow-y-auto scrollbar-thin p-2 flex flex-col gap-0.5">
+                              {['ใช้งาน', 'ขอเปิดบริการ', 'ต่อสายคืน', 'ยกเลิกถาวร', 'รีเซ็ทพาสเวิร์ด', 'เลิกใช้ชั่วคราว'].map((status, i) => (
+                                <label key={i} className={`flex items-center gap-3 p-2.5 hover:bg-slate-50 rounded-xl cursor-pointer group transition-all ${selectedStatuses.includes(status) ? 'bg-emerald-50/50' : ''}`}>
+                                  <input 
+                                    type="checkbox" 
+                                    className="w-4 h-4 text-emerald-600 border-slate-300 rounded focus:ring-emerald-500 cursor-pointer"
+                                    checked={selectedStatuses.includes(status)}
+                                    onChange={(e) => {
+                                      if (e.target.checked) setSelectedStatuses(prev => [...prev, status]);
+                                      else setSelectedStatuses(prev => prev.filter(v => v !== status));
+                                    }}
+                                  />
+                                  <span className={`text-sm font-bold ${selectedStatuses.includes(status) ? 'text-emerald-700' : 'text-slate-600'}`}>{status}</span>
+                                </label>
+                              ))}
+                            </div>
+                            <div className="p-3 border-t border-slate-100 bg-slate-50 flex items-center justify-between gap-2">
+                              <button onClick={() => setSelectedStatuses([])} className="px-4 py-2 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-xl transition-all">Clear Filter</button>
+                              <button onClick={() => setIsStatusFilterOpen(false)} className="px-6 py-2 text-xs font-black text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 transition-all shadow-md shadow-emerald-200">OK</button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* 3. ตัวกรอง ปีที่ติดตั้ง */}
+                    <div className="relative z-20">
+                      <button 
+                        onClick={() => setIsYearFilterOpen(!isYearFilterOpen)}
+                        className={`flex items-center gap-2 px-5 py-3 bg-white border ${startYear && endYear ? 'border-amber-500 text-amber-600 shadow-amber-100' : 'border-slate-200 text-slate-600 hover:border-slate-300 shadow-slate-100'} rounded-2xl text-sm font-black shadow-md transition-all`}
+                      >
+                        <Calendar size={18} />
+                        <span>ตัวกรอง ปีที่ติดตั้ง {startYear && endYear ? `(${startYear === '0000' ? 'ข้อมูลปี 0000' : `${startYear}-${endYear}`})` : ''}</span>
+                        <ChevronDown size={18} className={`ml-2 transition-transform duration-200 ${isYearFilterOpen ? 'rotate-180' : ''}`} />
+                      </button>
+
+                      {isYearFilterOpen && (
+                        <>
+                          <div className="fixed inset-0 z-40" onClick={() => setIsYearFilterOpen(false)}></div>
+                          <div className="absolute top-[calc(100%+8px)] left-0 w-[300px] bg-white rounded-2xl shadow-2xl border border-slate-200 z-50 p-4 flex flex-col gap-4 animate-in fade-in zoom-in-95 duration-200">
+                            <div className="flex flex-col gap-2">
+                              <label className="text-xs font-black text-slate-400 uppercase tracking-widest">ปีเริ่มต้น</label>
+                              <select 
+                                value={startYear} 
+                                onChange={(e) => {
+                                  setStartYear(e.target.value);
+                                  if (e.target.value === '0000') setEndYear('0000');
+                                  else if (endYear === '0000') setEndYear('');
+                                }}
+                                className="w-full px-4 py-2 text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-100 text-slate-700"
+                              >
+                                <option value="">(ทั้งหมด)</option>
+                                {availableYears.map(y => <option key={y} value={y}>{y === '0000' ? '0000 (ไม่มีข้อมูล)' : y}</option>)}
+                              </select>
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                              <label className="text-xs font-black text-slate-400 uppercase tracking-widest">ปีสิ้นสุด</label>
+                              <select 
+                                value={endYear} 
+                                onChange={(e) => setEndYear(e.target.value)}
+                                disabled={startYear === '0000'}
+                                className="w-full px-4 py-2 text-sm font-bold bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-amber-100 text-slate-700 disabled:opacity-50"
+                              >
+                                <option value="">(ทั้งหมด)</option>
+                                {availableYears.filter(y => y !== '0000' && (!startYear || y >= startYear)).map(y => <option key={y} value={y}>{y}</option>)}
+                              </select>
+                            </div>
+
+                            <div className="flex items-center justify-between gap-2 mt-2">
+                              <button onClick={() => { setStartYear(''); setEndYear(''); }} className="px-4 py-2 text-xs font-black text-rose-500 hover:bg-rose-50 rounded-xl transition-all">Clear</button>
+                              <button onClick={() => setIsYearFilterOpen(false)} className="px-6 py-2 text-xs font-black text-white bg-amber-600 rounded-xl hover:bg-amber-700 transition-all shadow-md shadow-amber-200">OK</button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+
+                    {/* 4. นำรายการที่ไม่มีข้อมูล wifi ออก */}
+                    <div className="flex items-center sm:ml-auto">
+                      <label className="flex items-center gap-2 cursor-pointer bg-white px-4 py-3 rounded-2xl border border-slate-200 shadow-md shadow-slate-100 hover:border-blue-300 transition-all">
+                        <input 
+                          type="checkbox" 
+                          className="w-5 h-5 text-blue-600 border-slate-300 rounded focus:ring-blue-500 cursor-pointer"
+                          checked={excludeNoWifi}
+                          onChange={(e) => setExcludeNoWifi(e.target.checked)}
+                        />
+                        <span className="text-sm font-black text-slate-700 select-none">นำรายการที่ไม่มีข้อมูล wifi ออก</span>
+                      </label>
+                    </div>
+                  </div>
+                )}
 
                 {homeTab === 'circuit' && (
                   <>
@@ -1763,6 +1938,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                             <tr className="bg-slate-50 border-b border-slate-100">
                               <th onClick={() => { if(circuitSortField==='circuit_norm') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('circuit_norm'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">หมายเลขวงจร</th>
                               <th onClick={() => { if(circuitSortField==='service_name') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('service_name'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">Service Name</th>
+                              <th onClick={() => { if(circuitSortField==='service_status') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('service_status'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">สถานะการใช้งาน</th>
                               <th onClick={() => { if(circuitSortField==='install_year') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('install_year'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ปีที่ติดตั้ง</th>
                               <th onClick={() => { if(circuitSortField==='speed') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('speed'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ความเร็ว (Mbps)</th>
                               <th onClick={() => { if(circuitSortField==='onu_brand') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('onu_brand'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ONU Device</th>
@@ -1798,6 +1974,26 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                      <span className="w-2 h-2 rounded-full bg-indigo-400" title="พบเฉพาะ ONU Records"></span>}
                                   </td>
                                   <td className="px-6 py-3 text-sm font-bold text-slate-600">{row.service_name || '-'}</td>
+                                  <td className="px-6 py-3">
+                                    {row.service_status === 'ใช้งาน' ? (
+                                      <span className="px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200/50 rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-sm">
+                                        <CheckCircle2 size={12} className="text-emerald-500" />
+                                        ใช้งาน
+                                      </span>
+                                    ) : row.service_status === 'ยกเลิกถาวร' ? (
+                                      <span className="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-200/50 rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-sm">
+                                        <XCircle size={12} className="text-rose-500" />
+                                        ยกเลิกถาวร
+                                      </span>
+                                    ) : row.service_status ? (
+                                      <span className="px-2.5 py-1 bg-amber-50 text-amber-700 border border-amber-200/50 rounded-lg text-xs font-bold inline-flex items-center gap-1 shadow-sm">
+                                        <AlertCircle size={12} className="text-amber-500" />
+                                        {row.service_status}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-400 font-bold">-</span>
+                                    )}
+                                  </td>
                                   <td className="px-6 py-3 text-sm font-bold text-slate-600">{row.install_year || '-'}</td>
                                   <td className="px-6 py-3 text-sm font-bold text-slate-600">
                                     {rawVal > 0 ? Math.round(pkgSpeed).toLocaleString() : '-'}
@@ -2944,9 +3140,14 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               <>
                 <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
                   <h3 className="text-lg font-black text-slate-800">ข้อมูลทั้งหมด</h3>
-                  <button onClick={() => handleTableExport('/onu/export', 'onu_records')} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-bold text-sm">
-                    <Download size={18} /> <span>Export Excel</span>
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => onuFileInputRef.current?.click()} className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-bold text-sm">
+                      <Plus size={18} /> <span>Import Excel</span>
+                    </button>
+                    <button onClick={() => handleTableExport('/onu/export', 'onu_records')} className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-bold text-sm">
+                      <Download size={18} /> <span>Export Excel</span>
+                    </button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
                   <table className="w-full text-left border-separate border-spacing-0 min-w-[2500px]">
@@ -2967,6 +3168,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   </table>
                 </div>
                 <PaginationControls total={total} limit={limit} page={page} setLimit={setLimit} setPage={setPage} jumpPage={jumpPage} setJumpPage={setJumpPage} />
+                <input type="file" ref={onuFileInputRef} onChange={(e) => handleImportUpload(e, 'onu')} accept=".xlsx, .xls" className="hidden" />
               </>
             )}
 
@@ -3326,11 +3528,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     >
                       <Zap size={18} /> <span>Data Discovery</span>
                     </button>
-                    {user?.role === 'admin' && catalogBackupCount > 0 && (
-                      <button onClick={handleCatalogRestore} className="flex items-center gap-2 px-4 py-2 bg-rose-500 text-white rounded-lg hover:bg-rose-600 transition-all font-bold text-sm shadow-lg shadow-rose-100">
-                        <History size={18} /> <span>ยกเลิกการนำเข้าล่าสุด (Restore)</span>
-                      </button>
-                    )}
+
                     <button onClick={() => catalogFileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-bold text-sm">
                       <Plus size={18} /> <span>Import Excel</span>
                     </button>
@@ -3492,9 +3690,14 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               <>
                 <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between">
                   <h3 className="text-lg font-black text-slate-800">รายการข้อมูล WiFi</h3>
-                  <button onClick={() => handleTableExport('/wifi-routers/export', 'wifi_routers')} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-bold text-sm">
-                    <Download size={18} /> <span>Export Excel</span>
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => wifiFileInputRef.current?.click()} className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-bold text-sm">
+                      <Plus size={18} /> <span>Import Excel</span>
+                    </button>
+                    <button onClick={() => handleTableExport('/wifi-routers/export', 'wifi_routers')} className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-bold text-sm">
+                      <Download size={18} /> <span>Export Excel</span>
+                    </button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-auto scrollbar-thin">
                   <table className="w-full text-left whitespace-nowrap">
@@ -3527,6 +3730,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   </table>
                 </div>
                 <PaginationControls total={total} limit={limit} page={page} setLimit={setLimit} setPage={setPage} jumpPage={jumpPage} setJumpPage={setJumpPage} />
+                <input type="file" ref={wifiFileInputRef} onChange={(e) => handleImportUpload(e, 'wifi')} accept=".xlsx, .xls" className="hidden" />
               </>
             )}
 
@@ -3534,7 +3738,17 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               <div className="flex-1 flex flex-col overflow-hidden">
                 <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
                   <h3 className="text-lg font-black text-slate-800">รายการข้อมูล ONU Get OLT</h3>
-                  <button onClick={() => setEditingOnuGetOlt({})} className="flex items-center gap-2 px-6 py-2.5 bg-emerald-500 text-white rounded-xl text-sm font-black shadow-lg shadow-emerald-100 hover:bg-emerald-600 active:scale-95 transition-all"><Plus size={18} /> เพิ่มข้อมูลใหม่</button>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => setEditingOnuGetOlt({})} className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all font-bold text-sm">
+                      <Plus size={18} /> <span>เพิ่มข้อมูลใหม่</span>
+                    </button>
+                    <button onClick={() => onuGetOltFileInputRef.current?.click()} className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-bold text-sm">
+                      <Plus size={18} /> <span>Import Excel</span>
+                    </button>
+                    <button onClick={() => handleTableExport('/onu-get-olt/export', 'onu_get_olt')} className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-bold text-sm">
+                      <Download size={18} /> <span>Export Excel</span>
+                    </button>
+                  </div>
                 </div>
                 <div className="flex-1 overflow-auto scrollbar-thin bg-slate-50/30">
                   <table className="w-full text-left border-separate border-spacing-0 min-w-max">
@@ -3584,6 +3798,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   </table>
                 </div>
                 <PaginationControls total={total} limit={limit} page={page} setLimit={setLimit} setPage={setPage} jumpPage={jumpPage} setJumpPage={setJumpPage} />
+                <input type="file" ref={onuGetOltFileInputRef} onChange={(e) => handleImportUpload(e, 'onu-get-olt')} accept=".xlsx, .xls" className="hidden" />
               </div>
             )}
 
@@ -3619,6 +3834,137 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 </div>
                 <PaginationControls total={total} limit={limit} page={page} setLimit={setLimit} setPage={setPage} jumpPage={jumpPage} setJumpPage={setJumpPage} />
               </>
+            )}
+
+            {view === 'restore' && (
+              <div className="flex-1 flex flex-col overflow-hidden bg-slate-50/50">
+                <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+                  <div>
+                    <h3 className="text-lg font-black text-slate-800">ระบบสำรองและกู้คืนข้อมูล (Database Restore)</h3>
+                    <p className="text-xs font-bold text-slate-400 mt-1 uppercase tracking-widest">เฉพาะผู้ดูแลระบบ (Admin Only)</p>
+                  </div>
+                  <button 
+                    onClick={fetchRestoreStatus} 
+                    className="flex items-center gap-2 px-4 py-2 bg-indigo-50 text-indigo-600 rounded-lg hover:bg-indigo-100 transition-all font-bold text-sm animate-in fade-in"
+                  >
+                    <RefreshCw size={16} /> <span>รีเฟรชสถานะ</span>
+                  </button>
+                </div>
+
+                {user?.role !== 'admin' ? (
+                  <div className="flex-1 flex flex-col items-center justify-center p-8 text-center bg-white m-8 rounded-[3rem] border border-slate-200 shadow-xl">
+                    <div className="w-20 h-20 bg-rose-50 text-rose-500 rounded-3xl flex items-center justify-center mb-6 shadow-sm border border-rose-100">
+                      <Shield size={40} />
+                    </div>
+                    <h3 className="text-2xl font-black text-slate-800 mb-2">เข้าถึงไม่ได้</h3>
+                    <p className="text-sm font-bold text-slate-400 max-w-sm">คุณไม่มีสิทธิ์ในการเข้าถึงหน้านี้ กรุณาติดต่อผู้ดูแลระบบหากคิดว่านี่คือข้อผิดพลาด</p>
+                  </div>
+                ) : !restoreStatus ? (
+                  <div className="flex-1 flex items-center justify-center">
+                    <Loader2 size={40} className="animate-spin text-indigo-600" />
+                  </div>
+                ) : (
+                  <div className="flex-1 overflow-auto p-8 flex flex-col gap-6">
+                    <div className="p-6 rounded-[2rem] bg-gradient-to-r from-amber-50 to-indigo-50/30 border border-amber-100/80 flex items-start gap-4 shadow-sm shrink-0">
+                      <div className="w-12 h-12 bg-amber-500 text-white rounded-2xl flex items-center justify-center shadow-lg shadow-amber-500/25 shrink-0">
+                        <AlertCircle size={24} />
+                      </div>
+                      <div>
+                        <h4 className="font-black text-slate-800 text-base">ระบบกู้คืนข้อมูล 1 ระดับ (1-Level Backup Rollback)</h4>
+                        <p className="text-slate-500 text-sm font-bold mt-1 leading-relaxed">
+                          เมื่อคุณทำรายการนำเข้าข้อมูลด้วยไฟล์ Excel ข้อมูลล่าสุดจะแทนที่ตารางจริง แต่ระบบจะทำการโคลนข้อมูลของเดิมไว้ในตารางสำรอง 
+                          หากพบความผิดพลาดประการใด คุณสามารถกดปุ่ม <span className="text-rose-500 font-extrabold">Restore</span> เพื่อเขียนข้อมูลเดิมทับกลับมาได้ทันที 
+                          <span className="text-slate-700 font-extrabold"> ข้อควรระวัง:</span> การสำรองข้อมูลจะเก็บไว้เพียง 1 ระดับล่าสุดเท่านั้น หากมีรายใหม่นำเข้าอีก ข้อมูลสำรองเดิมจะถูกเขียนทับทันที
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      {[
+                        {
+                          key: 'onu',
+                          title: 'ONU Records',
+                          table: 'onu_records',
+                          desc: 'ฐานข้อมูลดิบของ ONU ทั้งหมด',
+                          stats: restoreStatus.onu_records
+                        },
+                        {
+                          key: 'wifi',
+                          title: 'WiFi Routers',
+                          table: 'wifi_routers',
+                          desc: 'ฐานข้อมูลอุปกรณ์ WiFi Router ทั้งหมด',
+                          stats: restoreStatus.wifi_routers
+                        },
+                        {
+                          key: 'onu-get-olt',
+                          title: 'ONU Get OLT',
+                          table: 'onu_get_olt',
+                          desc: 'ตารางข้อมูล ONU Get OLT สำหรับ OLT Mapping',
+                          stats: restoreStatus.onu_get_olt
+                        },
+                        {
+                          key: 'catalog',
+                          title: 'Device Catalog',
+                          table: 'device_catalog',
+                          desc: 'ตารางรายการสินค้าและสเปกสำหรับ CPE matching',
+                          stats: restoreStatus.device_catalog
+                        }
+                      ].map((item) => (
+                        <div key={item.key} className="bg-white rounded-[2.5rem] border border-slate-200/80 shadow-xl overflow-hidden flex flex-col">
+                          <div className="p-8 border-b border-slate-100 flex items-start justify-between gap-4">
+                            <div>
+                              <span className="text-[10px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-50 px-3 py-1 rounded-full">{item.table}</span>
+                              <h4 className="font-black text-slate-800 text-lg mt-2">{item.title}</h4>
+                              <p className="text-slate-400 text-xs font-bold mt-1">{item.desc}</p>
+                            </div>
+                            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                              <Database size={24} />
+                            </div>
+                          </div>
+
+                          <div className="p-8 bg-slate-50/50 border-b border-slate-100 grid grid-cols-2 gap-4">
+                            <div>
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">รายการใช้งานปัจจุบัน</p>
+                              <p className="font-extrabold text-2xl text-slate-800 mt-1">{(item.stats?.activeCount || 0).toLocaleString()} แถว</p>
+                            </div>
+                            <div>
+                              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">รายการสำรองล่าสุด</p>
+                              {item.stats && item.stats.backupCount > 0 ? (
+                                <p className="font-extrabold text-2xl text-indigo-600 mt-1">{item.stats.backupCount.toLocaleString()} แถว</p>
+                              ) : (
+                                <p className="font-bold text-base text-slate-400 mt-2">ไม่มีข้อมูลสำรอง</p>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="px-8 py-4 border-b border-slate-100 flex items-center justify-between text-xs font-bold text-slate-500 bg-white">
+                            <span>วันที่สำรองข้อมูลล่าสุด:</span>
+                            <span>{item.stats?.lastBackupTime ? new Date(item.stats.lastBackupTime).toLocaleString('th-TH') : '-'}</span>
+                          </div>
+
+                          <div className="p-6 bg-slate-50 flex items-center justify-end gap-3 shrink-0">
+                            {item.stats && item.stats.backupCount > 0 ? (
+                              <button 
+                                onClick={() => handleDatabaseRestore(item.key as any)}
+                                className="flex items-center justify-center gap-2 px-6 py-3 bg-rose-500 text-white rounded-2xl hover:bg-rose-600 active:scale-95 transition-all font-black text-sm shadow-lg shadow-rose-500/25 w-full"
+                              >
+                                <History size={16} /> <span>กู้คืนข้อมูลสำรอง (Restore)</span>
+                              </button>
+                            ) : (
+                              <button 
+                                disabled
+                                className="flex items-center justify-center gap-2 px-6 py-3 bg-slate-100 text-slate-400 border border-slate-200 rounded-2xl font-black text-sm w-full cursor-not-allowed"
+                              >
+                                <History size={16} /> <span>ไม่มีข้อมูลสำรองให้กู้คืน</span>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -4087,6 +4433,63 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
               <button onClick={() => setConfirmAction(null)} className="flex-1 py-4 text-sm font-black text-slate-500 hover:text-slate-800 hover:bg-white rounded-2xl transition-all">ยกเลิก</button>
               <button onClick={confirmAction.onConfirm} className="flex-1 py-4 bg-red-500 text-white rounded-2xl text-sm font-black shadow-lg shadow-red-100 hover:bg-red-600 active:scale-95 transition-all">ยืนยันการลบ</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Import dry-run verification dialog box */}
+      {importConfirmData && (
+        <div className="fixed inset-0 z-[250] flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-white w-full max-w-lg rounded-[2.5rem] shadow-2xl border border-slate-200 overflow-hidden transform animate-in zoom-in-95 duration-200">
+            <div className="p-8">
+              <div className="w-16 h-16 bg-emerald-50 rounded-2xl flex items-center justify-center text-emerald-600 mb-6 shadow-sm border border-emerald-100">
+                <Database size={32} />
+              </div>
+              <h3 className="text-xl font-black text-slate-800 mb-2">ตรวจสอบโครงสร้างไฟล์สำเร็จ</h3>
+              <p className="text-slate-500 font-bold text-sm leading-relaxed mb-6">
+                ไฟล์ <span className="text-indigo-600 font-extrabold">{importConfirmData.fileName}</span> ได้รับการตรวจสอบคอลัมน์แล้วว่าถูกต้องตามรูปแบบฐานข้อมูลเรียบร้อย
+              </p>
+              
+              <div className="bg-slate-50 rounded-2xl p-5 border border-slate-100 flex flex-col gap-3 mb-6">
+                <div className="flex justify-between items-center text-sm font-bold text-slate-600">
+                  <span>ฐานข้อมูลปลายทาง:</span>
+                  <span className="text-slate-800 font-black">
+                    {importConfirmData.type === 'onu' ? 'ONU Records (onu_records)' :
+                     importConfirmData.type === 'wifi' ? 'WiFi Routers (wifi_routers)' :
+                     'ONU Get OLT (onu_get_olt)'}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm font-bold text-slate-600">
+                  <span>จำนวนข้อมูลที่ตรวจพบ:</span>
+                  <span className="text-emerald-600 font-extrabold text-base">
+                    {importConfirmData.count.toLocaleString()} แถว
+                  </span>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 flex items-start gap-3">
+                <AlertCircle size={20} className="text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-amber-700 font-bold text-xs leading-normal">
+                  <span className="font-extrabold uppercase">คำเตือน:</span> การนำเข้าข้อมูลนี้จะเป็นการแทนที่ข้อมูลเดิมทั้งหมดของตารางนี้ทันที 
+                  อย่างไรก็ตาม ระบบจะทำการสำรองข้อมูลปัจจุบันไว้ 1 ระดับเพื่อให้สามารถกู้คืนได้ที่เมนู Restore ในกรณีที่ข้อมูลมีความผิดพลาด
+                </p>
+              </div>
+            </div>
+            
+            <div className="px-8 py-6 bg-slate-50 border-t border-slate-100 flex gap-3 justify-end">
+              <button 
+                onClick={handleImportCancel} 
+                className="px-6 py-3 text-sm font-black text-slate-500 hover:text-slate-800 hover:bg-white rounded-xl transition-all border border-transparent hover:border-slate-200"
+              >
+                ยกเลิกการนำเข้า
+              </button>
+              <button 
+                onClick={handleImportConfirm} 
+                className="px-8 py-3 bg-emerald-600 text-white rounded-xl text-sm font-black shadow-lg shadow-emerald-600/25 hover:bg-emerald-700 active:scale-95 transition-all"
+              >
+                ยืนยันและนำเข้าข้อมูล
+              </button>
             </div>
           </div>
         </div>

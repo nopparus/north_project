@@ -1264,6 +1264,22 @@ app.post('/api/device-catalog/upload', authenticate, upload.single('file'), asyn
 
 app.post('/api/device-catalog/restore', authenticate, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'Unauthorized' });
+    
+    // Check if restore is allowed
+    try {
+        const activityRes = await pool.query(`
+            SELECT action FROM activity_logs 
+            WHERE target_table = 'device_catalog' 
+            ORDER BY created_at DESC LIMIT 1
+        `);
+        const latestAction = activityRes.rows[0]?.action;
+        if (latestAction !== 'CATALOG_UPLOAD') {
+            return res.status(400).json({ message: 'ไม่สามารถกู้คืนข้อมูลได้ เนื่องจากข้อมูลได้รับการยืนยันหรือมีการปรับปรุงแก้ไขไปแล้ว' });
+        }
+    } catch (err) {
+        return res.status(500).json({ message: 'Failed to check backup status: ' + err.message });
+    }
+
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
@@ -1273,6 +1289,10 @@ app.post('/api/device-catalog/restore', authenticate, async (req, res) => {
         const cols = 'brand, model, type, version, lan_ge, lan_fe, wifi, usage, grade, price, max_speed, created_at, updated_at';
         await client.query(`INSERT INTO device_catalog (${cols}) SELECT ${cols} FROM device_catalog_backup`);
         await client.query('COMMIT');
+        
+        // Log restore action
+        await logActivity(req.user.id, 'CATALOG_RESTORE', 'device_catalog', 0, { message: 'Restored from backup' });
+        
         res.json({ message: 'Restore successful' });
     } catch (err) {
         await client.query('ROLLBACK');
@@ -1282,11 +1302,33 @@ app.post('/api/device-catalog/restore', authenticate, async (req, res) => {
     }
 });
 
+app.post('/api/device-catalog/confirm', authenticate, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'Unauthorized' });
+    try {
+        await logActivity(req.user.id, 'CATALOG_CONFIRM', 'device_catalog', 0, { message: 'Confirmed as live data' });
+        res.json({ message: 'Confirmed successfully' });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
 app.get('/api/device-catalog/backup-status', authenticate, async (req, res) => {
     try {
-        const result = await pool.query('SELECT COUNT(*) FROM device_catalog_backup');
-        res.json({ count: parseInt(result.rows[0].count) });
-    } catch (err) { res.status(500).json({ message: 'Error' }); }
+        const countResult = await pool.query('SELECT COUNT(*) FROM device_catalog_backup');
+        const count = parseInt(countResult.rows[0].count);
+        
+        const activityRes = await pool.query(`
+            SELECT action FROM activity_logs 
+            WHERE target_table = 'device_catalog' 
+            ORDER BY created_at DESC LIMIT 1
+        `);
+        const latestAction = activityRes.rows[0]?.action;
+        const canRestore = count > 0 && latestAction === 'CATALOG_UPLOAD';
+        
+        res.json({ count, canRestore, latestAction });
+    } catch (err) { 
+        res.status(500).json({ message: 'Error: ' + err.message }); 
+    }
 });
 
 app.post('/api/cpe-devices', authenticate, async (req, res) => {
@@ -2135,14 +2177,23 @@ app.get('/api/dashboard/install-years', authenticate, async (req, res) => {
 // GET /api/dashboard/stats-v2
 // Returns data for 4 new stat cards
 app.get('/api/dashboard/stats-v2', authenticate, async (req, res) => {
-    const { serviceFilter, startYear, endYear, excludeNoWifi } = req.query; 
+    const { serviceFilter, statusFilter, startYear, endYear, excludeNoWifi } = req.query; 
     try {
-        let yearFilterSql = '';
         const params = [];
         let pIndex = 1;
+        let serviceFilterSql = '';
+        let statusFilterSql = '';
+        let yearFilterSql = '';
 
         if (serviceFilter) {
+            serviceFilterSql = ` AND service_name = ANY($${pIndex}::text[])`;
             params.push(serviceFilter.split(','));
+            pIndex++;
+        }
+
+        if (statusFilter) {
+            statusFilterSql = ` AND service_status = ANY($${pIndex}::text[])`;
+            params.push(statusFilter.split(','));
             pIndex++;
         }
 
@@ -2156,9 +2207,8 @@ app.get('/api/dashboard/stats-v2', authenticate, async (req, res) => {
             }
         }
 
-        const serviceFilterSql = serviceFilter ? ` AND service_name = ANY($1::text[])` : '';
         const excludeNoWifiSql = excludeNoWifi === 'true' ? ` AND is_onu_without_wifi = false` : '';
-        const combinedFilter = serviceFilterSql + yearFilterSql + excludeNoWifiSql;
+        const combinedFilter = serviceFilterSql + statusFilterSql + yearFilterSql + excludeNoWifiSql;
         
         const [card11, cards1234] = await Promise.all([
             // Card 1.1: ONU count by type and brand (Still needs Group By)
@@ -2239,14 +2289,23 @@ app.get('/api/dashboard/stats-v2', authenticate, async (req, res) => {
 
 // GET /api/dashboard/executive-stats
 app.get('/api/dashboard/executive-stats', authenticate, async (req, res) => {
-    const { serviceFilter, startYear, endYear, excludeNoWifi } = req.query;
+    const { serviceFilter, statusFilter, startYear, endYear, excludeNoWifi } = req.query;
     try {
-        let yearFilterSql = '';
         const params = [];
         let pIndex = 1;
+        let serviceFilterSql = '';
+        let statusFilterSql = '';
+        let yearFilterSql = '';
 
         if (serviceFilter) {
+            serviceFilterSql = ` AND service_name = ANY($${pIndex}::text[])`;
             params.push(serviceFilter.split(','));
+            pIndex++;
+        }
+
+        if (statusFilter) {
+            statusFilterSql = ` AND service_status = ANY($${pIndex}::text[])`;
+            params.push(statusFilter.split(','));
             pIndex++;
         }
 
@@ -2260,9 +2319,8 @@ app.get('/api/dashboard/executive-stats', authenticate, async (req, res) => {
             }
         }
 
-        const serviceFilterSql = serviceFilter ? ` AND service_name = ANY($1::text[])` : '';
         const excludeNoWifiSql = excludeNoWifi === 'true' ? ` AND is_onu_without_wifi = false` : '';
-        const combinedFilter = serviceFilterSql + yearFilterSql + excludeNoWifiSql;
+        const combinedFilter = serviceFilterSql + statusFilterSql + yearFilterSql + excludeNoWifiSql;
 
         const result = await pool.query(`
             WITH base AS (
@@ -2519,11 +2577,11 @@ app.get('/api/dashboard/executive-stats', authenticate, async (req, res) => {
 // GET /api/dashboard/circuit-summary
 // Main table: joins all 3 tables by normalized circuit_id
 app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
-    const { search = '', page = 1, limit = 50, sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '', startYear = '', endYear = '', excludeNoWifi } = req.query;
+    const { search = '', page = 1, limit = 50, sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '', statusFilter = '', startYear = '', endYear = '', excludeNoWifi } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const searchPattern = `%${search}%`;
 
-    const validSorts = ['circuit_norm', 'speed', 'service_name', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price'];
+    const validSorts = ['circuit_norm', 'speed', 'service_name', 'service_status', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price'];
     const finalSort = validSorts.includes(sortField) ? sortField : 'circuit_norm';
     const finalOrder = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
@@ -2540,7 +2598,7 @@ app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
         let pIndex = 1;
 
         if (search) {
-            whereClauses.push(`(f.circuit_norm ILIKE $${pIndex} OR f.speed ILIKE $${pIndex} OR f.onu_brand ILIKE $${pIndex} OR f.olt_brand ILIKE $${pIndex} OR f.wifi_brand ILIKE $${pIndex} OR f.service_name ILIKE $${pIndex})`);
+            whereClauses.push(`(f.circuit_norm ILIKE $${pIndex} OR f.speed ILIKE $${pIndex} OR f.onu_brand ILIKE $${pIndex} OR f.olt_brand ILIKE $${pIndex} OR f.wifi_brand ILIKE $${pIndex} OR f.service_name ILIKE $${pIndex} OR f.service_status ILIKE $${pIndex})`);
             params.push(searchPattern);
             pIndex++;
         }
@@ -2548,6 +2606,12 @@ app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
         if (serviceFilter) {
             whereClauses.push(`f.service_name = ANY($${pIndex}::text[])`);
             params.push(serviceFilter.split(','));
+            pIndex++;
+        }
+
+        if (statusFilter) {
+            whereClauses.push(`f.service_status = ANY($${pIndex}::text[])`);
+            params.push(statusFilter.split(','));
             pIndex++;
         }
 
@@ -2598,9 +2662,9 @@ app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
 });
 
 app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) => {
-    const { search = '', sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '', startYear = '', endYear = '', excludeNoWifi, group, threshold, priorityPrice, priorityYears, priorityOnlyMismatch } = req.query;
+    const { search = '', sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '', statusFilter = '', startYear = '', endYear = '', excludeNoWifi, group, threshold, priorityPrice, priorityYears, priorityOnlyMismatch } = req.query;
     const searchPattern = `%${search}%`;
-    const validSorts = ['circuit_norm', 'speed', 'service_name', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price'];
+    const validSorts = ['circuit_norm', 'speed', 'service_name', 'service_status', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price'];
     const finalSort = validSorts.includes(sortField) ? sortField : 'circuit_norm';
     const finalOrder = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     
@@ -2624,7 +2688,7 @@ app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) 
         let pIndex = 1;
 
         if (search) {
-            whereClauses.push(`(f.circuit_norm ILIKE $${pIndex} OR f.speed ILIKE $${pIndex} OR f.onu_brand ILIKE $${pIndex} OR f.olt_brand ILIKE $${pIndex} OR f.wifi_brand ILIKE $${pIndex} OR f.service_name ILIKE $${pIndex})`);
+            whereClauses.push(`(f.circuit_norm ILIKE $${pIndex} OR f.speed ILIKE $${pIndex} OR f.onu_brand ILIKE $${pIndex} OR f.olt_brand ILIKE $${pIndex} OR f.wifi_brand ILIKE $${pIndex} OR f.service_name ILIKE $${pIndex} OR f.service_status ILIKE $${pIndex})`);
             params.push(searchPattern);
             pIndex++;
         }
@@ -2632,6 +2696,12 @@ app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) 
         if (serviceFilter) {
             whereClauses.push(`f.service_name = ANY($${pIndex}::text[])`);
             params.push(serviceFilter.split(','));
+            pIndex++;
+        }
+
+        if (statusFilter) {
+            whereClauses.push(`f.service_status = ANY($${pIndex}::text[])`);
+            params.push(statusFilter.split(','));
             pIndex++;
         }
 
@@ -2699,6 +2769,7 @@ app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) 
         const queryText = `
             SELECT 
                 f.circuit_norm as "หมายเลขวงจร", 
+                f.service_status as "สถานะการใช้งาน",
                 f.speed as "ความเร็ว (Raw)",
                 CASE 
                     WHEN CAST(NULLIF(REGEXP_REPLACE(SPLIT_PART(f.speed, '/', 1), '[^0-9.]', '', 'g'), '') AS NUMERIC) > 5000 THEN 
@@ -2980,6 +3051,736 @@ app.delete('/api/replacement-configs/:id', authenticate, async (req, res) => {
 // ============================================================
 // END DASHBOARD v2 & REPLACEMENT ENDPOINTS
 // ============================================================
+
+// Ensure backup tables exist in database on startup
+const initBackups = async () => {
+    try {
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS onu_records_backup (
+                id INTEGER,
+                installation_close_date TEXT,
+                request_id TEXT,
+                circuit_id TEXT,
+                province TEXT,
+                main_service TEXT,
+                speed TEXT,
+                price DECIMAL(12,2),
+                service_name TEXT,
+                promotion_start_date TEXT,
+                section TEXT,
+                exchange TEXT,
+                cpe_brand_model TEXT,
+                olt_brand_model TEXT,
+                cpe_status TEXT,
+                service_status TEXT,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS wifi_routers_backup (
+                id INTEGER,
+                circuit_id TEXT,
+                brand TEXT,
+                model TEXT,
+                version TEXT,
+                created_at TIMESTAMP
+            )
+        `);
+        await pool.query(`
+            CREATE TABLE IF NOT EXISTS onu_get_olt_backup (
+                id INTEGER,
+                onu_actual_type TEXT,
+                brand TEXT,
+                province TEXT,
+                project TEXT,
+                onutype TEXT,
+                service TEXT,
+                service_group TEXT,
+                start_date_css TEXT,
+                created_at TIMESTAMP
+            )
+        `);
+        console.log('✓ Backup tables verification complete');
+    } catch (err) {
+        console.error('Error initializing backup tables:', err);
+    }
+};
+initBackups();
+
+// Helper to format Date or Excel serial dates
+function formatDate(val) {
+    if (!val) return null;
+    let date;
+    if (val instanceof Date) {
+        date = val;
+    } else if (typeof val === 'number') {
+        date = XLSX.utils.format_cell({ v: val, t: 'd' });
+        date = new Date(date);
+    } else {
+        date = new Date(val);
+    }
+    if (isNaN(date.getTime())) return val;
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    const hh = String(date.getHours()).padStart(2, '0');
+    const mm = String(date.getMinutes()).padStart(2, '0');
+    const ss = String(date.getSeconds()).padStart(2, '0');
+    return `${y}/${m}/${d} ${hh}:${mm}:${ss}`;
+}
+
+// ------------------------------------------------------------
+// ONU RECORDS IMPORT / EXPORT
+// ------------------------------------------------------------
+app.get('/api/onu/export', authenticate, async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                installation_close_date as "วันที่ปิดงานติดตั้ง",
+                request_id as "รหัสใบคำขอ",
+                circuit_id as "หมายเลขวงจร",
+                province as "จังหวัด(ติดตั้ง)",
+                main_service as "บริการหลัก",
+                speed as "ความเร็ว",
+                price as "ราคา (บาท/เดือน)",
+                service_name as "servicesname",
+                promotion_start_date as "วันที่เริ่มโปรโมชัน",
+                section as "ส่วน",
+                exchange as "ชุมสาย",
+                cpe_brand_model as "ยี่ห้อ CPE : รุ่น",
+                olt_brand_model as "ยี่ห้อ OLT : รุ่น",
+                cpe_status as "สถานะอุปกรณ์ปลายทาง (CPE)",
+                service_status as "สถานะบริการ"
+            FROM onu_records
+            ORDER BY id ASC
+        `;
+        const result = await pool.query(query);
+        const worksheet = XLSX.utils.json_to_sheet(result.rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "ONU Records");
+        if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
+        const fileName = `onu_records_export_${Date.now()}.xlsx`;
+        const filePath = `uploads/${fileName}`;
+        XLSX.writeFile(workbook, filePath);
+        res.download(filePath, fileName, (err) => { if (!err) fs.unlinkSync(filePath); });
+    } catch (err) {
+        console.error('Export error:', err);
+        res.status(500).json({ message: 'Export failed' });
+    }
+});
+
+app.post('/api/onu/import', authenticate, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'กรุณาอัปโหลดไฟล์' });
+    try {
+        const workbook = XLSX.readFile(req.file.path, { cellDates: true });
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rawData = XLSX.utils.sheet_to_json(worksheet);
+        
+        if (rawData.length === 0) {
+            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+            return res.status(400).json({ message: 'ไม่พบข้อมูลในไฟล์ Excel' });
+        }
+
+        const requiredThai = [
+            'วันที่ปิดงานติดตั้ง', 'รหัสใบคำขอ', 'หมายเลขวงจร', 'จังหวัด(ติดตั้ง)',
+            'บริการหลัก', 'ความเร็ว', 'ราคา (บาท/เดือน)', 'servicesname',
+            'วันที่เริ่มโปรโมชัน', 'ส่วน', 'ชุมสาย', 'ยี่ห้อ CPE : รุ่น',
+            'ยี่ห้อ OLT : รุ่น', 'สถานะอุปกรณ์ปลายทาง (CPE)', 'สถานะบริการ'
+        ];
+        
+        const sampleRow = rawData[0];
+        const missing = requiredThai.filter(col => sampleRow[col] === undefined);
+        
+        if (missing.length > 0) {
+            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+            return res.status(400).json({ 
+                message: `รูปแบบไฟล์ไม่ถูกต้อง คอลัมน์ที่ขาดหายไป: ${missing.join(', ')}` 
+            });
+        }
+
+        const ONU_COLUMN_MAP = {
+            'วันที่ปิดงานติดตั้ง': 'installation_close_date',
+            'รหัสใบคำขอ': 'request_id',
+            'หมายเลขวงจร': 'circuit_id',
+            'จังหวัด(ติดตั้ง)': 'province',
+            'บริการหลัก': 'main_service',
+            'ความเร็ว': 'speed',
+            'ราคา (บาท/เดือน)': 'price',
+            'servicesname': 'service_name',
+            'วันที่เริ่มโปรโมชัน': 'promotion_start_date',
+            'ส่วน': 'section',
+            'ชุมสาย': 'exchange',
+            'ยี่ห้อ CPE : รุ่น': 'cpe_brand_model',
+            'ยี่ห้อ OLT : รุ่น': 'olt_brand_model',
+            'สถานะอุปกรณ์ปลายทาง (CPE)': 'cpe_status',
+            'สถานะบริการ': 'service_status'
+        };
+
+        const mappedRows = rawData.map(row => {
+            const mapped = {};
+            for (const [thai, eng] of Object.entries(ONU_COLUMN_MAP)) {
+                let val = row[thai];
+                if (val === 'NULL' || val === '' || val === undefined) {
+                    val = null;
+                }
+                if (val !== null && eng.includes('date')) {
+                    val = formatDate(val);
+                }
+                if (val !== null && eng === 'price') {
+                    if (typeof val === 'string') val = parseFloat(val.replace(/,/g, '')) || 0;
+                    else val = parseFloat(val) || 0;
+                }
+                mapped[eng] = val;
+            }
+            return mapped;
+        });
+
+        const tempPath = `/tmp/import_onu_temp.json`;
+        fs.writeFileSync(tempPath, JSON.stringify(mappedRows));
+        
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        res.json({ count: mappedRows.length, success: true });
+    } catch (err) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        console.error(err);
+        res.status(500).json({ message: 'Error processing file: ' + err.message });
+    }
+});
+
+app.post('/api/onu/import/confirm', authenticate, async (req, res) => {
+    const tempPath = `/tmp/import_onu_temp.json`;
+    if (!fs.existsSync(tempPath)) {
+        return res.status(400).json({ message: 'เซสชันการนำเข้าหมดอายุ หรือไม่มีข้อมูลนำเข้า กรุณาอัปโหลดไฟล์ใหม่อีกครั้ง' });
+    }
+
+    const client = await pool.connect();
+    try {
+        const mappedRows = JSON.parse(fs.readFileSync(tempPath, 'utf8'));
+        await client.query('BEGIN');
+        
+        // 1. Backup old data
+        await client.query('TRUNCATE onu_records_backup');
+        await client.query(`
+            INSERT INTO onu_records_backup (
+                id, installation_close_date, request_id, circuit_id, province,
+                main_service, speed, price, service_name, promotion_start_date,
+                section, exchange, cpe_brand_model, olt_brand_model, cpe_status,
+                service_status, created_at, updated_at
+            ) 
+            SELECT 
+                id, installation_close_date, request_id, circuit_id, province,
+                main_service, speed, price, service_name, promotion_start_date,
+                section, exchange, cpe_brand_model, olt_brand_model, cpe_status,
+                service_status, created_at, updated_at
+            FROM onu_records
+        `);
+        
+        // 2. Clear active data
+        await client.query('TRUNCATE onu_records RESTART IDENTITY');
+        
+        // 3. Batch insert new data
+        const BATCH_SIZE = 1000;
+        const fields = [
+            'installation_close_date', 'request_id', 'circuit_id', 'province',
+            'main_service', 'speed', 'price', 'service_name', 'promotion_start_date',
+            'section', 'exchange', 'cpe_brand_model', 'olt_brand_model', 'cpe_status',
+            'service_status'
+        ];
+        
+        for (let i = 0; i < mappedRows.length; i += BATCH_SIZE) {
+            const batch = mappedRows.slice(i, i + BATCH_SIZE);
+            const placeholders = [];
+            const values = [];
+            
+            batch.forEach((row, rowIndex) => {
+                const rowPlaceholders = [];
+                fields.forEach((field, fieldIndex) => {
+                    rowPlaceholders.push(`$${rowIndex * fields.length + fieldIndex + 1}`);
+                    values.push(row[field]);
+                });
+                placeholders.push(`(${rowPlaceholders.join(', ')})`);
+            });
+            
+            const query = `INSERT INTO onu_records (${fields.join(', ')}) VALUES ${placeholders.join(', ')}`;
+            await client.query(query, values);
+        }
+        
+        await logActivity(req.user.id, 'ONU_IMPORT', 'onu_records', 0, { count: mappedRows.length });
+        await client.query('COMMIT');
+        
+        pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_circuit_summary').catch(e => console.error(e));
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+        res.json({ message: `นำเข้าข้อมูลสำเร็จทั้งหมด ${mappedRows.length} แถว`, success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + err.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.post('/api/onu/import/cancel', authenticate, async (req, res) => {
+    const tempPath = `/tmp/import_onu_temp.json`;
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    res.json({ success: true });
+});
+
+// ------------------------------------------------------------
+// WIFI ROUTERS IMPORT
+// ------------------------------------------------------------
+app.post('/api/wifi-routers/import', authenticate, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'กรุณาอัปโหลดไฟล์' });
+    try {
+        const workbook = XLSX.readFile(req.file.path);
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rawData = XLSX.utils.sheet_to_json(worksheet);
+        
+        if (rawData.length === 0) {
+            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+            return res.status(400).json({ message: 'ไม่พบข้อมูลในไฟล์ Excel' });
+        }
+
+        const requiredThai = ['หมายเลขวงจร', 'ยี่ห้อ', 'รุ่น', 'version'];
+        const sampleRow = rawData[0];
+        const missing = requiredThai.filter(col => sampleRow[col] === undefined);
+        
+        if (missing.length > 0) {
+            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+            return res.status(400).json({ 
+                message: `รูปแบบไฟล์ไม่ถูกต้อง คอลัมน์ที่ขาดหายไป: ${missing.join(', ')}` 
+            });
+        }
+
+        const mappedRows = rawData.map(row => ({
+            circuit_id: row['หมายเลขวงจร']?.toString() || null,
+            brand: row['ยี่ห้อ']?.toString() || null,
+            model: row['รุ่น']?.toString() || null,
+            version: row['version']?.toString() || null
+        }));
+
+        const tempPath = `/tmp/import_wifi_temp.json`;
+        fs.writeFileSync(tempPath, JSON.stringify(mappedRows));
+        
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        res.json({ count: mappedRows.length, success: true });
+    } catch (err) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        console.error(err);
+        res.status(500).json({ message: 'Error processing file: ' + err.message });
+    }
+});
+
+app.post('/api/wifi-routers/import/confirm', authenticate, async (req, res) => {
+    const tempPath = `/tmp/import_wifi_temp.json`;
+    if (!fs.existsSync(tempPath)) {
+        return res.status(400).json({ message: 'เซสชันการนำเข้าหมดอายุ หรือไม่มีข้อมูลนำเข้า กรุณาอัปโหลดไฟล์ใหม่อีกครั้ง' });
+    }
+
+    const client = await pool.connect();
+    try {
+        const mappedRows = JSON.parse(fs.readFileSync(tempPath, 'utf8'));
+        await client.query('BEGIN');
+        
+        // 1. Backup old data
+        await client.query('TRUNCATE wifi_routers_backup');
+        await client.query(`
+            INSERT INTO wifi_routers_backup (id, circuit_id, brand, model, version, created_at) 
+            SELECT id, circuit_id, brand, model, version, created_at FROM wifi_routers
+        `);
+        
+        // 2. Clear active data
+        await client.query('TRUNCATE wifi_routers RESTART IDENTITY');
+        
+        // 3. Batch insert new data
+        const BATCH_SIZE = 1000;
+        const fields = ['circuit_id', 'brand', 'model', 'version'];
+        
+        for (let i = 0; i < mappedRows.length; i += BATCH_SIZE) {
+            const batch = mappedRows.slice(i, i + BATCH_SIZE);
+            const placeholders = [];
+            const values = [];
+            
+            batch.forEach((row, rowIndex) => {
+                const rowPlaceholders = [];
+                fields.forEach((field, fieldIndex) => {
+                    rowPlaceholders.push(`$${rowIndex * fields.length + fieldIndex + 1}`);
+                    values.push(row[field]);
+                });
+                placeholders.push(`(${rowPlaceholders.join(', ')})`);
+            });
+            
+            const query = `INSERT INTO wifi_routers (${fields.join(', ')}) VALUES ${placeholders.join(', ')}`;
+            await client.query(query, values);
+        }
+
+        // Sync to device catalog
+        await client.query(`
+            INSERT INTO device_catalog (brand, model, type)
+            SELECT DISTINCT brand, model, 'WiFi Router' 
+            FROM wifi_routers 
+            WHERE brand IS NOT NULL AND model IS NOT NULL
+            ON CONFLICT (brand, model) DO UPDATE SET type = EXCLUDED.type
+        `);
+        
+        await logActivity(req.user.id, 'WIFI_IMPORT', 'wifi_routers', 0, { count: mappedRows.length });
+        await client.query('COMMIT');
+        
+        pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_circuit_summary').catch(e => console.error(e));
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+        res.json({ message: `นำเข้าข้อมูลสำเร็จทั้งหมด ${mappedRows.length} แถว`, success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + err.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.post('/api/wifi-routers/import/cancel', authenticate, async (req, res) => {
+    const tempPath = `/tmp/import_wifi_temp.json`;
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    res.json({ success: true });
+});
+
+// ------------------------------------------------------------
+// ONU GET OLT IMPORT / EXPORT
+// ------------------------------------------------------------
+app.get('/api/onu-get-olt/export', authenticate, async (req, res) => {
+    try {
+        const query = `
+            SELECT 
+                onu_actual_type as "ONU_Actual_Type",
+                brand as "Brand",
+                province as "Province",
+                project as "Project",
+                onutype as "onutype",
+                service as "service",
+                service_group as "service_group",
+                start_date_css as "StartDate_CSS"
+            FROM onu_get_olt
+            ORDER BY id ASC
+        `;
+        const result = await pool.query(query);
+        const worksheet = XLSX.utils.json_to_sheet(result.rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "ONU Get OLT");
+        if (!fs.existsSync('uploads')) fs.mkdirSync('uploads');
+        const fileName = `onu_get_olt_export_${Date.now()}.xlsx`;
+        const filePath = `uploads/${fileName}`;
+        XLSX.writeFile(workbook, filePath);
+        res.download(filePath, fileName, (err) => { if (!err) fs.unlinkSync(filePath); });
+    } catch (err) {
+        console.error('Export error:', err);
+        res.status(500).json({ message: 'Export failed' });
+    }
+});
+
+app.post('/api/onu-get-olt/import', authenticate, upload.single('file'), async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: 'กรุณาอัปโหลดไฟล์' });
+    try {
+        const workbook = XLSX.readFile(req.file.path);
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[sheetName];
+        const rawData = XLSX.utils.sheet_to_json(worksheet);
+        
+        if (rawData.length === 0) {
+            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+            return res.status(400).json({ message: 'ไม่พบข้อมูลในไฟล์ Excel' });
+        }
+
+        const requiredHeaders = ['ONU_Actual_Type', 'Brand', 'Province', 'Project', 'onutype', 'service', 'service_group', 'StartDate_CSS'];
+        const sampleRow = rawData[0];
+        
+        const sampleKeys = Object.keys(sampleRow).map(k => k.trim().toLowerCase());
+        const missing = requiredHeaders.filter(col => !sampleKeys.includes(col.toLowerCase()));
+        
+        if (missing.length > 0) {
+            if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+            return res.status(400).json({ 
+                message: `รูปแบบไฟล์ไม่ถูกต้อง คอลัมน์ที่ขาดหายไป: ${missing.join(', ')}` 
+            });
+        }
+
+        const getVal = (row, key) => {
+            const realKey = Object.keys(row).find(k => k.trim().toLowerCase() === key.toLowerCase());
+            return realKey ? row[realKey]?.toString() || null : null;
+        };
+
+        const mappedRows = rawData.map(row => {
+            let svc = getVal(row, 'service');
+            if (svc) {
+                const match = svc.match(/\d{4}[jJ]\d{4}/);
+                svc = match ? match[0] : svc;
+            }
+            return {
+                onu_actual_type: getVal(row, 'ONU_Actual_Type'),
+                brand: getVal(row, 'Brand'),
+                province: getVal(row, 'Province'),
+                project: getVal(row, 'Project'),
+                onutype: getVal(row, 'onutype'),
+                service: svc,
+                service_group: getVal(row, 'service_group'),
+                start_date_css: getVal(row, 'StartDate_CSS')
+            };
+        });
+
+        const tempPath = `/tmp/import_onu_get_olt_temp.json`;
+        fs.writeFileSync(tempPath, JSON.stringify(mappedRows));
+        
+        if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        res.json({ count: mappedRows.length, success: true });
+    } catch (err) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        console.error(err);
+        res.status(500).json({ message: 'Error processing file: ' + err.message });
+    }
+});
+
+app.post('/api/onu-get-olt/import/confirm', authenticate, async (req, res) => {
+    const tempPath = `/tmp/import_onu_get_olt_temp.json`;
+    if (!fs.existsSync(tempPath)) {
+        return res.status(400).json({ message: 'เซสชันการนำเข้าหมดอายุ หรือไม่มีข้อมูลนำเข้า กรุณาอัปโหลดไฟล์ใหม่อีกครั้ง' });
+    }
+
+    const client = await pool.connect();
+    try {
+        const mappedRows = JSON.parse(fs.readFileSync(tempPath, 'utf8'));
+        await client.query('BEGIN');
+        
+        // 1. Backup old data
+        await client.query('TRUNCATE onu_get_olt_backup');
+        await client.query(`
+            INSERT INTO onu_get_olt_backup (
+                id, onu_actual_type, brand, province, project, onutype,
+                service, service_group, start_date_css, created_at
+            ) 
+            SELECT 
+                id, onu_actual_type, brand, province, project, onutype,
+                service, service_group, start_date_css, created_at 
+            FROM onu_get_olt
+        `);
+        
+        // 2. Clear active data
+        await client.query('TRUNCATE onu_get_olt RESTART IDENTITY');
+        
+        // 3. Batch insert new data
+        const BATCH_SIZE = 1000;
+        const fields = ['onu_actual_type', 'brand', 'province', 'project', 'onutype', 'service', 'service_group', 'start_date_css'];
+        
+        for (let i = 0; i < mappedRows.length; i += BATCH_SIZE) {
+            const batch = mappedRows.slice(i, i + BATCH_SIZE);
+            const placeholders = [];
+            const values = [];
+            
+            batch.forEach((row, rowIndex) => {
+                const rowPlaceholders = [];
+                fields.forEach((field, fieldIndex) => {
+                    rowPlaceholders.push(`$${rowIndex * fields.length + fieldIndex + 1}`);
+                    values.push(row[field]);
+                });
+                placeholders.push(`(${rowPlaceholders.join(', ')})`);
+            });
+            
+            const query = `INSERT INTO onu_get_olt (${fields.join(', ')}) VALUES ${placeholders.join(', ')}`;
+            await client.query(query, values);
+        }
+        
+        await logActivity(req.user.id, 'ONU_GET_OLT_IMPORT', 'onu_get_olt', 0, { count: mappedRows.length });
+        await client.query('COMMIT');
+        
+        pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_circuit_summary').catch(e => console.error(e));
+        if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+        res.json({ message: `นำเข้าข้อมูลสำเร็จทั้งหมด ${mappedRows.length} แถว`, success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ message: 'เกิดข้อผิดพลาดในการบันทึกข้อมูล: ' + err.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.post('/api/onu-get-olt/import/cancel', authenticate, async (req, res) => {
+    const tempPath = `/tmp/import_onu_get_olt_temp.json`;
+    if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath);
+    res.json({ success: true });
+});
+
+// ------------------------------------------------------------
+// ADMIN SYSTEM RESTORE / RECOVERY ENDPOINTS
+// ------------------------------------------------------------
+app.get('/api/restore/status', authenticate, async (req, res) => {
+    try {
+        const fetchStatus = async (table, backupTable) => {
+            const activeCountRes = await pool.query(`SELECT COUNT(*) FROM ${table}`);
+            const activeCount = parseInt(activeCountRes.rows[0].count);
+            
+            const backupCountRes = await pool.query(`SELECT COUNT(*) FROM ${backupTable}`);
+            const backupCount = parseInt(backupCountRes.rows[0].count);
+            
+            const latestLogRes = await pool.query(`
+                SELECT created_at FROM activity_logs 
+                WHERE target_table = $1 AND (action LIKE '%IMPORT%' OR action = 'CATALOG_UPLOAD' OR action = 'UPLOAD') 
+                ORDER BY created_at DESC LIMIT 1
+            `, [table]);
+            const lastBackupTime = latestLogRes.rows[0]?.created_at || null;
+            
+            return { activeCount, backupCount, lastBackupTime };
+        };
+
+        const onu_records = await fetchStatus('onu_records', 'onu_records_backup');
+        const wifi_routers = await fetchStatus('wifi_routers', 'wifi_routers_backup');
+        const onu_get_olt = await fetchStatus('onu_get_olt', 'onu_get_olt_backup');
+        const device_catalog = await fetchStatus('device_catalog', 'device_catalog_backup');
+        
+        res.json({ onu_records, wifi_routers, onu_get_olt, device_catalog });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ message: 'Error retrieving recovery status: ' + err.message });
+    }
+});
+
+app.post('/api/restore/onu-records', authenticate, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'สิทธิ์การเข้าใช้งานไม่ถูกต้อง' });
+    const client = await pool.connect();
+    try {
+        const backupCountRes = await pool.query('SELECT COUNT(*) FROM onu_records_backup');
+        const backupCount = parseInt(backupCountRes.rows[0].count);
+        if (backupCount === 0) return res.status(400).json({ message: 'ไม่พบข้อมูลสำรองสำหรับการกู้คืน' });
+
+        await client.query('BEGIN');
+        await client.query('TRUNCATE onu_records RESTART IDENTITY');
+        await client.query(`
+            INSERT INTO onu_records (
+                id, installation_close_date, request_id, circuit_id, province,
+                main_service, speed, price, service_name, promotion_start_date,
+                section, exchange, cpe_brand_model, olt_brand_model, cpe_status,
+                service_status, created_at, updated_at
+            )
+            SELECT 
+                id, installation_close_date, request_id, circuit_id, province,
+                main_service, speed, price, service_name, promotion_start_date,
+                section, exchange, cpe_brand_model, olt_brand_model, cpe_status,
+                service_status, COALESCE(created_at, CURRENT_TIMESTAMP), COALESCE(updated_at, CURRENT_TIMESTAMP)
+            FROM onu_records_backup
+        `);
+        
+        await logActivity(req.user.id, 'ONU_RESTORE', 'onu_records', 0, { count: backupCount });
+        await client.query('COMMIT');
+        
+        pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_circuit_summary').catch(e => console.error(e));
+        res.json({ message: 'กู้คืนข้อมูล ONU Records สำเร็จ', success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ message: 'กู้คืนล้มเหลว: ' + err.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.post('/api/restore/wifi-routers', authenticate, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'สิทธิ์การเข้าใช้งานไม่ถูกต้อง' });
+    const client = await pool.connect();
+    try {
+        const backupCountRes = await pool.query('SELECT COUNT(*) FROM wifi_routers_backup');
+        const backupCount = parseInt(backupCountRes.rows[0].count);
+        if (backupCount === 0) return res.status(400).json({ message: 'ไม่พบข้อมูลสำรองสำหรับการกู้คืน' });
+
+        await client.query('BEGIN');
+        await client.query('TRUNCATE wifi_routers RESTART IDENTITY');
+        await client.query(`
+            INSERT INTO wifi_routers (id, circuit_id, brand, model, version, created_at)
+            SELECT id, circuit_id, brand, model, version, COALESCE(created_at, CURRENT_TIMESTAMP)
+            FROM wifi_routers_backup
+        `);
+        
+        await logActivity(req.user.id, 'WIFI_RESTORE', 'wifi_routers', 0, { count: backupCount });
+        await client.query('COMMIT');
+        
+        pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_circuit_summary').catch(e => console.error(e));
+        res.json({ message: 'กู้คืนข้อมูล WiFi Routers สำเร็จ', success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ message: 'กู้คืนล้มเหลว: ' + err.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.post('/api/restore/onu-get-olt', authenticate, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'สิทธิ์การเข้าใช้งานไม่ถูกต้อง' });
+    const client = await pool.connect();
+    try {
+        const backupCountRes = await pool.query('SELECT COUNT(*) FROM onu_get_olt_backup');
+        const backupCount = parseInt(backupCountRes.rows[0].count);
+        if (backupCount === 0) return res.status(400).json({ message: 'ไม่พบข้อมูลสำรองสำหรับการกู้คืน' });
+
+        await client.query('BEGIN');
+        await client.query('TRUNCATE onu_get_olt RESTART IDENTITY');
+        await client.query(`
+            INSERT INTO onu_get_olt (
+                id, onu_actual_type, brand, province, project, onutype,
+                service, service_group, start_date_css, created_at
+            )
+            SELECT 
+                id, onu_actual_type, brand, province, project, onutype,
+                service, service_group, start_date_css, COALESCE(created_at, CURRENT_TIMESTAMP)
+            FROM onu_get_olt_backup
+        `);
+        
+        await logActivity(req.user.id, 'ONU_GET_OLT_RESTORE', 'onu_get_olt', 0, { count: backupCount });
+        await client.query('COMMIT');
+        
+        pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_circuit_summary').catch(e => console.error(e));
+        res.json({ message: 'กู้คืนข้อมูล ONU Get OLT สำเร็จ', success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ message: 'กู้คืนล้มเหลว: ' + err.message });
+    } finally {
+        client.release();
+    }
+});
+
+app.post('/api/restore/device-catalog', authenticate, async (req, res) => {
+    if (req.user.role !== 'admin') return res.status(403).json({ message: 'สิทธิ์การเข้าใช้งานไม่ถูกต้อง' });
+    const client = await pool.connect();
+    try {
+        const backupCountRes = await pool.query('SELECT COUNT(*) FROM device_catalog_backup');
+        const backupCount = parseInt(backupCountRes.rows[0].count);
+        if (backupCount === 0) return res.status(400).json({ message: 'ไม่พบข้อมูลสำรองสำหรับการกู้คืน' });
+
+        await client.query('BEGIN');
+        await client.query('TRUNCATE device_catalog RESTART IDENTITY CASCADE');
+        await client.query(`
+            INSERT INTO device_catalog (
+                id, brand, model, type, version, lan_ge, lan_fe, wifi, usage, grade, price, max_speed, created_at, updated_at
+            )
+            SELECT 
+                id, brand, model, type, version, lan_ge, lan_fe, wifi, usage, grade, price, max_speed, COALESCE(created_at, CURRENT_TIMESTAMP), COALESCE(updated_at, CURRENT_TIMESTAMP)
+            FROM device_catalog_backup
+        `);
+        
+        await logActivity(req.user.id, 'CATALOG_RESTORE', 'device_catalog', 0, { count: backupCount });
+        await client.query('COMMIT');
+        
+        pool.query('REFRESH MATERIALIZED VIEW CONCURRENTLY mv_circuit_summary').catch(e => console.error(e));
+        res.json({ message: 'กู้คืนข้อมูล Device Catalog สำเร็จ', success: true });
+    } catch (err) {
+        await client.query('ROLLBACK');
+        console.error(err);
+        res.status(500).json({ message: 'กู้คืนล้มเหลว: ' + err.message });
+    } finally {
+        client.release();
+    }
+});
 
 app.listen(port, () => {
     console.log(`Server running on port ${port}`);
