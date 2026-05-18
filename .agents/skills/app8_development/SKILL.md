@@ -260,6 +260,12 @@ App8 ทำงานบนระบบ Docker Container ภายใต้เค
         - เพิ่มตัวกรอง `"สถานะการใช้งาน"` แบบ Dropdown Checkbox Multi-select ครอบคลุมทั้ง 6 สถานะหลัก
         - อัปเดตตารางแสดงรายการลูกค้าให้มีคอลัมน์และ Badge สีที่ชัดเจนสวยงาม (เช่น `ใช้งาน` สีเขียวมรกต, `ยกเลิกถาวร` สีแดงกุหลาบ) พร้อมรองรับการคลิก Sort หัวตาราง
 
+- **2026-05-18 (session 23)**: Mapped ONU Model Mismatch Logic & WiFi (ONU) Spec Integration:
+    - **Mapped-Only Mismatch (True Mismatch)**: ปรับ Logic ในการกรองและเปรียบเทียบอุปกรณ์ไม่ตรงกันใน Backend และสรุปรายงานแยกตามจังหวัด ให้วิเคราะห์เฉพาะรายการที่มีการทำ Mapping เป็นแบรนด์/รุ่นมาตรฐานใน Catalog สำเร็จแล้วทั้งฝั่ง CRM และ OLT เท่านั้น เพื่อตัดคำสะกดดิบที่คลาดเคลื่อนออก ส่งผลให้ยอดรวมความไม่ตรงกันสะสมลดลงจาก 344,638 รายการ เหลือความไม่ตรงกันทางฮาร์ดแวร์จริงเพียง 50,487 รายการ (True Mismatch)
+    - **Standard Catalog Format Display**: ปรับให้ข้อมูลในตารางและไฟล์ดาวน์โหลดแสดงผลเป็นชื่อรุ่นอุปกรณ์มาตรฐาน (`Brand : Model` เช่น `ZTE : ZXHN F612`) แทนชื่อดิบ เพื่อให้อ่านง่าย สวยงาม และเป็นหมวดหมู่มาตรฐานเดียวกัน
+    - **WiFi (ONU) Column Integration**: แทรกคอลัมน์ใหม่ **"WiFi (ONU)"** (ดึงข้อมูลสเปก WiFi จาก Catalog ของรุ่น ONU นั้นๆ เช่น `1200M (11ac 2x2)`) เข้าสู่หน้าตารางหลักสรุประดับวงจร (Circuit Summary) โดยจัดวางอยู่ถัดจากคอลัมน์ `WiFi Router` อย่างลงตัว พร้อมรองรับการคลิกจัดเรียง (Sorting) ทั้งฝั่ง Frontend/Backend
+    - **Comprehensive Excel Exports**: เพิ่มคอลัมน์ข้อมูล `ONU WiFi Spec` เข้าไปในระบบส่งออก Excel ของทุกตารางที่เกี่ยวข้องใน Dashboard (Circuit Summary, ONU Mismatch, Dashboard Export) ครบถ้วน 100%
+
 ---
 
 ## **Best Practices & Troubleshooting**

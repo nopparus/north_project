@@ -5,9 +5,10 @@ import {
   Search, Plus, Edit2, Trash2, LogOut, Loader2, 
   Shield, History, Server, AlertCircle,
   ChevronLeft, ChevronRight, ChevronDown, ChevronUp,
-  ArrowUpDown, ArrowUp, ArrowDown, Cpu, CheckCircle2, XCircle, 
+  ArrowUpDown, ArrowUp, ArrowDown, Cpu, CheckCircle2, XCircle, X,
   Database, Network, Wifi, FileBarChart, Download, Settings2,
-  Zap, Banknote, Layout, Bell, Users, RefreshCw, Calendar, Clock
+  Zap, Banknote, Layout, Bell, Users, RefreshCw, Calendar, Clock,
+  SlidersHorizontal
 } from 'lucide-react';
 
 // --- CONFIG ---
@@ -127,6 +128,10 @@ const getMatrixCellColor = (row: string, col: string): string => {
     maxSupportedSpeed = 500;
   } else if (colUpper === 'AC2100') {
     maxSupportedSpeed = 600;
+  } else if (colUpper === 'AX1500') {
+    maxSupportedSpeed = 500;
+  } else if (colUpper === 'AX1800') {
+    maxSupportedSpeed = 800;
   } else if (colUpper === 'AX3000' || colUpper === 'AX5400') {
     maxSupportedSpeed = 1000;
   } else if (colUpper === 'AX6000') {
@@ -608,6 +613,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [apThreshold, setApThreshold] = useState(500);
   const [isExecutiveLoading, setIsExecutiveLoading] = useState(false);
   const [executiveStats, setExecutiveStats] = useState<any>(null);
+  const [hideEmptyCols, setHideEmptyCols] = useState(false);
 
   const [priorityYears, setPriorityYears] = useState(3);
   const [priorityPrice, setPriorityPrice] = useState(500);
@@ -620,6 +626,18 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   const [isReplacementModalOpen, setIsReplacementModalOpen] = useState(false);
   const [editingReplacement, setEditingReplacement] = useState<Partial<ReplacementConfig> | null>(null);
+
+  // --- ONU Mismatch Modal ---
+  const [isMismatchModalOpen, setIsMismatchModalOpen] = useState(false);
+  const [mismatchProvinceFilter, setMismatchProvinceFilter] = useState('');
+  const [mismatchSearch, setMismatchSearch] = useState('');
+  const [mismatchSearchInput, setMismatchSearchInput] = useState('');
+  const [mismatchPage, setMismatchPage] = useState(1);
+  const [mismatchLimit] = useState(10);
+  const [mismatchData, setMismatchData] = useState<any[]>([]);
+  const [mismatchProvinceSummary, setMismatchProvinceSummary] = useState<any[]>([]);
+  const [mismatchTotalCount, setMismatchTotalCount] = useState(0);
+  const [isMismatchLoading, setIsMismatchLoading] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -841,6 +859,35 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setDashboardStats(statsRes.data);
     } catch (err) { console.error(err); } finally { setLoading(false); }
   }, []);
+
+  const fetchMismatchData = useCallback(async () => {
+    setIsMismatchLoading(true);
+    try {
+      const token = localStorage.getItem('app8_token');
+      const res = await axios.get(`${API_BASE}/dashboard/onu-mismatch`, {
+        headers: { Authorization: `Bearer ${token}` },
+        params: {
+          province: mismatchProvinceFilter,
+          page: mismatchPage,
+          limit: mismatchLimit,
+          search: mismatchSearch
+        }
+      });
+      setMismatchData(res.data.data);
+      setMismatchProvinceSummary(res.data.province_summary);
+      setMismatchTotalCount(res.data.total);
+    } catch (err) {
+      console.error('Fetch Mismatch Error:', err);
+    } finally {
+      setIsMismatchLoading(false);
+    }
+  }, [mismatchProvinceFilter, mismatchPage, mismatchLimit, mismatchSearch]);
+
+  useEffect(() => {
+    if (isMismatchModalOpen) {
+      fetchMismatchData();
+    }
+  }, [isMismatchModalOpen, fetchMismatchData]);
 
   // Dashboard v2 fetch functions
   const fetchStatsV2 = useCallback(async () => {
@@ -1488,6 +1535,203 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
   return (
     <div className="min-h-screen flex bg-[#f8fafc] font-sans text-slate-900">
+      {isMismatchModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="bg-white rounded-[2.5rem] shadow-2xl border border-slate-100 max-w-[1400px] w-full h-[85vh] flex flex-col overflow-hidden transform animate-in zoom-in-95 duration-200">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-8 py-6 border-b border-slate-100 bg-slate-50/50 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center">
+                  <SlidersHorizontal size={24} />
+                </div>
+                <div>
+                  <h3 className="text-xl font-black text-slate-800">เปรียบเทียบข้อมูล ONU ไม่ตรงกัน (ONU Mismatch Detail)</h3>
+                  <p className="text-slate-500 font-bold text-xs">เปรียบเทียบข้อมูลระหว่าง CRM (ONU Records) กับระบบ Management (ONU Get OLT)</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={async () => {
+                    setIsExporting(true);
+                    try {
+                      const token = localStorage.getItem('app8_token');
+                      const res = await axios.get(`${API_BASE}/dashboard/onu-mismatch/export`, {
+                        headers: { Authorization: `Bearer ${token}` },
+                        params: {
+                          province: mismatchProvinceFilter,
+                          search: mismatchSearch
+                        },
+                        responseType: 'blob'
+                      });
+                      const url = window.URL.createObjectURL(new Blob([res.data]));
+                      const link = document.createElement('a');
+                      link.href = url;
+                      link.setAttribute('download', `onu_mismatch_report_${Date.now()}.xlsx`);
+                      document.body.appendChild(link);
+                      link.click();
+                      link.remove();
+                    } catch (e) {
+                      console.error('Export error:', e);
+                    } finally {
+                      setIsExporting(false);
+                    }
+                  }}
+                  className="flex items-center gap-2 px-6 py-3 bg-red-600 hover:bg-red-700 text-white rounded-2xl text-xs font-black shadow-lg shadow-red-100 transition-all"
+                >
+                  <Download size={16} />
+                  <span>ดาวน์โหลด Excel</span>
+                </button>
+                <button
+                  onClick={() => setIsMismatchModalOpen(false)}
+                  className="w-10 h-10 bg-slate-100 hover:bg-slate-200 rounded-full flex items-center justify-center text-slate-500 transition-all"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Content - Two Panels */}
+            <div className="flex-1 min-h-0 flex bg-slate-50/20">
+              {/* Left Panel: Provincial Summary */}
+              <div className="w-[380px] border-r border-slate-100 p-6 flex flex-col min-h-0 shrink-0">
+                <h4 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4">สถิติแยกตามจังหวัด</h4>
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin flex flex-col gap-2 pr-1">
+                  <div
+                    onClick={() => { setMismatchProvinceFilter(''); setMismatchPage(1); }}
+                    className={`flex items-center justify-between p-4 rounded-2xl border cursor-pointer transition-all ${!mismatchProvinceFilter ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    <span className="text-xs font-black">แสดงทุกจังหวัด</span>
+                    <span className="text-xs font-black bg-indigo-100 text-indigo-800 px-2.5 py-1 rounded-full">{Number(mismatchTotalCount).toLocaleString()} รายการ</span>
+                  </div>
+                  {mismatchProvinceSummary.map((prov, i) => (
+                    <div
+                      key={i}
+                      onClick={() => { setMismatchProvinceFilter(prov.province); setMismatchPage(1); }}
+                      className={`flex items-center justify-between p-4 rounded-2xl border cursor-pointer transition-all ${mismatchProvinceFilter === prov.province ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      <span className="text-xs font-black">{prov.province}</span>
+                      <span className={`text-xs font-black px-2.5 py-1 rounded-full ${mismatchProvinceFilter === prov.province ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-100 text-slate-600'}`}>{Number(prov.count).toLocaleString()} รายการ</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right Panel: Detailed Table */}
+              <div className="flex-1 p-6 flex flex-col min-h-0">
+                {/* Search / Filter Row */}
+                <div className="flex items-center gap-4 mb-6 shrink-0">
+                  <div className="relative flex-1">
+                    <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      placeholder="ค้นหาตาม หมายเลขวงจร, รุ่น ONU หรือ ข้อมูล OLT..."
+                      value={mismatchSearchInput}
+                      onChange={(e) => setMismatchSearchInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          setMismatchSearch(mismatchSearchInput);
+                          setMismatchPage(1);
+                        }
+                      }}
+                      className="w-full pl-12 pr-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm font-bold shadow-sm outline-none focus:ring-2 focus:ring-indigo-100 text-slate-700 placeholder-slate-400"
+                    />
+                  </div>
+                  <button
+                    onClick={() => {
+                      setMismatchSearch(mismatchSearchInput);
+                      setMismatchPage(1);
+                    }}
+                    className="px-6 py-3 bg-slate-800 text-white rounded-2xl text-xs font-black hover:bg-slate-700 transition-all shadow-sm shadow-slate-200"
+                  >
+                    ค้นหา
+                  </button>
+                  {(mismatchSearch || mismatchProvinceFilter) && (
+                    <button
+                      onClick={() => {
+                        setMismatchSearch('');
+                        setMismatchSearchInput('');
+                        setMismatchProvinceFilter('');
+                        setMismatchPage(1);
+                      }}
+                      className="px-6 py-3 bg-white border border-slate-200 text-slate-500 rounded-2xl text-xs font-black hover:bg-slate-50 transition-all"
+                    >
+                      ล้างตัวกรอง
+                    </button>
+                  )}
+                </div>
+
+                {/* Table Content */}
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin border border-slate-100 rounded-3xl bg-white shadow-sm relative">
+                  {isMismatchLoading ? (
+                    <div className="absolute inset-0 bg-white/75 backdrop-blur-sm z-10 flex items-center justify-center">
+                      <div className="w-10 h-10 border-4 border-indigo-100 border-t-indigo-600 rounded-full animate-spin"></div>
+                    </div>
+                  ) : null}
+
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-slate-50 sticky top-0 z-20">
+                      <tr>
+                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">หมายเลขวงจร</th>
+                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">จังหวัด</th>
+                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">CRM (ONU Records) Name</th>
+                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">ระบบ OLT (ONU Get OLT) Name</th>
+                        <th className="px-6 py-4 text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">ความเร็ว แพ็กเกจ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 font-bold text-slate-700 text-sm">
+                      {mismatchData.length === 0 ? (
+                        <tr>
+                          <td colSpan={5} className="text-center py-20 text-slate-400 font-bold">
+                            ไม่พบรายการข้อมูลไม่ตรงกันตามเงื่อนไขที่เลือก
+                          </td>
+                        </tr>
+                      ) : (
+                        mismatchData.map((row, i) => (
+                          <tr key={i} className="hover:bg-slate-50/50 transition-colors">
+                            <td className="px-6 py-4 text-xs font-black text-slate-800">{row.circuit_id}</td>
+                            <td className="px-6 py-4 text-xs font-black text-slate-500">{row.province || 'ไม่ระบุ'}</td>
+                            <td className="px-6 py-4 text-xs font-black text-red-600 bg-red-50/20">{row.onu_record_cpe}</td>
+                            <td className="px-6 py-4 text-xs font-black text-indigo-600 bg-indigo-50/20">{row.onu_olt_cpe}</td>
+                            <td className="px-6 py-4 text-xs font-black text-slate-500">{row.speed || '-'}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Table Pagination */}
+                {mismatchTotalCount > 0 && (
+                  <div className="flex items-center justify-between mt-6 shrink-0">
+                    <span className="text-xs font-black text-slate-400">
+                      แสดง {((mismatchPage - 1) * mismatchLimit) + 1} - {Math.min(mismatchPage * mismatchLimit, mismatchTotalCount)} จากทั้งหมด {Number(mismatchTotalCount).toLocaleString()} รายการ
+                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setMismatchPage(prev => Math.max(prev - 1, 1))}
+                        disabled={mismatchPage === 1}
+                        className="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl text-xs font-black hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white transition-all"
+                      >
+                        ก่อนหน้า
+                      </button>
+                      <span className="text-xs font-black text-slate-600 px-4">
+                        หน้า {mismatchPage} / {Math.ceil(mismatchTotalCount / mismatchLimit)}
+                      </span>
+                      <button
+                        onClick={() => setMismatchPage(prev => Math.min(prev + 1, Math.ceil(mismatchTotalCount / mismatchLimit)))}
+                        disabled={mismatchPage === Math.ceil(mismatchTotalCount / mismatchLimit)}
+                        className="px-4 py-2 border border-slate-200 text-slate-500 rounded-xl text-xs font-black hover:bg-slate-50 disabled:opacity-50 disabled:hover:bg-white transition-all"
+                      >
+                        ถัดไป
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {isExporting && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[9999] flex items-center justify-center animate-in fade-in duration-300">
           <div className="bg-white p-10 rounded-[3rem] shadow-2xl flex flex-col items-center gap-6 border border-slate-100 max-w-sm w-full mx-4 transform animate-in zoom-in-95 duration-300">
@@ -1944,6 +2188,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                               <th onClick={() => { if(circuitSortField==='onu_brand') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('onu_brand'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ONU Device</th>
                               <th onClick={() => { if(circuitSortField==='onu_device_type') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('onu_device_type'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ONU Type</th>
                               <th onClick={() => { if(circuitSortField==='wifi_brand') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('wifi_brand'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">WiFi Router</th>
+                              <th onClick={() => { if(circuitSortField==='onu_wifi_spec') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('onu_wifi_spec'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">WiFi (ONU)</th>
                               <th onClick={() => { if(circuitSortField==='effective_max_speed') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('effective_max_speed'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">Max Speed รวม</th>
                               <th onClick={() => { if(circuitSortField==='price') setCircuitSortOrder(o=>o==='ASC'?'DESC':'ASC'); else {setCircuitSortField('price'); setCircuitSortOrder('ASC');}}} className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500 cursor-pointer hover:text-indigo-600">ราคา (บาท/เดือน)</th>
                               <th className="sticky top-0 z-10 bg-slate-50 px-4 py-2 text-[10px] font-black uppercase text-slate-500">สถานะ</th>
@@ -2012,6 +2257,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                                       <span className="text-xs font-black text-emerald-600">{row.has_wifi ? (row.wifi_brand || row.wifi_raw_brand || 'Pending Mapping') : '-'}</span>
                                       <span className="text-[10px] font-bold text-emerald-500">{row.has_wifi ? (row.wifi_brand ? row.wifi_model : (row.wifi_raw_model || 'Raw Data')) : ''}</span>
                                     </div>
+                                  </td>
+                                  <td className="px-6 py-3">
+                                    <span className="text-xs font-bold text-slate-600">{row.onu_wifi_spec || '-'}</span>
                                   </td>
                                   <td className="px-6 py-3">
                                     <span className={`text-xs font-black ${row.effective_max_speed ? 'text-slate-800' : 'text-slate-300'}`}>{row.effective_max_speed || '-'}</span>
@@ -2418,7 +2666,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       ))}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                       <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex items-center justify-between group hover:border-amber-200 transition-all">
                         <div className="flex items-center gap-5">
                           <div className="w-14 h-14 bg-amber-50 text-amber-600 rounded-2xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform">
@@ -2454,6 +2702,33 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                           </div>
                         </div>
                         <button onClick={() => { setView('cpe'); setMappingTab('onu-get-olt'); setPage(1); }} className="px-6 py-3 bg-indigo-600 text-white rounded-xl text-xs font-black shadow-lg shadow-indigo-100 hover:bg-indigo-700 transition-all">จัดการ</button>
+                      </div>
+                      <div className="bg-white rounded-3xl p-6 border border-slate-200 shadow-sm flex items-center justify-between group hover:border-red-200 transition-all">
+                        <div className="flex items-center gap-5">
+                          <div className="w-14 h-14 bg-red-50 text-red-600 rounded-2xl flex items-center justify-center shadow-inner group-hover:scale-110 transition-transform">
+                            <SlidersHorizontal size={28} />
+                          </div>
+                          <div>
+                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-1">ข้อมูล ONU ไม่ตรงกัน</p>
+                            <h3 
+                              onClick={() => {
+                                setIsMismatchModalOpen(true);
+                              }}
+                              className="text-2xl font-black text-red-600 tracking-tight cursor-pointer hover:underline hover:text-red-700 transition-colors"
+                              title="คลิกเพื่อดูและดาวน์โหลดข้อมูล"
+                            >
+                              {Number(dashboardStats.summary.onu_mismatch_count || 0).toLocaleString()} <span className="text-sm text-slate-300 ml-1">รายการ</span>
+                            </h3>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => {
+                            setIsMismatchModalOpen(true);
+                          }}
+                          className="px-6 py-3 bg-red-600 text-white rounded-xl text-xs font-black shadow-lg shadow-red-100 hover:bg-red-700 transition-all"
+                        >
+                          จัดการ
+                        </button>
                       </div>
                     </div>
 
@@ -2960,169 +3235,166 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
 
                         {/* --- Section 5: WiFi Device Specification by Package Speed --- */}
                         <div className="flex flex-col gap-6 font-sans">
-                          <div className="flex items-center gap-4 px-2">
-                            <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
-                              <Wifi size={24} />
+                          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 px-2">
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-2xl flex items-center justify-center">
+                                <Wifi size={24} />
+                              </div>
+                              <h3 className="text-2xl font-black text-slate-800 tracking-tight">5. สถิติชนิดอุปกรณ์ WiFi ลูกค้า แยกตามระดับความเร็วแพ็กเกจ</h3>
                             </div>
-                            <h3 className="text-2xl font-black text-slate-800 tracking-tight">5. สถิติชนิดอุปกรณ์ WiFi ลูกค้า แยกตามระดับความเร็วแพ็กเกจ</h3>
+                            <button
+                              onClick={() => setHideEmptyCols(!hideEmptyCols)}
+                              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-black transition-all border shadow-sm ${
+                                hideEmptyCols
+                                  ? 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 shadow-indigo-100'
+                                  : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
+                              }`}
+                            >
+                              <SlidersHorizontal size={16} />
+                              {hideEmptyCols ? 'แสดงทั้งหมด (Show All)' : 'ซ่อนคอลัมน์ไม่มีข้อมูล (Hide Empty)'}
+                            </button>
                           </div>
 
                           <div className="bg-white rounded-[3rem] p-10 border border-slate-200 shadow-xl overflow-hidden relative">
                             <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-50 rounded-full -mr-32 -mt-32 blur-3xl opacity-40" />
                             
-                            <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
-                              <table className="w-full text-left border-collapse min-w-[1000px] rounded-2xl overflow-hidden border border-slate-200">
-                                <thead>
-                                  {/* Super Header */}
-                                  <tr className="bg-slate-100/80">
-                                    <th className="py-2 px-6 border-b border-slate-200 text-left text-base font-black text-slate-700" rowSpan={2}>
-                                      ความเร็ว Package ลูกค้า / ชนิดอุปกรณ์
-                                    </th>
-                                    <th className="py-1.5 px-4 border-b border-slate-200 text-center text-base font-black text-slate-700 tracking-wider" colSpan={10}>
-                                      ชนิดอุปกรณ์ลูกค้า
-                                    </th>
-                                    <th className="py-2 px-6 border-b border-slate-200 text-center text-base font-black text-indigo-700 tracking-wider bg-indigo-50/50" rowSpan={2}>
-                                      รวมทั้งหมด
-                                    </th>
-                                  </tr>
-                                  {/* Sub Columns */}
-                                  <tr className="bg-slate-50">
-                                    {[
-                                      'Wireless N',
-                                      'AC1200',
-                                      'AC1600',
-                                      'AC1750',
-                                      'AC2100',
-                                      'AX3000',
-                                      'AX5400',
-                                      'AX6000',
-                                      'No WiFi',
-                                      'ไม่มีข้อมูล'
-                                    ].map(col => (
-                                      <th key={col} className="py-1.5 px-4 border-b border-slate-200 text-center text-sm font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
-                                        {col}
-                                      </th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {[
-                                    '<=50Mbps',
-                                    '50-100Mbps',
-                                    '101-300Mbps',
-                                    '301-400Mbps',
-                                    '401-500Mbps',
-                                    '501-600Mbps',
-                                    '601-700Mbps',
-                                    '701-900Mbps',
-                                    '901-1,000 Mbps',
-                                    'Over 1,000 Mbps'
-                                  ].map(row => {
-                                    const cols = [
-                                      'Wireless N',
-                                      'AC1200',
-                                      'AC1600',
-                                      'AC1750',
-                                      'AC2100',
-                                      'AX3000',
-                                      'AX5400',
-                                      'AX6000',
-                                      'No WiFi',
-                                      'ไม่มีข้อมูล'
-                                    ];
-                                    const rowTotal = cols.reduce((sum, col) => {
-                                      if (!executiveStats?.matrix_stats) return sum;
-                                      const found = executiveStats.matrix_stats.find(
-                                        (item: any) => item.speed_range === row && item.wifi_class === col
-                                      );
-                                      return sum + (found ? Number(found.count) : 0);
-                                    }, 0);
+                            {(() => {
+                              const allCols = [
+                                'Wireless N',
+                                'AC1200',
+                                'AC1600',
+                                'AC1750',
+                                'AC2100',
+                                'AX1500',
+                                'AX1800',
+                                'AX3000',
+                                'AX5400',
+                                'AX6000',
+                                'No WiFi',
+                                'ไม่มีข้อมูล'
+                              ];
 
-                                    return (
-                                      <tr key={row} className="hover:bg-indigo-50/20 transition-all duration-150 group">
-                                        <td className="py-2 px-6 border-b border-slate-200 border-r border-slate-100 text-base font-black text-slate-700 bg-slate-50/30 whitespace-nowrap">
-                                          {row}
+                              const cols = hideEmptyCols 
+                                ? allCols.filter(col => {
+                                    if (!executiveStats?.matrix_stats) return true;
+                                    return executiveStats.matrix_stats.some(
+                                      (item: any) => item.wifi_class === col && Number(item.count) > 0
+                                    );
+                                  })
+                                : allCols;
+
+                              const rows = [
+                                '<=50Mbps',
+                                '50-100Mbps',
+                                '101-300Mbps',
+                                '301-400Mbps',
+                                '401-500Mbps',
+                                '501-600Mbps',
+                                '601-700Mbps',
+                                '701-900Mbps',
+                                '901-1,000 Mbps',
+                                'Over 1,000 Mbps'
+                              ];
+
+                              return (
+                                <div className="overflow-x-auto scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent">
+                                  <table className="w-full text-left border-collapse min-w-[1000px] rounded-2xl overflow-hidden border border-slate-200">
+                                    <thead>
+                                      {/* Super Header */}
+                                      <tr className="bg-slate-100/80">
+                                        <th className="py-2 px-6 border-b border-slate-200 text-left text-base font-black text-slate-700" rowSpan={2}>
+                                          ความเร็ว Package ลูกค้า / ชนิดอุปกรณ์
+                                        </th>
+                                        <th className="py-1.5 px-4 border-b border-slate-200 text-center text-base font-black text-slate-700 tracking-wider" colSpan={cols.length}>
+                                          ชนิดอุปกรณ์ลูกค้า
+                                        </th>
+                                        <th className="py-2 px-6 border-b border-slate-200 text-center text-base font-black text-indigo-700 tracking-wider bg-indigo-50/50" rowSpan={2}>
+                                          รวมทั้งหมด
+                                        </th>
+                                      </tr>
+                                      {/* Sub Columns */}
+                                      <tr className="bg-slate-50">
+                                        {cols.map(col => (
+                                          <th key={col} className="py-1.5 px-4 border-b border-slate-200 text-center text-sm font-black text-slate-500 uppercase tracking-wider whitespace-nowrap">
+                                            {col}
+                                          </th>
+                                        ))}
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {rows.map(row => {
+                                        const rowTotal = cols.reduce((sum, col) => {
+                                          if (!executiveStats?.matrix_stats) return sum;
+                                          const found = executiveStats.matrix_stats.find(
+                                            (item: any) => item.speed_range === row && item.wifi_class === col
+                                          );
+                                          return sum + (found ? Number(found.count) : 0);
+                                        }, 0);
+
+                                        return (
+                                          <tr key={row} className="hover:bg-indigo-50/20 transition-all duration-150 group">
+                                            <td className="py-2 px-6 border-b border-slate-200 border-r border-slate-100 text-base font-black text-slate-700 bg-slate-50/30 whitespace-nowrap">
+                                              {row}
+                                            </td>
+                                            {cols.map(col => {
+                                              let count = 0;
+                                              if (executiveStats?.matrix_stats) {
+                                                const found = executiveStats.matrix_stats.find(
+                                                  (item: any) => item.speed_range === row && item.wifi_class === col
+                                                );
+                                                count = found ? Number(found.count) : 0;
+                                              }
+                                              return (
+                                                <td key={col} className="py-2 px-4 border-b border-slate-100 border-r border-slate-50 text-center text-base font-bold font-mono text-slate-600">
+                                                  {count > 0 ? (
+                                                    <span className={`${getMatrixCellColor(row, col)} font-extrabold`}>{count.toLocaleString()}</span>
+                                                  ) : (
+                                                    <span className="text-slate-300 font-normal">-</span>
+                                                  )}
+                                                </td>
+                                              );
+                                            })}
+                                            {/* Row Total */}
+                                            <td className="py-2 px-6 border-b border-slate-200 text-center text-base font-extrabold font-mono text-indigo-700 bg-indigo-50/20 whitespace-nowrap">
+                                              {rowTotal > 0 ? rowTotal.toLocaleString() : '-'}
+                                            </td>
+                                          </tr>
+                                        );
+                                      })}
+
+                                      {/* Columns Totals Row */}
+                                      <tr className="bg-slate-100/60 font-black border-t-2 border-slate-300">
+                                        <td className="py-2 px-6 border-b border-slate-200 border-r border-slate-200 text-base font-black text-slate-800">
+                                          รวม (Total)
                                         </td>
                                         {cols.map(col => {
-                                          let count = 0;
-                                          if (executiveStats?.matrix_stats) {
+                                          const colTotal = rows.reduce((sum, r) => {
+                                            if (!executiveStats?.matrix_stats) return sum;
                                             const found = executiveStats.matrix_stats.find(
-                                              (item: any) => item.speed_range === row && item.wifi_class === col
+                                              (item: any) => item.speed_range === r && item.wifi_class === col
                                             );
-                                            count = found ? Number(found.count) : 0;
-                                          }
+                                            return sum + (found ? Number(found.count) : 0);
+                                          }, 0);
                                           return (
-                                            <td key={col} className="py-2 px-4 border-b border-slate-100 border-r border-slate-50 text-center text-base font-bold font-mono text-slate-600">
-                                              {count > 0 ? (
-                                                <span className={`${getMatrixCellColor(row, col)} font-extrabold`}>{count.toLocaleString()}</span>
-                                              ) : (
-                                                <span className="text-slate-300 font-normal">-</span>
-                                              )}
+                                            <td key={col} className="py-2 px-4 border-b border-slate-200 border-r border-slate-50 text-center text-base font-black font-mono text-slate-800">
+                                              {colTotal > 0 ? colTotal.toLocaleString() : '-'}
                                             </td>
                                           );
                                         })}
-                                        {/* Row Total */}
-                                        <td className="py-2 px-6 border-b border-slate-200 text-center text-base font-extrabold font-mono text-indigo-700 bg-indigo-50/20 whitespace-nowrap">
-                                          {rowTotal > 0 ? rowTotal.toLocaleString() : '-'}
+                                        {/* Grand Total */}
+                                        <td className="py-2 px-6 border-b border-slate-200 text-center text-base font-black font-mono text-white bg-indigo-600">
+                                          {(() => {
+                                            if (!executiveStats?.matrix_stats) return '-';
+                                            const grandTotal = executiveStats.matrix_stats.reduce((sum: number, item: any) => sum + Number(item.count), 0);
+                                            return grandTotal > 0 ? grandTotal.toLocaleString() : '-';
+                                          })()}
                                         </td>
                                       </tr>
-                                    );
-                                  })}
-
-                                  {/* Columns Totals Row */}
-                                  <tr className="bg-slate-100/60 font-black border-t-2 border-slate-300">
-                                    <td className="py-2 px-6 border-b border-slate-200 border-r border-slate-200 text-base font-black text-slate-800">
-                                      รวม (Total)
-                                    </td>
-                                    {[
-                                      'Wireless N',
-                                      'AC1200',
-                                      'AC1600',
-                                      'AC1750',
-                                      'AC2100',
-                                      'AX3000',
-                                      'AX5400',
-                                      'AX6000',
-                                      'No WiFi',
-                                      'ไม่มีข้อมูล'
-                                    ].map(col => {
-                                      const rows = [
-                                        '<=50Mbps',
-                                        '50-100Mbps',
-                                        '101-300Mbps',
-                                        '301-400Mbps',
-                                        '401-500Mbps',
-                                        '501-600Mbps',
-                                        '601-700Mbps',
-                                        '701-900Mbps',
-                                        '901-1,000 Mbps',
-                                        'Over 1,000 Mbps'
-                                      ];
-                                      const colTotal = rows.reduce((sum, row) => {
-                                        if (!executiveStats?.matrix_stats) return sum;
-                                        const found = executiveStats.matrix_stats.find(
-                                          (item: any) => item.speed_range === row && item.wifi_class === col
-                                        );
-                                        return sum + (found ? Number(found.count) : 0);
-                                      }, 0);
-                                      return (
-                                        <td key={col} className="py-2 px-4 border-b border-slate-200 border-r border-slate-50 text-center text-base font-black font-mono text-slate-800">
-                                          {colTotal > 0 ? colTotal.toLocaleString() : '-'}
-                                        </td>
-                                      );
-                                    })}
-                                    {/* Grand Total */}
-                                    <td className="py-2 px-6 border-b border-slate-200 text-center text-base font-black font-mono text-white bg-indigo-600">
-                                      {(() => {
-                                        if (!executiveStats?.matrix_stats) return '-';
-                                        const grandTotal = executiveStats.matrix_stats.reduce((sum: number, item: any) => sum + Number(item.count), 0);
-                                        return grandTotal > 0 ? grandTotal.toLocaleString() : '-';
-                                      })()}
-                                    </td>
-                                  </tr>
-                                </tbody>
-                              </table>
-                            </div>
+                                    </tbody>
+                                  </table>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
                       </>

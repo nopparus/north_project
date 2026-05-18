@@ -1892,6 +1892,16 @@ app.get('/api/dashboard/stats', authenticate, async (req, res) => {
         `);
 
         const data = statsRes.rows[0];
+
+        // Fetch ONU Mismatch Count from Materialized View
+        const mismatchRes = await pool.query(`
+            SELECT COUNT(*) as count FROM mv_circuit_summary
+            WHERE onu_record_brand IS NOT NULL AND onu_record_brand != ''
+              AND olt_brand IS NOT NULL AND olt_brand != ''
+              AND (onu_record_brand != olt_brand OR onu_record_model != olt_model)
+        `);
+        const onu_mismatch_count = parseInt(mismatchRes.rows[0].count);
+
         res.json({
             summary: {
                 total_records: parseInt(data.total_records),
@@ -1900,7 +1910,8 @@ app.get('/api/dashboard/stats', authenticate, async (req, res) => {
                 only_onu_count: parseInt(data.only_onu_count),
                 pending_onu_mapping: parseInt(data.pending_onu_mapping),
                 pending_wifi_mapping: parseInt(data.pending_wifi_mapping),
-                pending_onu_get_olt_mapping: parseInt(data.pending_onu_get_olt_mapping)
+                pending_onu_get_olt_mapping: parseInt(data.pending_onu_get_olt_mapping),
+                onu_mismatch_count: onu_mismatch_count
             },
             all_in_one_by_brand: data.all_in_one_by_brand || [],
             wifi_router_by_brand: data.wifi_router_by_brand || [],
@@ -1909,6 +1920,134 @@ app.get('/api/dashboard/stats', authenticate, async (req, res) => {
     } catch (err) {
         console.error('Stats Error:', err);
         res.status(500).json({ message: 'Error' });
+    }
+});
+
+// ONU Mismatch List & Provincial Summary
+app.get('/api/dashboard/onu-mismatch', authenticate, async (req, res) => {
+    const { province, page = 1, limit = 50, search = '' } = req.query;
+    try {
+        const offset = (parseInt(page) - 1) * parseInt(limit);
+        
+        // Provincial summary query
+        const summaryRes = await pool.query(`
+            SELECT COALESCE(province, 'ไม่ระบุ') as province, COUNT(*) as count
+            FROM mv_circuit_summary
+            WHERE onu_record_brand IS NOT NULL AND onu_record_brand != ''
+              AND olt_brand IS NOT NULL AND olt_brand != ''
+              AND (onu_record_brand != olt_brand OR onu_record_model != olt_model)
+            GROUP BY province
+            ORDER BY count DESC
+        `);
+
+        let whereClause = `
+            WHERE onu_record_brand IS NOT NULL AND onu_record_brand != ''
+              AND olt_brand IS NOT NULL AND olt_brand != ''
+              AND (onu_record_brand != olt_brand OR onu_record_model != olt_model)
+        `;
+        const params = [];
+
+        if (province) {
+            params.push(province);
+            whereClause += ` AND province = $${params.length}`;
+        }
+
+        if (search) {
+            params.push(`%${search}%`);
+            whereClause += ` AND (circuit_norm ILIKE $${params.length} OR onu_record_brand ILIKE $${params.length} OR onu_record_model ILIKE $${params.length} OR olt_brand ILIKE $${params.length} OR olt_model ILIKE $${params.length})`;
+        }
+
+        const countQuery = `
+            SELECT COUNT(*) 
+            FROM mv_circuit_summary 
+            ${whereClause}
+        `;
+        
+        const dataQuery = `
+            SELECT 
+                circuit_norm as circuit_id, 
+                province, 
+                (onu_record_brand || ' : ' || onu_record_model) as onu_record_cpe, 
+                (olt_brand || ' : ' || olt_model) as onu_olt_cpe, 
+                service_name, 
+                speed
+            FROM mv_circuit_summary
+            ${whereClause}
+            ORDER BY province ASC, circuit_norm ASC
+            LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+        `;
+
+        const [countRes, dataRes] = await Promise.all([
+            pool.query(countQuery, params),
+            pool.query(dataQuery, [...params, parseInt(limit), offset])
+        ]);
+
+        res.json({
+            province_summary: summaryRes.rows,
+            total: parseInt(countRes.rows[0].count),
+            data: dataRes.rows
+        });
+    } catch (err) {
+        console.error('ONU Mismatch Error:', err);
+        res.status(500).json({ message: 'Internal server error' });
+    }
+});
+
+// ONU Mismatch Export to Excel
+app.get('/api/dashboard/onu-mismatch/export', authenticate, async (req, res) => {
+    const { province, search = '' } = req.query;
+    try {
+        let whereClause = `
+            WHERE onu_record_brand IS NOT NULL AND onu_record_brand != ''
+              AND olt_brand IS NOT NULL AND olt_brand != ''
+              AND (onu_record_brand != olt_brand OR onu_record_model != olt_model)
+        `;
+        const params = [];
+
+        if (province) {
+            params.push(province);
+            whereClause += ` AND province = $${params.length}`;
+        }
+
+        if (search) {
+            params.push(`%${search}%`);
+            whereClause += ` AND (circuit_norm ILIKE $${params.length} OR onu_record_brand ILIKE $${params.length} OR onu_record_model ILIKE $${params.length} OR olt_brand ILIKE $${params.length} OR olt_model ILIKE $${params.length})`;
+        }
+
+        const queryText = `
+            SELECT 
+                circuit_norm as "หมายเลขวงจร",
+                COALESCE(province, 'ไม่ระบุ') as "จังหวัด",
+                (onu_record_brand || ' : ' || onu_record_model) as "ONU Records Name",
+                (olt_brand || ' : ' || olt_model) as "ONU OLT Name",
+                COALESCE(onu_wifi_spec, '-') as "ONU WiFi Spec",
+                service_name as "Service Name",
+                speed as "ความเร็ว"
+            FROM mv_circuit_summary
+            ${whereClause}
+            ORDER BY province ASC, circuit_norm ASC
+        `;
+
+        const result = await pool.query(queryText, params);
+        const worksheet = XLSX.utils.json_to_sheet(result.rows);
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "ONU Mismatches");
+        
+        const fileName = `onu_mismatches_${Date.now()}.xlsx`;
+        const filePath = `uploads/${fileName}`;
+        XLSX.writeFile(workbook, filePath);
+        res.download(filePath, fileName, (err) => {
+            if (!err) {
+                try {
+                    fs.unlinkSync(filePath);
+                } catch (e) {
+                    console.error('Failed to delete temp file:', e);
+                }
+            }
+        });
+    } catch (err) {
+        console.error('Export ONU Mismatch Error:', err);
+        res.status(500).json({ message: 'Export failed: ' + err.message });
     }
 });
 
@@ -2532,9 +2671,14 @@ app.get('/api/dashboard/executive-stats', authenticate, async (req, res) => {
                         WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC2100%'
                              OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AC2400%'
                              THEN 'AC2100'
+                        -- AX1500
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX1500%'
+                             THEN 'AX1500'
+                        -- AX1800
+                        WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX1800%'
+                             THEN 'AX1800'
                         -- AX3000
                         WHEN COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX3000%'
-                             OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX1800%'
                              OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%AX3200%'
                              OR COALESCE(NULLIF(dc.wifi, ''), NULLIF(dconu.wifi, ''), NULLIF(cpe.wifi, ''), NULLIF(m.onu_wifi_spec, '')) ILIKE '%WiFi 6%'
                              THEN 'AX3000'
@@ -2581,7 +2725,7 @@ app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     const searchPattern = `%${search}%`;
 
-    const validSorts = ['circuit_norm', 'speed', 'service_name', 'service_status', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price'];
+    const validSorts = ['circuit_norm', 'speed', 'service_name', 'service_status', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price', 'onu_wifi_spec'];
     const finalSort = validSorts.includes(sortField) ? sortField : 'circuit_norm';
     const finalOrder = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
 
@@ -2664,7 +2808,7 @@ app.get('/api/dashboard/circuit-summary', authenticate, async (req, res) => {
 app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) => {
     const { search = '', sortField = 'circuit_norm', sortOrder = 'ASC', serviceFilter = '', statusFilter = '', startYear = '', endYear = '', excludeNoWifi, group, threshold, priorityPrice, priorityYears, priorityOnlyMismatch } = req.query;
     const searchPattern = `%${search}%`;
-    const validSorts = ['circuit_norm', 'speed', 'service_name', 'service_status', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price'];
+    const validSorts = ['circuit_norm', 'speed', 'service_name', 'service_status', 'install_year', 'onu_brand', 'olt_brand', 'wifi_brand', 'effective_max_speed', 'price', 'onu_wifi_spec'];
     const finalSort = validSorts.includes(sortField) ? sortField : 'circuit_norm';
     const finalOrder = sortOrder.toUpperCase() === 'DESC' ? 'DESC' : 'ASC';
     
@@ -2791,6 +2935,7 @@ app.get('/api/dashboard/circuit-summary/export', authenticate, async (req, res) 
                 f.olt_model as "OLT Model",
                 f.wifi_brand as "WiFi Router Brand", 
                 f.wifi_model as "WiFi Router Model",
+                COALESCE(f.onu_wifi_spec, '-') as "ONU WiFi Spec",
                 f.effective_max_speed as "Max Speed รวม (Mbps)",
                 f.price as "ราคา (บาท/เดือน)",
                 CASE WHEN f.is_onu_without_wifi THEN 'ใช่' ELSE 'ไม่' END as "ไม่มี WiFi ต่อพ่วง"

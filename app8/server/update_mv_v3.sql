@@ -14,7 +14,8 @@ onu_base AS (
         service_name,
         service_status,
         price,
-        section
+        section,
+        province
     FROM onu_records
     WHERE circuit_id IS NOT NULL AND circuit_id != ''
 ),
@@ -51,7 +52,8 @@ onu_mapped AS (
         c.type as onu_type, c.lan_ge, c.lan_fe, c.wifi as onu_wifi_spec,
         c.max_speed as onu_max_speed,
         o.price,
-        o.section
+        o.section,
+        o.province
     FROM onu_base o
     LEFT JOIN cpe_devices d ON o.cpe_brand_model = d.raw_name
     LEFT JOIN device_catalog c ON d.brand = c.brand AND d.model = c.model
@@ -104,12 +106,17 @@ final_assembly AS (
         onu.install_year,
         onu.price,
         onu.section,
+        onu.province,
+        onu.onu_raw_name as onu_record_cpe,
+        olt.olt_raw_name as onu_olt_cpe,
         CASE WHEN s.has_olt THEN olt.olt_brand ELSE onu.onu_brand END as onu_brand,
         CASE WHEN s.has_olt THEN olt.olt_model ELSE onu.onu_model END as onu_model,
         CASE WHEN s.has_olt THEN olt.olt_type ELSE onu.onu_type END as onu_device_type,
         CASE WHEN s.has_olt THEN olt.olt_lan_ge ELSE onu.lan_ge END as onu_lan_ge,
         CASE WHEN s.has_olt THEN olt.olt_lan_fe ELSE onu.lan_fe END as onu_lan_fe,
         CASE WHEN s.has_olt THEN olt.olt_wifi_spec ELSE onu.onu_wifi_spec END as onu_wifi_spec,
+        onu.onu_brand as onu_record_brand,
+        onu.onu_model as onu_record_model,
         olt.olt_brand,
         olt.olt_model,
         wf.wifi_raw_brand, wf.wifi_raw_model,
@@ -172,3 +179,6 @@ CREATE INDEX idx_mv_speed_mbps ON mv_circuit_summary(speed_mbps);
 CREATE INDEX idx_mv_max_speed_mbps ON mv_circuit_summary(effective_max_speed_mbps);
 CREATE INDEX idx_mv_is_fe_only ON mv_circuit_summary(is_fe_only);
 CREATE INDEX idx_mv_service_status ON mv_circuit_summary(service_status);
+CREATE INDEX idx_mv_province ON mv_circuit_summary(province);
+CREATE INDEX idx_mv_onu_record_cpe ON mv_circuit_summary(onu_record_cpe);
+CREATE INDEX idx_mv_onu_olt_cpe ON mv_circuit_summary(onu_olt_cpe);
