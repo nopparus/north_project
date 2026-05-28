@@ -32,6 +32,19 @@ const COLUMN_DISPLAY_MAP = {
     'service_status': 'สถานะการใช้งาน',
 };
 
+const ALL_CIRCUITS_COLUMNS = [
+  { key: 'position_dslam', label: 'Position DSLAM' },
+  { key: 'ip_address', label: 'IP Address' },
+  { key: 'circuit', label: 'Circuit' },
+  { key: 'name', label: 'Name' },
+  { key: 'status', label: 'Status' },
+  { key: 'actual_type', label: 'Actual Type' },
+  { key: 'sn', label: 'SN' },
+  { key: 'onu_brand', label: 'ONU Brand' },
+  { key: 'mapped_brand', label: 'Mapped Brand' },
+  { key: 'mapped_model', label: 'Mapped Model' }
+];
+
 const ONU_GET_OLT_COLUMNS = [
   { key: 'onu_actual_type', label: 'ONU Actual Type' },
   { key: 'mapped_brand', label: 'Mapped Brand' },
@@ -494,7 +507,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [isExporting, setIsExporting] = useState(false);
   
   // Persistence
-  type AppView = 'home' | 'onu' | 'wifi' | 'onu-get-olt' | 'cpe' | 'catalog' | 'report' | 'logs' | 'missing-mapping' | 'replacements' | 'restore';
+  type AppView = 'home' | 'onu' | 'wifi' | 'onu-get-olt' | 'all-circuits' | 'cpe' | 'catalog' | 'report' | 'logs' | 'missing-mapping' | 'replacements' | 'restore';
   const savedView = (localStorage.getItem('app8_view') as AppView) || 'home';
   const savedLimit = Number(localStorage.getItem('app8_limit')) || 10;
   const savedSearch = localStorage.getItem('app8_search') || '';
@@ -508,6 +521,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [reportData, setReportData] = useState<any[]>([]);
   const [onuGetOltData, setOnuGetOltData] = useState<any[]>([]);
+  const [allCircuitsData, setAllCircuitsData] = useState<any[]>([]);
   const [dashboardStats, setDashboardStats] = useState<any>(null);
   const [wifiRouters, setWifiRouters] = useState<WiFiRouter[]>([]);
   const [selectedReportColumns, setSelectedReportColumns] = useState<string[]>(initialReportCols);
@@ -541,6 +555,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const onuFileInputRef = useRef<HTMLInputElement>(null);
   const wifiFileInputRef = useRef<HTMLInputElement>(null);
   const onuGetOltFileInputRef = useRef<HTMLInputElement>(null);
+  const allCircuitsFileInputRef = useRef<HTMLInputElement>(null);
   const [importConfirmData, setImportConfirmData] = useState<{
     type: 'onu' | 'wifi' | 'onu-get-olt';
     count: number;
@@ -560,8 +575,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [newDiscoveries, setNewDiscoveries] = useState<{raw_name: string}[]>([]);
   const [newWifiDiscoveries, setNewWifiDiscoveries] = useState<{raw_brand: string, raw_model: string}[]>([]);
   const [newOnuGetOltDiscoveries, setNewOnuGetOltDiscoveries] = useState<{raw_name: string}[]>([]);
+  const [newAllCircuitsDiscoveries, setNewAllCircuitsDiscoveries] = useState<{raw_name: string}[]>([]);
   const [showNewDiscoveries, setShowNewDiscoveries] = useState(false);
-  const [mappingTab, setMappingTab] = useState<'onu' | 'wifi' | 'onu-get-olt'>('onu');
+  const [mappingTab, setMappingTab] = useState<'onu' | 'wifi' | 'onu-get-olt' | 'all-circuits'>('onu');
   const [wifiMappings, setWifiMappings] = useState<WiFiMapping[]>([]);
   const [mappingWifi, setMappingWifi] = useState<Partial<WiFiMapping> | null>(null);
   const [wifiMapSortField, setWifiMapSortField] = useState<keyof WiFiMapping>('raw_brand');
@@ -783,6 +799,22 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     } catch (err) { console.error(err); } finally { setLoading(false); }
   }, [searchTerm, page, limit, cpeSortField, cpeSortOrder, showOnlyPending]);
 
+  const fetchAllCircuitsGroups = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params: any = { search: searchTerm, page, limit, sortField: cpeSortField, sortOrder: cpeSortOrder };
+      params.pendingOnly = showOnlyPending ? 'true' : 'false';
+
+      const res = await axios.get(`${API_BASE}/all-circuits-groups`, { params });
+      setCpeGroups(res.data.data);
+      setTotal(res.data.total);
+      
+      const disc = await axios.get(`${API_BASE}/all-circuits-groups/new-discoveries`);
+      setNewAllCircuitsDiscoveries(disc.data.data);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
+  }, [searchTerm, page, limit, cpeSortField, cpeSortOrder, showOnlyPending]);
+
+
   const fetchWiFiRouters = useCallback(async () => {
     setLoading(true);
     try {
@@ -800,6 +832,16 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       setTotal(res.data.total);
     } catch (err) { console.error(err); } finally { setLoading(false); }
   }, [page, limit, searchTerm, sortField, sortOrder]);
+
+  const fetchAllCircuits = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API_BASE}/all-circuits`, { params: { page, limit, search: searchTerm, sortField, sortOrder } });
+      setAllCircuitsData(res.data.data);
+      setTotal(res.data.total);
+    } catch (err) { console.error(err); } finally { setLoading(false); }
+  }, [page, limit, searchTerm, sortField, sortOrder]);
+
 
   const fetchAllCatalog = useCallback(async () => {
     try {
@@ -1135,7 +1177,8 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       if (view === 'missing-mapping') fetchCPEGroups();
       else if (mappingTab === 'onu') fetchCPEGroups();
       else if (mappingTab === 'wifi') fetchWifiMappings();
-      else fetchOnuGetOltMappings();
+      else if (mappingTab === 'onu-get-olt') fetchOnuGetOltMappings();
+      else fetchAllCircuitsGroups();
     }
     else if (view === 'catalog') {
       fetchCatalog();
@@ -1144,8 +1187,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     else if (view === 'report') fetchReport();
     else if (view === 'wifi') { fetchWiFiRouters(); }
     else if (view === 'onu-get-olt') { fetchOnuGetOlt(); }
+    else if (view === 'all-circuits') { fetchAllCircuits(); }
     else if (view === 'restore') { fetchRestoreStatus(); }
-  }, [view, mappingTab, fetchData, fetchLogs, fetchCPEGroups, fetchWifiMappings, fetchCatalog, fetchReport, fetchWiFiRouters, fetchDashboard, fetchOnuGetOlt, fetchStatsV2, fetchCircuitSummary, fetchServiceNames, fetchNoWifiSummary, fetchYears, fetchReplacementConfigs, fetchRestoreStatus]);
+  }, [view, mappingTab, fetchData, fetchLogs, fetchCPEGroups, fetchWifiMappings, fetchCatalog, fetchReport, fetchWiFiRouters, fetchDashboard, fetchOnuGetOlt, fetchAllCircuits, fetchStatsV2, fetchCircuitSummary, fetchServiceNames, fetchNoWifiSummary, fetchYears, fetchReplacementConfigs, fetchRestoreStatus]);
 
   // Re-fetch circuit when pagination/sort changes
   useEffect(() => {
@@ -1767,6 +1811,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             { id: 'onu', icon: <Server size={20} />, label: 'ONU Records' },
             { id: 'wifi', icon: <Wifi size={20} />, label: 'WiFi Routers' },
             { id: 'onu-get-olt', icon: <Database size={20} />, label: 'ONU Get OLT' },
+            { id: 'all-circuits', icon: <Database size={20} />, label: 'All Circuits' },
             { id: 'cpe', icon: <Cpu size={20} />, label: 'Device Mapping' },
             { id: 'missing-mapping', icon: <AlertCircle size={20} />, label: 'Missing Mapping' },
             { id: 'catalog', icon: <Database size={20} />, label: 'Device Catalog' },
@@ -1805,7 +1850,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
         <header className="h-24 bg-white border-b border-slate-200 flex items-center justify-between px-10 shrink-0 shadow-sm z-10">
           <div className="flex items-center gap-6">
             <h2 className="text-2xl font-black text-slate-800 tracking-tight">
-              {view === 'home' ? (homeTab === 'executive' ? 'Executive Dashboard' : 'Dashboard Summary v2.1') : view === 'onu' ? 'รายการข้อมูล ONU' : view === 'wifi' ? 'รายการข้อมูล WiFi Router' : view === 'onu-get-olt' ? 'รายการข้อมูล ONU Get OLT' : view === 'cpe' ? 'จัดการยี่ห้อ/รุ่นอุปกรณ์' : view === 'catalog' ? 'ฐานข้อมูลอุปกรณ์' : view === 'report' ? 'Integrated Report' : view === 'missing-mapping' ? 'จัดการข้อมูลที่ไม่สมบูรณ์' : 'ประวัติการใช้งาน'}
+              {view === 'home' ? (homeTab === 'executive' ? 'Executive Dashboard' : 'Dashboard Summary v2.1') : view === 'onu' ? 'รายการข้อมูล ONU' : view === 'wifi' ? 'รายการข้อมูล WiFi Router' : view === 'onu-get-olt' ? 'รายการข้อมูล ONU Get OLT' : view === 'all-circuits' ? 'รายการข้อมูล All Circuits' : view === 'cpe' ? 'จัดการยี่ห้อ/รุ่นอุปกรณ์' : view === 'catalog' ? 'ฐานข้อมูลอุปกรณ์' : view === 'report' ? 'Integrated Report' : view === 'missing-mapping' ? 'จัดการข้อมูลที่ไม่สมบูรณ์' : 'ประวัติการใช้งาน'}
             </h2>
             {view !== 'home' && total > 0 && (
               <div className="flex items-center justify-center px-4 py-2 bg-indigo-50 text-indigo-600 rounded-xl font-black text-sm border border-indigo-100 min-w-[160px] whitespace-nowrap">
@@ -1814,7 +1859,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
             )}
           </div>
           <div className="flex items-center gap-6">
-            {(view === 'home' || view === 'onu' || view === 'report' || view === 'wifi' || view === 'onu-get-olt' || view === 'cpe' || view === 'catalog' || view === 'missing-mapping') && (
+            {(view === 'home' || view === 'onu' || view === 'report' || view === 'wifi' || view === 'onu-get-olt' || view === 'all-circuits' || view === 'cpe' || view === 'catalog' || view === 'missing-mapping') && (
               <form onSubmit={handleSearchSubmit} className="flex items-center gap-3">
                 <div className="relative">
                   <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
@@ -3452,12 +3497,13 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       <button onClick={() => { setMappingTab('onu'); setPage(1); setShowOnlyPending(false); }} className={`px-10 py-3 rounded-[1.5rem] text-sm font-black transition-all ${mappingTab === 'onu' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>ONU Mapping</button>
                       <button onClick={() => { setMappingTab('wifi'); setPage(1); setShowOnlyPending(false); }} className={`px-10 py-3 rounded-[1.5rem] text-sm font-black transition-all ${mappingTab === 'wifi' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>WiFi Router Mapping</button>
                       <button onClick={() => { setMappingTab('onu-get-olt'); setPage(1); setShowOnlyPending(false); }} className={`px-10 py-3 rounded-[1.5rem] text-sm font-black transition-all ${mappingTab === 'onu-get-olt' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>ONU Get OLT Mapping</button>
+                      <button onClick={() => { setMappingTab('all-circuits'); setPage(1); setShowOnlyPending(false); }} className={`px-10 py-3 rounded-[1.5rem] text-sm font-black transition-all ${mappingTab === 'all-circuits' ? 'bg-white text-indigo-600 shadow-md' : 'text-slate-500 hover:text-slate-700'}`}>All Circuits Mapping</button>
                     </div>
                     <button onClick={() => handleTableExport(mappingTab === 'onu' ? '/cpe-groups/export' : mappingTab === 'wifi' ? '/wifi-mappings/groups/export' : '/onu-get-olt-groups/export', mappingTab === 'onu' ? 'onu_mapping' : mappingTab === 'wifi' ? 'wifi_mapping' : 'onu_get_olt_mapping')} className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-bold text-sm">
                       <Download size={18} /> <span>Export Excel</span>
                     </button>
                   </div>
-                  {((mappingTab === 'onu' && newDiscoveries.length > 0) || (mappingTab === 'wifi' && newWifiDiscoveries.length > 0) || (mappingTab === 'onu-get-olt' && newOnuGetOltDiscoveries.length > 0)) && (
+                  {((mappingTab === 'onu' && newDiscoveries.length > 0) || (mappingTab === 'wifi' && newWifiDiscoveries.length > 0) || (mappingTab === 'onu-get-olt' && newOnuGetOltDiscoveries.length > 0) || (mappingTab === 'all-circuits' && newAllCircuitsDiscoveries.length > 0)) && (
                     <button 
                       onClick={() => { setShowOnlyPending(!showOnlyPending); setPage(1); }}
                       className={`flex items-center gap-2 px-6 py-3 rounded-2xl font-black text-sm shadow-lg transition-all ${showOnlyPending ? 'bg-indigo-600 text-white shadow-indigo-100' : 'bg-amber-500 text-white shadow-amber-100 animate-pulse hover:scale-105'}`}
@@ -3465,13 +3511,13 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                       {showOnlyPending ? (
                         <><Search size={18} /> แสดงทั้งหมด (คืนค่าการกรอง)</>
                       ) : (
-                        <><AlertCircle size={18} /> พบรุ่นใหม่ที่ยังไม่ได้จับคู่ ({(mappingTab === 'onu' ? newDiscoveries : mappingTab === 'wifi' ? newWifiDiscoveries : newOnuGetOltDiscoveries).length})</>
+                        <><AlertCircle size={18} /> พบรุ่นใหม่ที่ยังไม่ได้จับคู่ ({(mappingTab === 'onu' ? newDiscoveries : mappingTab === 'wifi' ? newWifiDiscoveries : mappingTab === 'onu-get-olt' ? newOnuGetOltDiscoveries : newAllCircuitsDiscoveries).length})</>
                       )}
                     </button>
                   )}
                 </div>
                 <div className="flex-1 overflow-auto scrollbar-thin">
-                  {mappingTab === 'onu' || mappingTab === 'onu-get-olt' ? (
+                  {mappingTab === 'onu' || mappingTab === 'onu-get-olt' || mappingTab === 'all-circuits' ? (
                     <table className="w-full text-left whitespace-nowrap">
                       <thead>
                         <tr>
@@ -4071,6 +4117,74 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                 </div>
                 <PaginationControls total={total} limit={limit} page={page} setLimit={setLimit} setPage={setPage} jumpPage={jumpPage} setJumpPage={setJumpPage} />
                 <input type="file" ref={onuGetOltFileInputRef} onChange={(e) => handleImportUpload(e, 'onu-get-olt')} accept=".xlsx, .xls" className="hidden" />
+              </div>
+            )}
+
+                        {view === 'all-circuits' && (
+              <div className="flex-1 flex flex-col overflow-hidden">
+                <div className="px-8 py-6 border-b border-slate-100 flex items-center justify-between bg-white shrink-0">
+                  <h3 className="text-lg font-black text-slate-800">รายการข้อมูล All Circuits</h3>
+                  <div className="flex items-center gap-3">
+                    <button onClick={() => console.log({})} className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600 transition-all font-bold text-sm">
+                      <Plus size={18} /> <span>เพิ่มข้อมูลใหม่</span>
+                    </button>
+                    <button onClick={() => allCircuitsFileInputRef.current?.click()} className="flex items-center justify-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-all font-bold text-sm">
+                      <Plus size={18} /> <span>Import Excel</span>
+                    </button>
+                    <button onClick={() => handleTableExport('/onu-get-olt/export', 'onu_get_olt')} className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-all font-bold text-sm">
+                      <Download size={18} /> <span>Export Excel</span>
+                    </button>
+                  </div>
+                </div>
+                <div className="flex-1 overflow-auto scrollbar-thin bg-slate-50/30">
+                  <table className="w-full text-left border-separate border-spacing-0 min-w-max">
+                    <thead className="relative z-[30]">
+                      <tr className="shadow-sm">
+                        {ALL_CIRCUITS_COLUMNS.map((col) => {
+                          return (
+                            <th key={col.key} onClick={() => handleSort(col.key)} className="sticky top-0 z-[30] bg-slate-50 px-6 py-5 text-[12px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-200 cursor-pointer hover:text-indigo-600 group transition-all">
+                              <div className="flex items-center gap-2">
+                                {col.label}
+                                {sortField === col.key ? (sortOrder === 'ASC' ? <ArrowUp size={14} className="text-indigo-600" /> : <ArrowDown size={14} className="text-indigo-600" />) : <ArrowUpDown size={14} className="opacity-0 group-hover:opacity-100" />}
+                              </div>
+                            </th>
+                          );
+                        })}
+                        <th className="sticky top-0 z-[30] bg-slate-50 px-6 py-5 text-[12px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-200 text-right">จัดการ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {allCircuitsData.length === 0 ? (
+                        <tr>
+                          <td colSpan={9} className="px-8 py-20 text-center">
+                            <div className="flex flex-col items-center gap-4 text-slate-400">
+                              <Search size={48} className="opacity-20" />
+                              <p className="font-bold text-lg text-slate-400 uppercase tracking-widest">ไม่พบข้อมูลในตาราง</p>
+                            </div>
+                          </td>
+                        </tr>
+                      ) : (
+                        allCircuitsData.map((row, idx) => (
+                          <tr key={idx} className="hover:bg-indigo-50/20 transition-colors group">
+                            {ALL_CIRCUITS_COLUMNS.map(col => (
+                              <td key={col.key} className="px-6 py-4 text-sm font-bold text-slate-600 whitespace-nowrap border-b border-slate-50">
+                                {row[col.key] || '-'}
+                              </td>
+                            ))}
+                            <td className="px-6 py-4 text-right border-b border-slate-50">
+                              <div className="flex items-center justify-end gap-2">
+                                <button onClick={() => console.log(row)} className="p-2 bg-indigo-50 text-indigo-600 hover:bg-indigo-600 hover:text-white rounded-lg transition-all"><Edit2 size={14} /></button>
+                                <button onClick={() => handleDeleteOnuGetOlt(row.id)} className="p-2 bg-red-50 text-red-500 hover:bg-red-500 hover:text-white rounded-lg transition-all"><Trash2 size={14} /></button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+                <PaginationControls total={total} limit={limit} page={page} setLimit={setLimit} setPage={setPage} jumpPage={jumpPage} setJumpPage={setJumpPage} />
+                <input type="file" ref={allCircuitsFileInputRef} onChange={(e) => handleImportUpload(e, 'onu-get-olt')} accept=".xlsx, .xls" className="hidden" />
               </div>
             )}
 
