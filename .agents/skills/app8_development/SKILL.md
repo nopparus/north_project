@@ -1,3 +1,12 @@
+
+- **2026-05-28 (session 24)**: All Circuits Integration (Phase 6 Start):
+    - **Data Import**: นำเข้าข้อมูลจากไฟล์ `All_circuits.xlsx` เข้าตารางใหม่ `all_circuits` (430k+ แถว)
+    - **Backend API**: เพิ่ม Endpoints `/api/all-circuits` สำหรับดึงข้อมูลตารางหลัก และ `/api/all-circuits-groups` สำหรับดึงข้อมูลกลุ่มตัวเครื่องดิบ (`actual_type`) เพื่อนำมา Mapping
+    - **Frontend UI**:
+        - เพิ่มเมนู **"All Circuits"** ใน Sidebar เพื่อแสดงผลข้อมูลและโครงสร้างแบบเดียวกับหน้า ONU Get OLT
+        - เพิ่มแท็บ **"All Circuits Mapping"** ในหน้า Device Mapping เพื่อนำ `actual_type` ไปจับคู่ (Mapping) กับยี่ห้อ/รุ่นใน Device Catalog 
+        - ผูก UI การตรวจสอบรุ่นใหม่ที่ยังไม่ถูกจับคู่แบบ Real-time เข้ากับแท็บใหม่นี้
+
 ---
 name: App8 Development Guide and Architecture
 description: Comprehensive summary of App8 architecture, proxy setup, and development log to avoid re-reading code.
