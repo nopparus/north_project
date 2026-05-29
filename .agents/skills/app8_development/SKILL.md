@@ -1,4 +1,9 @@
 
+- **2026-05-29 (session 25)**: Data Quality Dashboard Enhancement:
+    - **Missing Mapping Dashboard**: เพิ่มกล่องแสดงผล "ยี่ห้อทราบจาก OLT แต่ยังไม่ระบุรุ่น ONU" (Top 10 ยี่ห้อที่ตกหล่น) ในเมนู Missing Mapping
+    - **Backend API**: เพิ่ม Endpoint `/api/cpe-groups/missing/brand-summary` เพื่อประมวลผลสรุปยี่ห้อ OLT ที่ยังไม่มี Model
+    - **Total Circuits Breakdown**: ปรับปรุงหน้า Data Quality & Diagnostics แยกแยะสัดส่วนวงจรทั้งหมดเป็น ONU All-in-One, ONU Bridge, ชนิดอื่นๆ, และ Missing Mapping พร้อม Progress bar
+
 - **2026-05-28 (session 24)**: All Circuits Integration (Phase 6 Start):
     - **Data Import**: นำเข้าข้อมูลจากไฟล์ `All_circuits.xlsx` เข้าตารางใหม่ `all_circuits` (430k+ แถว)
     - **Backend API**: เพิ่ม Endpoints `/api/all-circuits` สำหรับดึงข้อมูลตารางหลัก และ `/api/all-circuits-groups` สำหรับดึงข้อมูลกลุ่มตัวเครื่องดิบ (`actual_type`) เพื่อนำมา Mapping
