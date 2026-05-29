@@ -773,6 +773,79 @@ app.get('/api/cpe-groups/missing', authenticate, async (req, res) => {
     }
 });
 
+// Missing Mapping - Brand-known but model-unknown summary (Top 10 by circuit count)
+app.get('/api/cpe-groups/missing/brand-summary', authenticate, async (req, res) => {
+    try {
+        const summaryQuery = `
+            WITH missing_raw AS (
+                SELECT 
+                    COALESCE(NULLIF(TRIM(olt_brand_model), ''), 'Unknown') as olt_key,
+                    COUNT(*) as circuit_count
+                FROM onu_records
+                WHERE (cpe_brand_model IS NULL OR cpe_brand_model = '')
+                GROUP BY 1
+            ),
+            with_mapping AS (
+                SELECT 
+                    m.olt_key,
+                    m.circuit_count,
+                    d.brand,
+                    d.model
+                FROM missing_raw m
+                LEFT JOIN cpe_devices d ON (' [MISSING] OLT: ' || m.olt_key) = d.raw_name
+            )
+            SELECT 
+                -- Extract brand hint from OLT key (e.g. "ZXA10 C300 : ZTE" → "ZTE")
+                CASE 
+                    WHEN olt_key LIKE '%:%' THEN TRIM(SPLIT_PART(olt_key, ':', 2))
+                    ELSE olt_key
+                END as brand_hint,
+                COUNT(*) as group_count,
+                SUM(circuit_count) as total_circuits,
+                -- How many in this brand group already have a model mapped
+                SUM(CASE WHEN model IS NOT NULL THEN 1 ELSE 0 END) as mapped_count,
+                -- How many still have no model
+                SUM(CASE WHEN model IS NULL THEN 1 ELSE 0 END) as unmapped_count,
+                SUM(CASE WHEN model IS NULL THEN circuit_count ELSE 0 END) as unmapped_circuits
+            FROM with_mapping
+            WHERE brand IS NULL AND model IS NULL
+            GROUP BY brand_hint
+            ORDER BY unmapped_circuits DESC
+            LIMIT 10;
+        `;
+
+        const totalQuery = `
+            SELECT 
+                COUNT(DISTINCT sub.olt_key) as distinct_olt_keys,
+                COUNT(*) as total_records,
+                SUM(sub.circuit_count) as total_circuits
+            FROM (
+                SELECT 
+                    COALESCE(NULLIF(TRIM(olt_brand_model), ''), 'Unknown') as olt_key,
+                    COUNT(*) as circuit_count
+                FROM onu_records
+                WHERE (cpe_brand_model IS NULL OR cpe_brand_model = '')
+                GROUP BY 1
+            ) sub
+            LEFT JOIN cpe_devices d ON (' [MISSING] OLT: ' || sub.olt_key) = d.raw_name
+            WHERE d.brand IS NULL AND d.model IS NULL;
+        `;
+
+        const [summaryResult, totalResult] = await Promise.all([
+            pool.query(summaryQuery),
+            pool.query(totalQuery)
+        ]);
+
+        res.json({
+            top10: summaryResult.rows,
+            summary: totalResult.rows[0]
+        });
+    } catch (err) {
+        console.error('Error fetching brand summary:', err);
+        res.status(500).json({ message: err.message });
+    }
+});
+
 app.delete('/api/cpe-devices/:id', authenticate, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ message: 'Unauthorized' });
     const { id } = req.params;
@@ -1694,6 +1767,93 @@ app.get('/api/wifi-routers/backup-status', authenticate, async (req, res) => {
         res.json({ count: parseInt(result.rows[0].count) });
     } catch (err) { res.status(500).json({ message: 'Error' }); }
 });
+// Diagnostics & Data Quality
+app.get('/api/diagnostics/stats', authenticate, async (req, res) => {
+    try {
+        const statsQuery = `
+            SELECT 
+                COUNT(*) as total_circuits,
+                SUM(CASE WHEN has_ac THEN 1 ELSE 0 END) as source_all_circuits,
+                SUM(CASE WHEN NOT has_ac AND has_olt THEN 1 ELSE 0 END) as source_onu_get_olt,
+                SUM(CASE WHEN NOT has_ac AND NOT has_olt AND has_onu THEN 1 ELSE 0 END) as source_onu_records,
+                
+                SUM(CASE WHEN effective_max_speed IS NOT NULL AND effective_max_speed != '' THEN 1 ELSE 0 END) as total_has_max_speed,
+                
+                SUM(CASE WHEN effective_max_speed IS NOT NULL AND effective_max_speed != '' AND is_onu_without_wifi = false THEN 1 ELSE 0 END) as max_speed_complete_with_wifi,
+                SUM(CASE WHEN is_onu_without_wifi = false AND (onu_device_type ILIKE '%all in one%' OR onu_device_type ILIKE '%all-in-one%') AND has_wifi AND effective_max_speed IS NOT NULL AND effective_max_speed != '' AND NOT is_fe_only THEN 1 ELSE 0 END) as max_speed_rule1,
+                SUM(CASE WHEN is_onu_without_wifi = false AND NOT (onu_device_type ILIKE '%all in one%' OR onu_device_type ILIKE '%all-in-one%') AND has_wifi AND effective_max_speed IS NOT NULL AND effective_max_speed != '' AND NOT is_fe_only THEN 1 ELSE 0 END) as max_speed_rule2,
+                SUM(CASE WHEN is_onu_without_wifi = false AND is_fe_only THEN 1 ELSE 0 END) as max_speed_rule3,
+                SUM(CASE WHEN is_onu_without_wifi = false AND (onu_device_type ILIKE '%all in one%' OR onu_device_type ILIKE '%all-in-one%') AND NOT has_wifi AND effective_max_speed IS NOT NULL AND effective_max_speed != '' AND NOT is_fe_only THEN 1 ELSE 0 END) as max_speed_rule4,
+                SUM(CASE WHEN is_onu_without_wifi = false AND onu_device_type IS NULL AND effective_max_speed IS NOT NULL AND effective_max_speed != '' AND NOT is_fe_only THEN 1 ELSE 0 END) as max_speed_unknown_type,
+                
+                SUM(CASE WHEN is_onu_without_wifi = true THEN 1 ELSE 0 END) as onu_bridge_no_wifi,
+
+                -- Breakdown for Total Circuits
+                SUM(CASE WHEN onu_brand IS NULL THEN 1 ELSE 0 END) as total_onu_missing,
+                SUM(CASE WHEN onu_brand IS NOT NULL AND onu_device_type = 'ONU ALL IN ONE' THEN 1 ELSE 0 END) as total_onu_aio,
+                SUM(CASE WHEN onu_brand IS NOT NULL AND onu_device_type = 'ONU Bridge' THEN 1 ELSE 0 END) as total_onu_bridge,
+                SUM(CASE WHEN onu_brand IS NOT NULL AND (onu_device_type IS NULL OR (onu_device_type != 'ONU ALL IN ONE' AND onu_device_type != 'ONU Bridge')) THEN 1 ELSE 0 END) as total_onu_other,
+
+                SUM(CASE WHEN has_ac AND onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '' THEN 1 ELSE 0 END) as wifi_from_ac,
+                SUM(CASE WHEN NOT has_ac AND has_olt AND onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '' THEN 1 ELSE 0 END) as wifi_from_olt,
+                SUM(CASE WHEN NOT has_ac AND NOT has_olt AND has_onu AND onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '' THEN 1 ELSE 0 END) as wifi_from_onu,
+
+                SUM(CASE WHEN (onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '') OR has_wifi THEN 1 ELSE 0 END) as total_has_any_wifi,
+                SUM(CASE WHEN (onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '') AND NOT has_wifi THEN 1 ELSE 0 END) as wifi_only_onu,
+                SUM(CASE WHEN (onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '') AND NOT has_wifi AND NOT is_fe_only THEN 1 ELSE 0 END) as wifi_only_onu_non_fe,
+                SUM(CASE WHEN (onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '') AND NOT has_wifi AND is_fe_only THEN 1 ELSE 0 END) as wifi_only_onu_fe,
+                SUM(CASE WHEN (onu_wifi_spec IS NULL OR onu_wifi_spec = '') AND has_wifi THEN 1 ELSE 0 END) as wifi_only_router,
+                SUM(CASE WHEN (onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '') AND has_wifi THEN 1 ELSE 0 END) as wifi_both,
+                SUM(CASE WHEN (onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '') AND has_wifi AND NOT is_fe_only THEN 1 ELSE 0 END) as wifi_both_non_fe,
+                SUM(CASE WHEN (onu_wifi_spec IS NOT NULL AND onu_wifi_spec != '') AND has_wifi AND is_fe_only THEN 1 ELSE 0 END) as wifi_both_fe
+            FROM mv_circuit_summary;
+        `;
+        const result = await pool.query(statsQuery);
+        
+        const tableStatsQuery = `
+            SELECT 
+                (SELECT COUNT(*) FROM all_circuits) as all_circuits_count,
+                (SELECT COUNT(*) FROM onu_get_olt) as onu_get_olt_count,
+                (SELECT COUNT(*) FROM onu_records) as onu_records_count,
+                (SELECT COUNT(*) FROM wifi_routers) as wifi_routers_count,
+                (SELECT MAX(created_at) FROM all_circuits) as all_circuits_last_update,
+                (SELECT MAX(created_at) FROM onu_get_olt) as onu_get_olt_last_update,
+                (SELECT MAX(created_at) FROM onu_records) as onu_records_last_update,
+                (SELECT MAX(created_at) FROM wifi_routers) as wifi_routers_last_update
+        `;
+        const tableStatsResult = await pool.query(tableStatsQuery);
+        
+        res.json({
+            stats: result.rows[0],
+            tables: tableStatsResult.rows[0]
+        });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
+app.get('/api/diagnostics/unmapped', authenticate, async (req, res) => {
+    try {
+        const query = `
+            SELECT raw_name, source, COUNT(*) as circuit_count
+            FROM (
+                SELECT onu_ac_cpe as raw_name, 'All Circuits' as source FROM mv_circuit_summary WHERE onu_ac_cpe IS NOT NULL AND onu_brand IS NULL AND onu_ac_cpe != '-'
+                UNION ALL
+                SELECT onu_olt_cpe as raw_name, 'ONU Get OLT' as source FROM mv_circuit_summary WHERE onu_olt_cpe IS NOT NULL AND onu_brand IS NULL AND NOT has_ac AND onu_olt_cpe != '-'
+                UNION ALL
+                SELECT onu_record_cpe as raw_name, 'ONU Records' as source FROM mv_circuit_summary WHERE onu_record_cpe IS NOT NULL AND onu_brand IS NULL AND NOT has_ac AND NOT has_olt AND onu_record_cpe != '-'
+            ) as missing
+            GROUP BY raw_name, source
+            ORDER BY circuit_count DESC
+            LIMIT 50;
+        `;
+        const result = await pool.query(query);
+        res.json({ data: result.rows });
+    } catch (err) {
+        res.status(500).json({ message: err.message });
+    }
+});
+
 
 // Dashboard Summary
 // Dashboard Summary (Integrated Logic)

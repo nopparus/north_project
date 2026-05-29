@@ -8,7 +8,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Cpu, CheckCircle2, XCircle, X,
   Database, Network, Wifi, FileBarChart, Download, Settings2,
   Zap, Banknote, Layout, Bell, Users, RefreshCw, Calendar, Clock,
-  SlidersHorizontal
+  SlidersHorizontal, AlertTriangle
 } from 'lucide-react';
 
 // --- CONFIG ---
@@ -586,7 +586,11 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
   const [showDiscovery, setShowDiscovery] = useState(false);
 
   // --- Dashboard v2 (Circuit Summary) ---
-  const [homeTab, setHomeTab] = useState<'circuit' | 'overview' | 'executive'>('circuit');
+  const [homeTab, setHomeTab] = useState<'circuit' | 'overview' | 'executive' | 'diagnostics'>('circuit');
+  const [diagStats, setDiagStats] = useState<any>(null);
+  const [diagUnmapped, setDiagUnmapped] = useState<any[]>([]);
+  const [isDiagLoading, setIsDiagLoading] = useState(false);
+  const [missingBrandSummary, setMissingBrandSummary] = useState<any>(null);
   const [dashboardV2Stats, setDashboardV2Stats] = useState<any>(null);
   const [circuitData, setCircuitData] = useState<any[]>([]);
   const [circuitTotal, setCircuitTotal] = useState(0);
@@ -743,6 +747,14 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       const res = await axios.get(url, { params });
       setCpeGroups(res.data.data);
       setTotal(res.data.total);
+
+      // If in missing-mapping view, also fetch brand summary
+      if (view === 'missing-mapping') {
+        try {
+          const brandRes = await axios.get(`${API_BASE}/cpe-groups/missing/brand-summary`);
+          setMissingBrandSummary(brandRes.data);
+        } catch(e) { console.error(e); }
+      }
       
       const discUrl = mappingTab === 'onu-get-olt' ? `${API_BASE}/onu-get-olt-groups/new-discoveries` : `${API_BASE}/cpe-groups/new-discoveries`;
       const disc = await axios.get(discUrl);
@@ -858,12 +870,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
     } catch (err) { console.error(err); } finally { setLoading(false); }
   }, []);
 
-  const fetchNewDiscoveries = useCallback(async () => {
-    try {
-      const res = await axios.get(`${API_BASE}/cpe-groups/new-discoveries`);
-      setNewDiscoveries(res.data.data);
-    } catch (err) { console.error(err); }
-  }, []);
+
 
   const fetchExecutiveStats = useCallback(async () => {
     setIsExecutiveLoading(true);
@@ -893,6 +900,26 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       fetchExecutiveStats();
     }
   }, [homeTab, fetchExecutiveStats]);
+
+  const fetchDiagnostics = useCallback(async () => {
+    setIsDiagLoading(true);
+    try {
+      const statsRes = await axios.get(`${API_BASE}/diagnostics/stats`);
+      setDiagStats(statsRes.data);
+      const unmapRes = await axios.get(`${API_BASE}/diagnostics/unmapped`);
+      setDiagUnmapped(unmapRes.data.data);
+    } catch (err) {
+      console.error('Diagnostics fetch failed:', err);
+    } finally {
+      setIsDiagLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (homeTab === 'diagnostics') {
+      fetchDiagnostics();
+    }
+  }, [homeTab, fetchDiagnostics]);
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -1259,6 +1286,8 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       // Refetch everything to ensure counts and status are updated correctly
       if (mappingTab === 'onu-get-olt') {
         fetchOnuGetOltMappings();
+      } else if (mappingTab === 'all-circuits') {
+        fetchAllCircuitsGroups();
       } else {
         fetchCPEGroups();
       }
@@ -1269,6 +1298,9 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       } else if (mappingTab === 'onu-get-olt') {
         const disc = await axios.get(`${API_BASE}/onu-get-olt-groups/new-discoveries`);
         setNewOnuGetOltDiscoveries(disc.data.data);
+      } else if (mappingTab === 'all-circuits') {
+        const disc = await axios.get(`${API_BASE}/all-circuits-groups/new-discoveries`);
+        setNewAllCircuitsDiscoveries(disc.data.data);
       }
     } catch { alert('Mapping failed'); }
   };
@@ -1346,8 +1378,19 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
       onConfirm: async () => {
         try {
           await axios.delete(`${API_BASE}/cpe-devices/${id}`);
-          fetchCPEGroups();
-          fetchNewDiscoveries();
+          if (mappingTab === 'onu-get-olt') {
+            fetchOnuGetOltMappings();
+            const disc = await axios.get(`${API_BASE}/onu-get-olt-groups/new-discoveries`);
+            setNewOnuGetOltDiscoveries(disc.data.data);
+          } else if (mappingTab === 'all-circuits') {
+            fetchAllCircuitsGroups();
+            const disc = await axios.get(`${API_BASE}/all-circuits-groups/new-discoveries`);
+            setNewAllCircuitsDiscoveries(disc.data.data);
+          } else {
+            fetchCPEGroups();
+            const disc = await axios.get(`${API_BASE}/cpe-groups/new-discoveries`);
+            setNewDiscoveries(disc.data.data);
+          }
           setConfirmAction(null);
         } catch { alert('Delete failed'); }
       }
@@ -1895,6 +1938,7 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     <button onClick={() => setHomeTab('circuit')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'circuit' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Circuit Summary (New)</button>
                     <button onClick={() => setHomeTab('overview')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'overview' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Overview (Classic)</button>
                     <button onClick={() => setHomeTab('executive')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'executive' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Executive Dashboard</button>
+                    <button onClick={() => setHomeTab('diagnostics')} className={`px-8 py-3 rounded-xl text-sm font-black transition-all ${homeTab === 'diagnostics' ? 'bg-white text-indigo-600 shadow-md shadow-slate-200/50' : 'text-slate-500 hover:text-slate-700'}`}>Data Quality & Diagnostics</button>
                   </div>
                   {homeTab === 'circuit' && (
                     <div className="text-xs font-bold text-slate-400 mr-2">
@@ -1904,6 +1948,11 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   {homeTab === 'executive' && (
                     <div className="text-xs font-bold text-slate-400 mr-2">
                       สรุปสถิติลำดับชั้นระดับผู้บริหาร (Executive Dashboard)
+                    </div>
+                  )}
+                  {homeTab === 'diagnostics' && (
+                    <div className="text-xs font-bold text-slate-400 mr-2">
+                      วิเคราะห์ความสมบูรณ์และคุณภาพของข้อมูลในระบบ
                     </div>
                   )}
                 </div>
@@ -2828,6 +2877,252 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                   </div>
                 )}
 
+                {/* --- Data Quality & Diagnostics Tab --- */}
+                {homeTab === 'diagnostics' && (
+                  <div className="flex flex-col gap-8 animate-in fade-in duration-300">
+                    <div className="bg-gradient-to-r from-indigo-500 to-purple-600 rounded-[2.5rem] p-10 text-white shadow-xl shadow-indigo-200/50 relative overflow-hidden">
+                      <div className="absolute top-0 right-0 p-8 opacity-20">
+                        <Database size={160} />
+                      </div>
+                      <div className="relative z-10 flex flex-col gap-2">
+                        <h2 className="text-3xl font-black">Data Quality & Diagnostics</h2>
+                        <p className="text-indigo-100 font-medium max-w-2xl">
+                          ศูนย์รวมการวิเคราะห์สถานะความสมบูรณ์ของข้อมูล การตรวจสอบแหล่งที่มาของการ Mapping และการค้นหาอุปกรณ์ที่ตกหล่น
+                        </p>
+                      </div>
+                    </div>
+
+                    {isDiagLoading ? (
+                      <div className="flex justify-center p-20"><Loader2 className="animate-spin text-indigo-500" size={40} /></div>
+                    ) : diagStats && (
+                      <>
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 flex flex-col gap-4">
+                            <div className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2"><Database size={16}/> วงจรทั้งหมดในระบบ</div>
+                            <div className="text-5xl font-black text-slate-800">{Number(diagStats.stats.total_circuits).toLocaleString()}</div>
+                            
+                            <div className="flex flex-col gap-2 mt-4">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="font-bold text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-slate-400"></div>ONU All-in-One</span>
+                                <span className="font-black text-slate-800">{Number(diagStats.stats.total_onu_aio || 0).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="font-bold text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-slate-300"></div>ONU Bridge</span>
+                                <span className="font-black text-slate-800">{Number(diagStats.stats.total_onu_bridge || 0).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="font-bold text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-slate-200"></div>ชนิดอื่นๆ (MDU, L2, Router ฯลฯ)</span>
+                                <span className="font-black text-slate-800">{Number(diagStats.stats.total_onu_other || 0).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-xs border-t border-slate-100 pt-2 mt-1">
+                                <span className="font-bold text-amber-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-amber-400"></div>Missing Mapping (ยังไม่จับคู่)</span>
+                                <span className="font-black text-amber-700">{Number(diagStats.stats.total_onu_missing || 0).toLocaleString()}</span>
+                              </div>
+                            </div>
+                            
+                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1 flex">
+                              <div className="h-full bg-slate-400" style={{width: `${((parseInt(diagStats.stats.total_onu_aio) || 0) / parseInt(diagStats.stats.total_circuits)) * 100}%`}}></div>
+                              <div className="h-full bg-slate-300" style={{width: `${((parseInt(diagStats.stats.total_onu_bridge) || 0) / parseInt(diagStats.stats.total_circuits)) * 100}%`}}></div>
+                              <div className="h-full bg-slate-200" style={{width: `${((parseInt(diagStats.stats.total_onu_other) || 0) / parseInt(diagStats.stats.total_circuits)) * 100}%`}}></div>
+                              <div className="h-full bg-amber-400" style={{width: `${((parseInt(diagStats.stats.total_onu_missing) || 0) / parseInt(diagStats.stats.total_circuits)) * 100}%`}}></div>
+                            </div>
+                          </div>
+                          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 flex flex-col gap-4">
+                            <div className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                              <span className="flex items-center gap-2"><AlertTriangle size={16} className="text-amber-500"/> Bridge ไม่มี Router</span>
+                              <span className="text-amber-500 bg-amber-50 px-2 py-0.5 rounded-md">ขาดข้อมูล</span>
+                            </div>
+                            <div className="flex items-end gap-3 mb-2">
+                              <div className="text-5xl font-black text-amber-600">{((parseInt(diagStats.stats.onu_bridge_no_wifi) / parseInt(diagStats.stats.total_circuits)) * 100).toFixed(1)}%</div>
+                              <div className="text-sm font-bold text-slate-400 mb-1">{Number(diagStats.stats.onu_bridge_no_wifi).toLocaleString()} วงจร</div>
+                            </div>
+                            <div className="text-[11px] font-bold text-slate-500 mt-2 leading-relaxed">
+                              เป็น ONU แบบ Bridge แต่ยังไม่มีข้อมูล Router มาต่อพ่วง จึงไม่สามารถคำนวณ Max Speed ที่แท้จริงได้
+                            </div>
+                          </div>
+
+                          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 flex flex-col gap-4">
+                            <div className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                              <span className="flex items-center gap-2"><Zap size={16} className="text-emerald-500"/> ความสมบูรณ์ Max Speed</span>
+                              <span className="text-emerald-500 bg-emerald-50 px-2 py-0.5 rounded-md">WiFi ครบ</span>
+                            </div>
+                            <div className="flex items-end gap-3 mb-2">
+                              <div className="text-5xl font-black text-emerald-600">{((parseInt(diagStats.stats.max_speed_complete_with_wifi) / parseInt(diagStats.stats.total_circuits)) * 100).toFixed(1)}%</div>
+                              <div className="text-sm font-bold text-slate-400 mb-1">{Number(diagStats.stats.max_speed_complete_with_wifi).toLocaleString()} วงจร</div>
+                            </div>
+                            <div className="flex flex-col gap-2">
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="font-bold text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div>ONU All-in-One (ไม่มี Router)</span>
+                                <span className="font-black text-slate-800">{Number(diagStats.stats.max_speed_rule4).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="font-bold text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-indigo-500"></div>ONU Bridge + WiFi Router</span>
+                                <span className="font-black text-slate-800">{Number(diagStats.stats.max_speed_rule2).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="font-bold text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-purple-500"></div>ONU All-in-One + WiFi Router</span>
+                                <span className="font-black text-slate-800">{Number(diagStats.stats.max_speed_rule1).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="font-bold text-amber-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-amber-400"></div>ONU พอร์ต FE เท่านั้น (≤100Mbps)</span>
+                                <span className="font-black text-amber-700">{Number(diagStats.stats.max_speed_rule3).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[10px]">
+                                <span className="font-bold text-slate-400 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-slate-300"></div>ไม่ระบุชนิด ONU (Type ว่าง)</span>
+                                <span className="font-black text-slate-500">{Number(diagStats.stats.max_speed_unknown_type).toLocaleString()}</span>
+                              </div>
+                            </div>
+                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1 flex">
+                              <div className="h-full bg-blue-500" style={{width: `${(parseInt(diagStats.stats.max_speed_rule4) / parseInt(diagStats.stats.max_speed_complete_with_wifi)) * 100}%`}}></div>
+                              <div className="h-full bg-indigo-500" style={{width: `${(parseInt(diagStats.stats.max_speed_rule2) / parseInt(diagStats.stats.max_speed_complete_with_wifi)) * 100}%`}}></div>
+                              <div className="h-full bg-purple-500" style={{width: `${(parseInt(diagStats.stats.max_speed_rule1) / parseInt(diagStats.stats.max_speed_complete_with_wifi)) * 100}%`}}></div>
+                              <div className="h-full bg-amber-400" style={{width: `${(parseInt(diagStats.stats.max_speed_rule3) / parseInt(diagStats.stats.max_speed_complete_with_wifi)) * 100}%`}}></div>
+                              <div className="h-full bg-slate-300" style={{width: `${(parseInt(diagStats.stats.max_speed_unknown_type) / parseInt(diagStats.stats.max_speed_complete_with_wifi)) * 100}%`}}></div>
+                            </div>
+                          </div>
+                          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 flex flex-col gap-4">
+                            <div className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center justify-between">
+                              <span className="flex items-center gap-2"><Wifi size={16} className="text-blue-500"/> ความสมบูรณ์ WiFi Spec</span>
+                              <span className="text-blue-500 bg-blue-50 px-2 py-0.5 rounded-md">รวม Router</span>
+                            </div>
+                            <div className="flex items-end gap-3 mb-2">
+                              <div className="text-5xl font-black text-blue-600">{((parseInt(diagStats.stats.total_has_any_wifi) / parseInt(diagStats.stats.total_circuits)) * 100).toFixed(1)}%</div>
+                              <div className="text-sm font-bold text-slate-400 mb-1">{Number(diagStats.stats.total_has_any_wifi).toLocaleString()} วงจร</div>
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <div className="flex justify-between items-center text-xs">
+                                <span className="font-bold text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-blue-500"></div>ONU All-in-One (ไม่มี Router)</span>
+                                <span className="font-black text-slate-800">{Number(diagStats.stats.wifi_only_onu).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[10px] pl-4">
+                                <span className="text-slate-500 flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-blue-300"></div>GE (≥1Gbps)</span>
+                                <span className="text-slate-600 font-bold">{Number(diagStats.stats.wifi_only_onu_non_fe).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[10px] pl-4">
+                                <span className="text-amber-500 flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>พอร์ต FE (≤100Mbps)</span>
+                                <span className="text-amber-600 font-bold">{Number(diagStats.stats.wifi_only_onu_fe).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-xs mt-1">
+                                <span className="font-bold text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-indigo-500"></div>ONU Bridge + WiFi Router</span>
+                                <span className="font-black text-slate-800">{Number(diagStats.stats.wifi_only_router).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-xs mt-1">
+                                <span className="font-bold text-slate-600 flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-purple-500"></div>ONU All-in-One + WiFi Router</span>
+                                <span className="font-black text-slate-800">{Number(diagStats.stats.wifi_both).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[10px] pl-4">
+                                <span className="text-slate-500 flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-purple-300"></div>GE (≥1Gbps)</span>
+                                <span className="text-slate-600 font-bold">{Number(diagStats.stats.wifi_both_non_fe).toLocaleString()}</span>
+                              </div>
+                              <div className="flex justify-between items-center text-[10px] pl-4">
+                                <span className="text-amber-500 flex items-center gap-1.5"><div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>พอร์ต FE (≤100Mbps)</span>
+                                <span className="text-amber-600 font-bold">{Number(diagStats.stats.wifi_both_fe).toLocaleString()}</span>
+                              </div>
+                            </div>
+                            <div className="h-2 bg-slate-100 rounded-full overflow-hidden mt-1 flex">
+                              <div className="h-full bg-blue-300" style={{width: `${(parseInt(diagStats.stats.wifi_only_onu_non_fe) / parseInt(diagStats.stats.total_has_any_wifi)) * 100}%`}}></div>
+                              <div className="h-full bg-amber-400" style={{width: `${(parseInt(diagStats.stats.wifi_only_onu_fe) / parseInt(diagStats.stats.total_has_any_wifi)) * 100}%`}}></div>
+                              <div className="h-full bg-indigo-500" style={{width: `${(parseInt(diagStats.stats.wifi_only_router) / parseInt(diagStats.stats.total_has_any_wifi)) * 100}%`}}></div>
+                              <div className="h-full bg-purple-400" style={{width: `${(parseInt(diagStats.stats.wifi_both_non_fe) / parseInt(diagStats.stats.total_has_any_wifi)) * 100}%`}}></div>
+                              <div className="h-full bg-amber-300" style={{width: `${(parseInt(diagStats.stats.wifi_both_fe) / parseInt(diagStats.stats.total_has_any_wifi)) * 100}%`}}></div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 flex flex-col gap-6">
+                            <h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><Server size={20}/> Hardware Mapping Sources</h3>
+                            <div className="flex flex-col gap-4">
+                              <div className="space-y-2">
+                                <div className="flex justify-between text-sm font-black">
+                                  <span className="text-indigo-600">All Circuits (หลัก)</span>
+                                  <span>{Number(diagStats.stats.source_all_circuits).toLocaleString()} ({(parseInt(diagStats.stats.source_all_circuits) / parseInt(diagStats.stats.total_circuits) * 100).toFixed(1)}%)</span>
+                                </div>
+                                <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-indigo-500 rounded-full" style={{width: `${(parseInt(diagStats.stats.source_all_circuits) / parseInt(diagStats.stats.total_circuits)) * 100}%`}}></div></div>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex justify-between text-sm font-black">
+                                  <span className="text-amber-600">ONU Get OLT (สำรอง 1)</span>
+                                  <span>{Number(diagStats.stats.source_onu_get_olt).toLocaleString()} ({(parseInt(diagStats.stats.source_onu_get_olt) / parseInt(diagStats.stats.total_circuits) * 100).toFixed(1)}%)</span>
+                                </div>
+                                <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-amber-500 rounded-full" style={{width: `${(parseInt(diagStats.stats.source_onu_get_olt) / parseInt(diagStats.stats.total_circuits)) * 100}%`}}></div></div>
+                              </div>
+                              <div className="space-y-2">
+                                <div className="flex justify-between text-sm font-black">
+                                  <span className="text-slate-500">ONU Records (สำรอง 2)</span>
+                                  <span>{Number(diagStats.stats.source_onu_records).toLocaleString()} ({(parseInt(diagStats.stats.source_onu_records) / parseInt(diagStats.stats.total_circuits) * 100).toFixed(1)}%)</span>
+                                </div>
+                                <div className="h-3 bg-slate-100 rounded-full overflow-hidden"><div className="h-full bg-slate-400 rounded-full" style={{width: `${(parseInt(diagStats.stats.source_onu_records) / parseInt(diagStats.stats.total_circuits)) * 100}%`}}></div></div>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 flex flex-col gap-6">
+                            <h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><Clock size={20}/> Database Table Status</h3>
+                            <div className="flex flex-col gap-3">
+                              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                <div>
+                                  <div className="text-sm font-black text-slate-700">All Circuits</div>
+                                  <div className="text-xs text-slate-400 font-medium">อัปเดต: {new Date(diagStats.tables.all_circuits_last_update).toLocaleString('th-TH')}</div>
+                                </div>
+                                <div className="text-sm font-black bg-white px-3 py-1 rounded-lg border border-slate-200">{Number(diagStats.tables.all_circuits_count).toLocaleString()} rows</div>
+                              </div>
+                              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                <div>
+                                  <div className="text-sm font-black text-slate-700">ONU Get OLT</div>
+                                  <div className="text-xs text-slate-400 font-medium">อัปเดต: {new Date(diagStats.tables.onu_get_olt_last_update).toLocaleString('th-TH')}</div>
+                                </div>
+                                <div className="text-sm font-black bg-white px-3 py-1 rounded-lg border border-slate-200">{Number(diagStats.tables.onu_get_olt_count).toLocaleString()} rows</div>
+                              </div>
+                              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                <div>
+                                  <div className="text-sm font-black text-slate-700">ONU Records</div>
+                                  <div className="text-xs text-slate-400 font-medium">อัปเดต: {new Date(diagStats.tables.onu_records_last_update).toLocaleString('th-TH')}</div>
+                                </div>
+                                <div className="text-sm font-black bg-white px-3 py-1 rounded-lg border border-slate-200">{Number(diagStats.tables.onu_records_count).toLocaleString()} rows</div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="bg-white rounded-3xl p-8 shadow-sm border border-slate-200 flex flex-col gap-6">
+                          <div className="flex items-center justify-between">
+                            <h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><AlertTriangle className="text-rose-500" size={20}/> Top 50 Unmapped Devices</h3>
+                            <span className="text-xs font-bold bg-rose-100 text-rose-600 px-3 py-1 rounded-full">พบรุ่นที่ยังไม่แมปทั้งหมด {diagUnmapped.length} รายการ</span>
+                          </div>
+                          <div className="overflow-x-auto rounded-2xl border border-slate-100">
+                            <table className="w-full text-left text-sm whitespace-nowrap">
+                              <thead className="bg-slate-50 border-b border-slate-100 text-slate-500 text-[11px] uppercase tracking-wider font-black">
+                                <tr>
+                                  <th className="p-4">Raw Name (CPE)</th>
+                                  <th className="p-4">Source Table</th>
+                                  <th className="p-4 text-right">Affected Circuits</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-50">
+                                {diagUnmapped.map((u, i) => (
+                                  <tr key={i} className="hover:bg-slate-50/50">
+                                    <td className="p-4 font-bold text-slate-700">{u.raw_name}</td>
+                                    <td className="p-4">
+                                      <span className={`px-2 py-1 rounded-lg text-xs font-bold ${u.source === 'All Circuits' ? 'bg-indigo-50 text-indigo-600' : u.source === 'ONU Get OLT' ? 'bg-amber-50 text-amber-600' : 'bg-slate-100 text-slate-600'}`}>
+                                        {u.source}
+                                      </span>
+                                    </td>
+                                    <td className="p-4 text-right font-black text-rose-600">{Number(u.circuit_count).toLocaleString()}</td>
+                                  </tr>
+                                ))}
+                                {diagUnmapped.length === 0 && (
+                                  <tr><td colSpan={3} className="p-8 text-center text-slate-400 font-medium">ไม่พบอุปกรณ์ที่ยังไม่ได้ Mapping</td></tr>
+                                )}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {/* --- Executive Dashboard (Tab C) --- */}
                 {homeTab === 'executive' && (
                   <div className="flex flex-col gap-12 animate-in fade-in slide-in-from-bottom-8 duration-700 pb-20">
@@ -3727,7 +4022,64 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
               </div>
 
               <div className="flex-1 overflow-y-auto p-8 scrollbar-thin">
-                <div className="max-w-[1400px] mx-auto bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
+                <div className="max-w-[1400px] mx-auto flex flex-col gap-6">
+
+                {missingBrandSummary && missingBrandSummary.top10 && missingBrandSummary.top10.length > 0 && (
+                  <div className="bg-white rounded-3xl shadow-sm border border-amber-200 overflow-hidden">
+                    <div className="px-8 pt-7 pb-4 flex items-start justify-between border-b border-amber-100">
+                      <div>
+                        <div className="flex items-center gap-3 mb-1">
+                          <div className="w-8 h-8 bg-amber-100 rounded-xl flex items-center justify-center"><AlertTriangle size={16} className="text-amber-600" /></div>
+                          <h4 className="text-base font-black text-slate-800">ยี่ห้อทราบจาก OLT แต่ยังไม่ระบุรุ่น ONU</h4>
+                        </div>
+                        <p className="text-xs text-slate-500 font-bold ml-11">OLT บอกยี่ห้อโดยอัตโนมัติ แต่ยังไม่มีข้อมูลรุ่น ONU ใน Catalog — กรุณาอัปเดต Device Catalog เพื่อเพิ่มข้อมูล</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <div className="px-3 py-1.5 bg-amber-50 text-amber-700 rounded-lg text-xs font-black border border-amber-100">
+                          Top 10 ยี่ห้อที่ส่งผลมากที่สุด
+                        </div>
+                        {missingBrandSummary.summary && (
+                          <div className="text-[11px] text-slate-400 font-bold">
+                            รวมทั้งสิ้น: {Number(missingBrandSummary.summary.total_circuits || 0).toLocaleString()} วงจร
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <div className="p-6">
+                      <div className="grid grid-cols-1 gap-2">
+                        {missingBrandSummary.top10.map((item: any, idx: number) => {
+                          const maxCircuits = parseInt(missingBrandSummary.top10[0]?.unmapped_circuits || 1);
+                          const pct = Math.round((parseInt(item.unmapped_circuits) / maxCircuits) * 100);
+                          return (
+                            <div key={idx} className="flex items-center gap-4 group">
+                              <div className="w-6 text-center text-[10px] font-black text-slate-400">#{idx + 1}</div>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-sm font-black text-slate-800 truncate">{item.brand_hint || 'Unknown'}</span>
+                                  <div className="flex items-center gap-3 flex-shrink-0 ml-4">
+                                    <span className="text-[10px] font-bold text-slate-400">{Number(item.group_count).toLocaleString()} กลุ่ม</span>
+                                    <span className="text-sm font-black text-amber-700 bg-amber-50 px-2.5 py-0.5 rounded-lg border border-amber-100">
+                                      {Number(item.unmapped_circuits).toLocaleString()} วงจร
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                                  <div className="h-full bg-amber-400 rounded-full transition-all" style={{width: `${pct}%`}}></div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="px-8 pb-5 text-xs text-slate-500 font-bold flex items-center gap-2">
+                      <AlertCircle size={13} className="text-amber-500" />
+                      การระบุรุ่น: ไปที่เมนู <strong className="text-slate-700">Device Catalog</strong> และเพิ่มรุ่นใหม่ที่ตรงกับยี่ห้อเหล่านี้ เพื่อให้ระบบสามารถจัดหมวดหมู่และคำนวณ Max Speed / WiFi Spec ได้
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-white rounded-[2.5rem] shadow-sm border border-slate-200 overflow-hidden">
                   <table className="w-full text-left border-collapse">
                     <thead className="sticky top-0 z-10 bg-slate-50">
                       <tr className="bg-slate-50/80 border-b border-slate-100">
@@ -3831,7 +4183,8 @@ const Dashboard = ({ user, onLogout }: { user: User, onLogout: () => void }) => 
                     setJumpPage={setJumpPage} 
                   />
                 </div>
-              </div>
+              </div>{/* end table wrapper */}
+              </div>{/* end outer flex-col */}
             </div>
           )}
 
