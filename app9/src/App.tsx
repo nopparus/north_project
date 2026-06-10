@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 import axios from 'axios';
 import { Download, CheckCircle, Lock, User, UserPlus, FileSpreadsheet, LogOut, ChevronRight, Settings, Trash2, Search, Edit, Eye, X, ArrowUp, ArrowDown, ArrowUpDown, UploadCloud, ImagePlus, FileUp, RefreshCw, AlertCircle, RotateCcw } from 'lucide-react';
+import { MasterDataEditorModal } from './MasterDataEditorModal';
 
 const compressImage = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -72,6 +73,10 @@ const parseJwt = (token: string) => {
     return null;
   }
 };
+
+import { Pagination } from './components/Pagination';
+import { useDraggableScroll } from './hooks/useDraggableScroll';
+import { usePagination } from './hooks/usePagination';
 
 const API_BASE = '/app9/api';
 
@@ -183,7 +188,7 @@ const Dashboard = ({ token, setToken }: { token: string, setToken: (t: string) =
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+      <header className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800 px-6 py-3 flex flex-col md:flex-row md:justify-between items-start md:items-center shadow-xl gap-4">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-teal-500/10 rounded-lg">
             <ClipboardCheck className="w-6 h-6 text-teal-400" />
@@ -250,6 +255,18 @@ const AdminMasterDatasetsTab = ({ token }: { token: string }) => {
   const [primaryKeyColumn, setPrimaryKeyColumn] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const [selectedDatasetForEdit, setSelectedDatasetForEdit] = useState<any>(null);
+
+  const {
+    currentPage,
+    itemsPerPage,
+    totalItems,
+    paginatedItems: currentDatasets,
+    onPageChange,
+    onItemsPerPageChange,
+  } = usePagination(datasets, 10);
+
+  const { scrollRef, events: dragEvents, isDragging } = useDraggableScroll();
 
   useEffect(() => {
     fetchDatasets();
@@ -314,69 +331,77 @@ const AdminMasterDatasetsTab = ({ token }: { token: string }) => {
     <div className="bg-slate-950 text-slate-100">
       <div className="w-full">
 
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-semibold mb-4 text-teal-400">Upload New Master Dataset</h2>
-          <p className="text-slate-400 text-sm mb-6">Upload a master list (Excel/CSV) to initialize site baseline data. This dataset can be used by multiple survey projects.</p>
+        <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6">
+          <div className="mb-3">
+            <h2 className="text-base font-semibold text-teal-400">Upload Master Dataset</h2>
+            <p className="text-slate-400 text-xs">Initialize site baseline data (CSV/Excel)</p>
+          </div>
           
-          <form onSubmit={handleUpload} className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Dataset Name</label>
-                <input 
-                  type="text" 
-                  value={datasetName}
-                  onChange={(e) => setDatasetName(e.target.value)}
-                  placeholder="e.g. Master OLT 2026"
-                  required
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-teal-500"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-400 mb-1">Primary Key Column (Exact header name)</label>
-                <input 
-                  type="text" 
-                  value={primaryKeyColumn}
-                  onChange={(e) => setPrimaryKeyColumn(e.target.value)}
-                  placeholder="e.g. IP Address, Asset No, NE_IP"
-                  required
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-teal-500"
-                />
-              </div>
+          <form onSubmit={handleUpload} className="flex flex-col md:flex-row gap-3 items-end">
+            <div className="flex-1 w-full">
+              <label className="block text-xs font-medium text-slate-400 mb-1">Dataset Name</label>
+              <input 
+                type="text" 
+                value={datasetName}
+                onChange={(e) => setDatasetName(e.target.value)}
+                placeholder="e.g. Master OLT"
+                required
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-colors"
+              />
+            </div>
+            <div className="flex-1 w-full">
+              <label className="block text-xs font-medium text-slate-400 mb-1">Primary Key Header</label>
+              <input 
+                type="text" 
+                value={primaryKeyColumn}
+                onChange={(e) => setPrimaryKeyColumn(e.target.value)}
+                placeholder="e.g. IP Address"
+                required
+                className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-teal-500 transition-colors"
+              />
             </div>
 
-            <label className="border-2 border-dashed border-slate-700 hover:border-teal-500 rounded-lg p-8 flex flex-col items-center justify-center cursor-pointer transition-colors bg-slate-800/50">
-              <FileSpreadsheet className="w-10 h-10 text-slate-400 mb-3" />
-              <span className="text-sm font-medium text-slate-300">{file ? file.name : 'Select Dataset File (.csv, .xlsx)'}</span>
-              <input 
-                type="file" 
-                accept=".csv, .xlsx, .xls"
-                onChange={e => {
-                  const f = e.target.files?.[0] || null;
-                  setFile(f);
-                  setMessage('');
-                }}
-                className="hidden" 
-                disabled={loading}
-                required
-              />
-            </label>
+            <div className="flex-1 w-full">
+              <label className="block text-xs font-medium text-slate-400 mb-1">Data File</label>
+              <label className="w-full border border-dashed border-slate-700 hover:border-teal-500 rounded-lg px-3 py-1.5 flex items-center justify-center cursor-pointer transition-colors bg-slate-800/50 min-h-[34px]">
+                <FileSpreadsheet className="w-4 h-4 text-slate-400 mr-2 shrink-0" />
+                <span className="text-xs font-medium text-slate-300 truncate">{file ? file.name : 'Select .csv, .xlsx'}</span>
+                <input 
+                  type="file" 
+                  accept=".csv, .xlsx, .xls"
+                  onChange={e => {
+                    const f = e.target.files?.[0] || null;
+                    setFile(f);
+                    setMessage('');
+                  }}
+                  className="hidden" 
+                  disabled={loading}
+                  required
+                />
+              </label>
+            </div>
 
             <button 
               type="submit" 
               disabled={loading || !file || !datasetName || !primaryKeyColumn}
-              className="w-full bg-teal-500 hover:bg-teal-600 disabled:bg-slate-700 disabled:text-slate-400 text-white font-medium py-3 rounded-lg transition-colors flex items-center justify-center gap-2"
+              className="bg-teal-500 hover:bg-teal-600 disabled:bg-slate-700 disabled:text-slate-400 text-white font-medium px-4 py-1.5 rounded-lg transition-colors flex items-center justify-center gap-2 text-sm min-h-[34px] w-full md:w-auto shrink-0"
             >
-              {loading ? <><RefreshCw className="w-5 h-5 animate-spin" /> Uploading...</> : <><UploadCloud className="w-5 h-5" /> Import Dataset</>}
+              {loading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UploadCloud className="w-4 h-4" />}
+              <span>Import</span>
             </button>
           </form>
-          {message && <div className="mt-4 p-4 bg-slate-800 border border-slate-700 rounded-lg text-teal-400 font-medium text-center">{message}</div>}
+          {message && <div className="mt-3 p-2 bg-slate-800 border border-slate-700 rounded-lg text-teal-400 text-xs font-medium text-center">{message}</div>}
         </div>
 
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-6">
           <h2 className="text-lg font-semibold mb-4 text-white">Existing Master Datasets</h2>
           
-          <div className="overflow-x-auto rounded-lg border border-slate-700">
-            <table className="w-full text-sm text-left">
+          <div 
+            ref={scrollRef}
+            {...dragEvents}
+            className={`overflow-x-auto rounded-t-lg border-x border-t border-slate-700 custom-scrollbar ${isDragging ? 'cursor-grabbing select-none' : 'cursor-auto'}`}
+          >
+            <table className="w-full text-sm text-left min-w-max">
               <thead className="text-slate-400 bg-slate-800">
                 <tr>
                   <th className="px-4 py-3 font-medium">Dataset Name</th>
@@ -386,19 +411,26 @@ const AdminMasterDatasetsTab = ({ token }: { token: string }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
-                {datasets.length === 0 ? (
+                {currentDatasets.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
                       No datasets found. Upload one above.
                     </td>
                   </tr>
                 ) : (
-                  datasets.map(dataset => (
+                  currentDatasets.map(dataset => (
                     <tr key={dataset.id} className="hover:bg-slate-800/50 transition-colors">
                       <td className="px-4 py-3 text-white font-medium">{dataset.dataset_name}</td>
                       <td className="px-4 py-3 text-slate-300"><span className="bg-slate-800 px-2 py-1 rounded text-xs border border-slate-700">{dataset.primary_key_column}</span></td>
                       <td className="px-4 py-3 text-slate-400">{new Date(dataset.created_at).toLocaleString()}</td>
                       <td className="px-4 py-3 text-right">
+                        <button 
+                          onClick={() => setSelectedDatasetForEdit(dataset)}
+                          className="text-teal-400 hover:text-teal-300 hover:bg-teal-400/10 p-1.5 rounded transition-colors mr-2"
+                          title="View & Edit Data"
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
                         <button 
                           onClick={() => handleDelete(dataset.id)}
                           className="text-red-400 hover:text-red-300 hover:bg-red-400/10 p-1.5 rounded transition-colors"
@@ -413,15 +445,31 @@ const AdminMasterDatasetsTab = ({ token }: { token: string }) => {
               </tbody>
             </table>
           </div>
+          <div className="border border-t-0 border-slate-700 rounded-b-lg overflow-hidden">
+            <Pagination
+              totalItems={totalItems}
+              itemsPerPage={itemsPerPage}
+              currentPage={currentPage}
+              onPageChange={onPageChange}
+              onItemsPerPageChange={onItemsPerPageChange}
+            />
+          </div>
         </div>
-
       </div>
+      
+      {selectedDatasetForEdit && (
+        <MasterDataEditorModal 
+          token={token} 
+          dataset={selectedDatasetForEdit} 
+          onClose={() => setSelectedDatasetForEdit(null)} 
+        />
+      )}
     </div>
   );
 };
 
 
-const AdminProjectsTab = ({ token }: { token: string }) => {
+const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigger }: { token: string; editingProject: any; setEditingProject: (p: any) => void; saveTrigger: number; }) => {
   const [projects, setProjects] = useState<any[]>([]);
   const [masterDatasets, setMasterDatasets] = useState<any[]>([]);
   const [selectedMasterDatasetId, setSelectedMasterDatasetId] = useState('');
@@ -434,11 +482,19 @@ const AdminProjectsTab = ({ token }: { token: string }) => {
   const [ipKey, setIpKey] = useState('');
   const [displayMode, setDisplayMode] = useState('form');
   const [formSchema, setFormSchema] = useState<any[]>([]);
-  const [editingProject, setEditingProject] = useState<any>(null);
   const [editSchema, setEditSchema] = useState<any[]>([]);
   const [editDisplayMode, setEditDisplayMode] = useState('form');
+  const [editIsActive, setEditIsActive] = useState(true);
+  const [editStartDate, setEditStartDate] = useState('');
+  const [editEndDate, setEditEndDate] = useState('');
+  const [mappingConfig, setMappingConfig] = useState({ siteName: '', neName: '', province: '', brand: '' });
+  const [editMappingConfig, setEditMappingConfig] = useState({ siteName: '', neName: '', province: '', brand: '' });
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleteInput, setDeleteInput] = useState('');
+
+  useEffect(() => {
+    if (saveTrigger > 0) handleUpdateProject();
+  }, [saveTrigger]);
 
   const handleUpdateProject = async () => {
     setLoading(true);
@@ -453,7 +509,11 @@ const AdminProjectsTab = ({ token }: { token: string }) => {
           visible: f.visible !== false,
           isFilter: f.isFilter === true
         })),
-        displayMode: editDisplayMode
+        displayMode: editDisplayMode,
+        is_active: editIsActive,
+        start_date: editStartDate ? new Date(editStartDate).toISOString() : null,
+        end_date: editEndDate ? new Date(editEndDate).toISOString() : null,
+        mappingConfig: editMappingConfig
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -604,7 +664,8 @@ const AdminProjectsTab = ({ token }: { token: string }) => {
         masterDatasetId: selectedMasterDatasetId,
         formSchema: formattedSchema,
         data: parsedData,
-        ipKey
+        ipKey,
+        mappingConfig
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -650,12 +711,66 @@ const AdminProjectsTab = ({ token }: { token: string }) => {
               <button onClick={() => setEditingProject(null)} className="text-slate-400 hover:text-white p-2 bg-slate-800 rounded"><X className="w-5 h-5" /></button>
             </div>
             
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-slate-400 mb-2">Display Mode for Surveyors</label>
-              <select value={editDisplayMode} onChange={e => setEditDisplayMode(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">
-                <option value="form">Form View (Detail by Detail)</option>
-                <option value="table">Table View (Excel-like)</option>
-              </select>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">Display Mode for Surveyors</label>
+                <select value={editDisplayMode} onChange={e => setEditDisplayMode(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">
+                  <option value="form">Form View (Detail by Detail)</option>
+                  <option value="table">Table View (Excel-like)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">Survey Status (Active/Closed)</label>
+                <select value={editIsActive ? 'true' : 'false'} onChange={e => setEditIsActive(e.target.value === 'true')} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-white">
+                  <option value="true">Active (Open for Responses)</option>
+                  <option value="false">Inactive (Closed)</option>
+                </select>
+              </div>
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-slate-400 mb-2">Start Date (Optional)</label>
+                  <input type="datetime-local" value={editStartDate} onChange={e => setEditStartDate(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3 text-white text-sm" />
+                </div>
+                <div className="flex-1">
+                  <label className="block text-sm font-medium text-slate-400 mb-2">End Date (Optional)</label>
+                  <input type="datetime-local" value={editEndDate} onChange={e => setEditEndDate(e.target.value)} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-3 text-white text-sm" />
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-6 pt-4 border-t border-slate-800">
+              <h3 className="font-semibold text-teal-400 mb-4 text-lg">System Field Mapping</h3>
+              <p className="text-sm text-slate-400 mb-4">Select which form fields map to the core system attributes (used for Relocate Site feature).</p>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Site Name Column</label>
+                  <select value={editMappingConfig.siteName} onChange={e => setEditMappingConfig({...editMappingConfig, siteName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                    <option value="">-- Select Field --</option>
+                    {editSchema.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">NE Name Column</label>
+                  <select value={editMappingConfig.neName} onChange={e => setEditMappingConfig({...editMappingConfig, neName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                    <option value="">-- Select Field --</option>
+                    {editSchema.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Province Column</label>
+                  <select value={editMappingConfig.province} onChange={e => setEditMappingConfig({...editMappingConfig, province: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                    <option value="">-- Select Field --</option>
+                    {editSchema.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1">Brand Column</label>
+                  <select value={editMappingConfig.brand} onChange={e => setEditMappingConfig({...editMappingConfig, brand: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                    <option value="">-- Select Field --</option>
+                    {editSchema.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
+                  </select>
+                </div>
+              </div>
             </div>
             
             <h3 className="font-semibold text-teal-400 mb-4 text-lg">Edit Form Fields Configuration</h3>
@@ -800,7 +915,73 @@ const AdminProjectsTab = ({ token }: { token: string }) => {
                       </select>
                     </div>
                   </div>
+
+                  <div className="pt-4 border-t border-slate-800">
+                    <h3 className="font-semibold text-amber-400 mb-4 text-lg">Data Linking & Mapping</h3>
+                    {selectedMasterDatasetId ? (
+                      <div className="bg-amber-900/20 border border-amber-800/50 rounded-lg p-4 mb-4">
+                        <p className="text-sm text-amber-200 mb-4">You have selected a Master Dataset. Please select the column in your Survey Excel that matches the Master Dataset's Primary Key.</p>
+                        <div className="flex flex-col md:flex-row gap-4 items-center">
+                          <div className="flex-1 w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-3 text-slate-400 text-sm">
+                            <span className="font-bold text-slate-300">Master Dataset Key: </span>
+                            {masterDatasets.find(m => m.id === selectedMasterDatasetId)?.primary_key_column || 'PK'}
+                          </div>
+                          <div className="text-slate-500 font-bold">=</div>
+                          <div className="flex-1 w-full">
+                            <select value={ipKey} onChange={e => setIpKey(e.target.value)} className="w-full bg-slate-800 border border-amber-600 rounded-lg px-4 py-3 text-white">
+                              {headers.map(h => <option key={h} value={h}>{h} (Survey Column)</option>)}
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="bg-slate-800/50 border border-slate-700 rounded-lg p-4 mb-4">
+                        <p className="text-sm text-slate-300 mb-4">You are creating a Standalone Survey. Please select the column that will act as the Unique Identifier for each row.</p>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-400 mb-2">Survey Primary Key Column</label>
+                          <select value={ipKey} onChange={e => setIpKey(e.target.value)} className="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-3 text-white">
+                            {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                          </select>
+                        </div>
+                      </div>
+                    )}
+                  </div>
                   
+                  <div className="pt-4 border-t border-slate-800">
+                    <h3 className="font-semibold text-teal-400 mb-4 text-lg">System Field Mapping</h3>
+                    <p className="text-sm text-slate-400 mb-4">Select which form fields map to the core system attributes (used for Relocate Site feature).</p>
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">Site Name Column</label>
+                        <select value={mappingConfig.siteName} onChange={e => setMappingConfig({...mappingConfig, siteName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                          <option value="">-- Select Field --</option>
+                          {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">NE Name Column</label>
+                        <select value={mappingConfig.neName} onChange={e => setMappingConfig({...mappingConfig, neName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                          <option value="">-- Select Field --</option>
+                          {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">Province Column</label>
+                        <select value={mappingConfig.province} onChange={e => setMappingConfig({...mappingConfig, province: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                          <option value="">-- Select Field --</option>
+                          {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">Brand Column</label>
+                        <select value={mappingConfig.brand} onChange={e => setMappingConfig({...mappingConfig, brand: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+                          <option value="">-- Select Field --</option>
+                          {headers.map(h => <option key={h} value={h}>{h}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
                   <div className="pt-4 border-t border-slate-800">
                     <h3 className="font-semibold text-teal-400 mb-4 text-lg">Configure Form Fields ({headers.length})</h3>
                     <div className="space-y-3">
@@ -951,6 +1132,16 @@ const AdminProjectsTab = ({ token }: { token: string }) => {
                           setEditingProject(proj);
                           setEditSchema(proj.form_schema.map((f: any) => ({...f, options: Array.isArray(f.options) ? f.options.join(', ') : f.options})));
                           setEditDisplayMode(proj.display_mode || 'form');
+                          setEditIsActive(proj.is_active !== false);
+                          setEditMappingConfig(proj.mapping_config || { siteName: '', neName: '', province: '', brand: '' });
+                          
+                          const formatLocal = (d: string) => {
+                            if (!d) return '';
+                            const date = new Date(d);
+                            return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                          };
+                          setEditStartDate(formatLocal(proj.start_date));
+                          setEditEndDate(formatLocal(proj.end_date));
                         }} 
                         className="px-4 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 rounded-lg transition-colors border border-amber-500/30 flex items-center gap-2 font-medium"
                         title="Edit Settings"
@@ -1042,6 +1233,17 @@ const AdminConfigTab = ({ token }: { token: string }) => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [isCreateModal, setIsCreateModal] = useState(false);
+
+  const {
+    currentPage,
+    itemsPerPage,
+    totalItems,
+    paginatedItems: currentUsers,
+    onPageChange,
+    onItemsPerPageChange,
+  } = usePagination(users, 10);
+
+  const { scrollRef, events: dragEvents, isDragging } = useDraggableScroll();
 
   useEffect(() => {
     fetchUsers();
@@ -1142,8 +1344,12 @@ const AdminConfigTab = ({ token }: { token: string }) => {
           </div>
         )}
 
-        <div className="overflow-x-auto rounded-lg border border-slate-800">
-          <table className="w-full text-sm text-left">
+        <div 
+          ref={scrollRef}
+          {...dragEvents}
+          className={`overflow-x-auto rounded-t-lg border-x border-t border-slate-800 custom-scrollbar ${isDragging ? 'cursor-grabbing select-none' : 'cursor-auto'}`}
+        >
+          <table className="w-full text-sm text-left min-w-max">
             <thead className="text-xs text-slate-400 uppercase bg-slate-800/50">
               <tr>
                 <th className="px-6 py-4">Username</th>
@@ -1152,10 +1358,10 @@ const AdminConfigTab = ({ token }: { token: string }) => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/50">
-              {users.length === 0 ? (
+              {currentUsers.length === 0 ? (
                 <tr><td colSpan={3} className="px-6 py-8 text-center text-slate-500">No users found</td></tr>
               ) : (
-                users.map((u) => (
+                currentUsers.map((u) => (
                   <tr key={u.id} className="bg-slate-900 hover:bg-slate-800/50">
                     <td className="px-6 py-4 font-medium text-white">{u.username}</td>
                     <td className="px-6 py-4">
@@ -1195,6 +1401,15 @@ const AdminConfigTab = ({ token }: { token: string }) => {
               )}
             </tbody>
           </table>
+        </div>
+        <div className="border border-t-0 border-slate-800 rounded-b-lg overflow-hidden">
+          <Pagination
+            totalItems={totalItems}
+            itemsPerPage={itemsPerPage}
+            currentPage={currentPage}
+            onPageChange={onPageChange}
+            onItemsPerPageChange={onItemsPerPageChange}
+          />
         </div>
       </div>
 
@@ -1344,47 +1559,101 @@ const AdminConfigTab = ({ token }: { token: string }) => {
 const AdminPanel = ({ token }: { token: string }) => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'olt' | 'projects' | 'config'>('olt');
-
+  const [editingProject, setEditingProject] = useState<any>(null);
+  const [saveConfirm, setSaveConfirm] = useState(false);
+  const [saveTrigger, setSaveTrigger] = useState(0);
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 p-6">
-      <div className="w-full mb-6">
-        <div className="flex items-center justify-between mb-8">
-          <h1 className="text-2xl font-bold flex items-center gap-2">
-            <Settings className="w-6 h-6 text-teal-400" />
-            Admin Control Panel
-          </h1>
-          <button onClick={() => navigate('/')} className="text-slate-400 hover:text-white flex items-center gap-1">
-            <LogOut className="w-4 h-4" /> Exit Admin
-          </button>
-        </div>
-        
-        {/* Folder Tab Menu */}
-        <div className="flex gap-1 border-b border-slate-800">
-          <button 
-            onClick={() => setActiveTab('olt')}
-            className={`px-6 py-3 font-medium rounded-t-lg transition-colors ${activeTab === 'olt' ? 'bg-slate-900 text-teal-400 border-t-2 border-teal-500' : 'bg-slate-900/50 text-slate-400 hover:text-white hover:bg-slate-900'}`}
-          >
-            Master Datasets
-          </button>
-          <button 
-            onClick={() => setActiveTab('projects')}
-            className={`px-6 py-3 font-medium rounded-t-lg transition-colors ${activeTab === 'projects' ? 'bg-slate-900 text-teal-400 border-t-2 border-teal-500' : 'bg-slate-900/50 text-slate-400 hover:text-white hover:bg-slate-900'}`}
-          >
-            Survey Projects Management
-          </button>
-          <button 
-            onClick={() => setActiveTab('config')}
-            className={`px-6 py-3 font-medium rounded-t-lg transition-colors ${activeTab === 'config' ? 'bg-slate-900 text-teal-400 border-t-2 border-teal-500' : 'bg-slate-900/50 text-slate-400 hover:text-white hover:bg-slate-900'}`}
-          >
-            System Settings
-          </button>
-        </div>
-      </div>
+    <div className="min-h-screen bg-slate-950 text-slate-100">
+      <header className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800 px-6 py-3 flex flex-col md:flex-row md:justify-between items-start md:items-center shadow-xl gap-4">
+        {editingProject ? (
+          <>
+            <div className="flex items-center gap-3 min-w-0">
+              <Settings className="w-5 h-5 text-teal-400 shrink-0" />
+              <span className="font-bold text-teal-400 truncate">Edit: {editingProject.project_name}</span>
+            </div>
+          </>
+        ) : (
+          <>
+            <h1 className="text-2xl font-bold flex items-center gap-2">
+              <Settings className="w-6 h-6 text-teal-400" />
+              Admin Control Panel
+            </h1>
+            <button onClick={() => navigate('/')} className="text-slate-400 hover:text-white flex items-center gap-2 font-medium transition-colors">
+              <LogOut className="w-4 h-4" /> Exit Admin
+            </button>
+          </>
+        )}
+      </header>
 
-      <div className="pt-2">
-        {activeTab === 'olt' && <AdminMasterDatasetsTab token={token} />}
-        {activeTab === 'projects' && <AdminProjectsTab token={token} />}
-        {activeTab === 'config' && <AdminConfigTab token={token} />}
+      {saveConfirm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+          <div className="bg-slate-900 border border-amber-500/30 rounded-2xl w-full max-w-md shadow-2xl p-8 text-center">
+            <h3 className="text-2xl font-bold text-white mb-3">ยืนยันการบันทึก</h3>
+            <p className="text-slate-300 mb-8">คุณต้องการบันทึกการแก้ไข <span className="text-amber-400 font-semibold">{editingProject?.project_name}</span> ใช่หรือไม่?</p>
+            <div className="flex gap-4">
+              <button
+                onClick={() => setSaveConfirm(false)}
+                className="flex-1 px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition-colors"
+              >
+                ยกเลิก
+              </button>
+              <button
+                onClick={() => { setSaveConfirm(false); setSaveTrigger(t => t + 1); }}
+                className="flex-1 px-6 py-3 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-lg transition-colors shadow-lg"
+              >
+                บันทึก
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="px-6 pt-6">
+        <div className="w-full mb-6">
+          <div className="flex gap-1 border-b border-slate-800">
+            <button 
+              onClick={() => setActiveTab('olt')}
+              className={`px-6 py-3 font-medium rounded-t-lg transition-colors ${activeTab === 'olt' ? 'bg-slate-900 text-teal-400 border-t-2 border-teal-500' : 'bg-slate-900/50 text-slate-400 hover:text-white hover:bg-slate-900'}`}
+            >
+              Master Datasets
+            </button>
+            <button 
+              onClick={() => setActiveTab('projects')}
+              className={`px-6 py-3 font-medium rounded-t-lg transition-colors ${activeTab === 'projects' ? 'bg-slate-900 text-teal-400 border-t-2 border-teal-500' : 'bg-slate-900/50 text-slate-400 hover:text-white hover:bg-slate-900'}`}
+            >
+              Survey Projects Management
+            </button>
+            <button 
+              onClick={() => setActiveTab('config')}
+              className={`px-6 py-3 font-medium rounded-t-lg transition-colors ${activeTab === 'config' ? 'bg-slate-900 text-teal-400 border-t-2 border-teal-500' : 'bg-slate-900/50 text-slate-400 hover:text-white hover:bg-slate-900'}`}
+            >
+              System Settings
+            </button>
+            <button 
+              onClick={() => navigate('/')}
+              className="px-6 py-3 font-medium rounded-t-lg transition-colors bg-slate-900/50 text-amber-400 hover:text-amber-300 hover:bg-slate-900 flex items-center gap-2 ml-auto"
+            >
+              <Eye className="w-4 h-4" /> Switch to Survey Mode
+            </button>
+          </div>
+        </div>
+
+        <div className="pt-2">
+          <div className={activeTab === 'olt' ? 'block' : 'hidden'}>
+            <AdminMasterDatasetsTab token={token} />
+          </div>
+          <div className={activeTab === 'projects' ? 'block' : 'hidden'}>
+            <AdminProjectsTab
+              token={token}
+              editingProject={editingProject}
+              setEditingProject={setEditingProject}
+              saveTrigger={saveTrigger}
+            />
+          </div>
+          <div className={activeTab === 'config' ? 'block' : 'hidden'}>
+            <AdminConfigTab token={token} />
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -1543,22 +1812,94 @@ const ProjectView = ({ token }: { token: string }) => {
     return t.status === 'Completed';
   };
 
+  const {
+    currentPage,
+    itemsPerPage,
+    totalItems,
+    paginatedItems: currentTasks,
+    onPageChange,
+    onItemsPerPageChange,
+  } = usePagination(sortedTasks, 10);
+
+  const { scrollRef, events: dragEvents, isDragging } = useDraggableScroll();
+
   const totalCount = filteredTasks.length;
   const completedCount = filteredTasks.filter(isTaskCompleted).length;
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   if (!project) return <div className="text-white p-6">Loading...</div>;
 
+  let isSurveyActive = true;
+  let inactiveReason = '';
+  if (project.is_active === false) {
+    isSurveyActive = false;
+    inactiveReason = 'โปรเจกต์นี้ถูกปิดการสำรวจแล้ว (Survey Closed)';
+  } else {
+    const now = new Date();
+    if (project.start_date && new Date(project.start_date) > now) {
+      isSurveyActive = false;
+      inactiveReason = `การสำรวจจะเริ่มต้นในวันที่ ${new Date(project.start_date).toLocaleString('th-TH')}`;
+    } else if (project.end_date && new Date(project.end_date) < now) {
+      isSurveyActive = false;
+      inactiveReason = `การสำรวจสิ้นสุดแล้วเมื่อ ${new Date(project.end_date).toLocaleString('th-TH')}`;
+    }
+  }
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-200">
-      <header className="bg-slate-900 border-b border-slate-800 p-4 flex justify-between items-center">
-        <div className="flex items-center gap-4 cursor-pointer hover:text-teal-400 transition-colors" onClick={() => navigate('/')}>
-          <ChevronRight className="w-5 h-5 text-slate-500 rotate-180" />
-          <h1 className="text-xl font-bold">{project.project_name}</h1>
+      <header className="sticky top-0 z-50 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800 px-6 py-3 flex items-center justify-between shadow-xl gap-4">
+        <div className="flex items-center gap-4 cursor-pointer group" onClick={() => navigate('/')}>
+          <ChevronRight className="w-6 h-6 text-slate-500 rotate-180 group-hover:text-teal-400 transition-colors" />
+          <div className="flex items-center gap-3">
+            <h1 className="text-xl md:text-2xl font-bold text-white group-hover:text-teal-400 transition-colors truncate max-w-[200px] md:max-w-[400px]">{project.project_name}</h1>
+            {project.is_active !== false && (project.start_date || project.end_date) ? (
+              <span className={`px-2 py-0.5 rounded text-[10px] md:text-xs font-bold border whitespace-nowrap ${isSurveyActive ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-red-500/10 text-red-400 border-red-500/20'}`}>
+                {isSurveyActive ? 'ACTIVE' : 'INACTIVE'}
+              </span>
+            ) : project.is_active === false ? (
+              <span className="px-2 py-0.5 rounded text-[10px] md:text-xs font-bold border bg-red-500/10 text-red-400 border-red-500/20 whitespace-nowrap">
+                CLOSED
+              </span>
+            ) : (
+              <span className="px-2 py-0.5 rounded text-[10px] md:text-xs font-bold border bg-slate-500/10 text-slate-400 border-slate-500/20 whitespace-nowrap">
+                DRAFT
+              </span>
+            )}
+          </div>
         </div>
+
+        {(project.start_date || project.end_date) && (
+          <div className="flex flex-col items-end shrink-0">
+            <div className="text-amber-500 font-bold text-xs md:text-sm leading-tight">
+              {isSurveyActive && project.end_date ? (
+                <>เหลือเวลา: {
+                  (() => {
+                    const diff = new Date(project.end_date).getTime() - new Date().getTime();
+                    if (diff <= 0) return 'หมดเวลา';
+                    const d = Math.floor(diff / (1000 * 60 * 60 * 24));
+                    const h = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    return `${d} วัน ${h} ชม.`;
+                  })()
+                }</>
+              ) : !isSurveyActive && project.end_date && new Date(project.end_date).getTime() < new Date().getTime() ? (
+                <span className="text-red-400">หมดเวลาการสำรวจ</span>
+              ) : !isSurveyActive && project.start_date && new Date(project.start_date).getTime() > new Date().getTime() ? (
+                <span className="text-teal-400">ยังไม่เปิดการสำรวจ</span>
+              ) : null}
+            </div>
+            <div className="text-slate-400 text-[10px] md:text-xs leading-tight">
+              {project.start_date ? new Date(project.start_date).toLocaleString('th-TH') : 'ไม่ระบุ'} ถึง {project.end_date ? new Date(project.end_date).toLocaleString('th-TH') : 'ไม่ระบุ'}
+            </div>
+          </div>
+        )}
       </header>
 
-      <main className="w-full px-6 mx-auto">
+      <main className="w-full px-6 mx-auto mt-6">
+        {!isSurveyActive && (
+          <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-6 py-4 rounded-xl mb-6 flex items-center gap-3 font-medium">
+            <span>⚠️ {inactiveReason} (ดูข้อมูลได้อย่างเดียว)</span>
+          </div>
+        )}
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 mb-6 shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div className="flex flex-wrap gap-4 items-center">
             {project.form_schema && project.form_schema.some((f: any) => f.isFilter) && (
@@ -1604,6 +1945,7 @@ const ProjectView = ({ token }: { token: string }) => {
             <div className="flex justify-between items-center mb-6 sticky left-0">
               <h2 className="text-xl font-semibold text-white">Table View Survey - {project.project_name}</h2>
               <button 
+                disabled={!isSurveyActive}
                 onClick={async () => {
                   try {
                     await Promise.all(tasks.map(t => {
@@ -1619,13 +1961,20 @@ const ProjectView = ({ token }: { token: string }) => {
                     alert('Failed to save some records');
                   }
                 }}
-                className="px-6 py-2 bg-teal-500 hover:bg-teal-600 rounded-lg text-white font-medium shadow-lg"
+                className={`px-6 py-2 rounded-lg font-semibold shadow-lg transition-colors ${
+                  isSurveyActive ? 'bg-teal-500 hover:bg-teal-400 text-slate-950' : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                }`}
               >
-                Save All Records
+                {isSurveyActive ? 'Save All Records' : 'Save Disabled'}
               </button>
             </div>
             
-            <table className="w-full text-sm text-left whitespace-nowrap">
+            <div 
+              ref={scrollRef}
+              {...dragEvents}
+              className={`overflow-auto custom-scrollbar flex-1 ${isDragging ? 'cursor-grabbing select-none' : 'cursor-auto'}`}
+            >
+              <table className="w-full text-sm text-left whitespace-nowrap min-w-max">
                <thead className="bg-slate-800 text-slate-400">
                  <tr>
                     <th className="px-2 py-2 text-xs uppercase tracking-wider font-medium rounded-tl-lg sticky left-0 z-10 bg-slate-800 w-8"></th>
@@ -1662,7 +2011,7 @@ const ProjectView = ({ token }: { token: string }) => {
                  </tr>
                </thead>
                <tbody className="divide-y divide-slate-800/50">
-                 {sortedTasks.map(t => (
+                 {currentTasks.map(t => (
                     <tr key={t.task_id} className="hover:bg-slate-800/30 transition-colors">
                        <td className="px-2 py-1 sticky left-0 z-10 bg-slate-900 border-r border-slate-800 text-center">
                          <button onClick={() => setViewingTask(t)} className="text-slate-500 hover:text-teal-400 p-0.5" title="View All Raw Data">
@@ -1702,7 +2051,7 @@ const ProjectView = ({ token }: { token: string }) => {
                        <td className="px-3 py-1 text-slate-300">{t.ne_name || t.site_name || '-'}</td>
                        {project.form_schema && project.form_schema.filter((f: any) => f.visible !== false).map((f: any) => (
                           <td key={f.name} className="px-3 py-1">
-                            {f.editable === false ? (
+                            {!isSurveyActive || f.editable === false ? (
                               <span className="text-slate-300">
                                 {f.type === 'checkbox' ? (
                                   t.survey_data?.[f.name] === 'true' ? 'Yes' : 'No'
@@ -1874,6 +2223,14 @@ const ProjectView = ({ token }: { token: string }) => {
                  ))}
                </tbody>
             </table>
+            </div>
+            <Pagination
+              totalItems={totalItems}
+              itemsPerPage={itemsPerPage}
+              currentPage={currentPage}
+              onPageChange={onPageChange}
+              onItemsPerPageChange={onItemsPerPageChange}
+            />
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -1976,7 +2333,7 @@ const ProjectView = ({ token }: { token: string }) => {
                       {project.form_schema && project.form_schema.filter((f: any) => f.visible !== false).map((field: any) => (
                         <div key={field.name}>
                           <label className="block text-sm font-medium text-slate-400 mb-1">{field.label}</label>
-                          {field.editable === false ? (
+                          {!isSurveyActive || field.editable === false ? (
                             <div className="w-full bg-slate-800/30 border border-transparent rounded-lg px-4 py-2 text-slate-300">
                               {field.type === 'checkbox' ? (
                                 formData[field.name] === 'true' ? 'Yes' : 'No'
@@ -2143,12 +2500,15 @@ const ProjectView = ({ token }: { token: string }) => {
                   </div>
 
                   <div className="p-6 border-t border-slate-800 shrink-0 flex justify-end">
-                    <button 
-                      onClick={handleSaveSurvey}
-                      className="px-6 py-2 bg-teal-500 hover:bg-teal-600 text-white rounded-lg font-medium transition-colors"
-                    >
-                      Save Survey
-                    </button>
+                      <button 
+                        disabled={!isSurveyActive}
+                        onClick={handleSaveSurvey}
+                        className={`px-6 py-2 rounded-lg font-medium transition-colors ${
+                          isSurveyActive ? 'bg-teal-500 hover:bg-teal-600 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                        }`}
+                      >
+                        {isSurveyActive ? 'Save Survey' : 'Save Disabled'}
+                      </button>
                   </div>
                 </div>
               ) : (
@@ -2249,11 +2609,16 @@ const ProjectView = ({ token }: { token: string }) => {
                         className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-teal-500 transition-colors"
                       >
                         <option value="">-- เลือกไซต์ในจังหวัด {relocatingTask.province || '-'} ที่ยังไม่มีในโปรเจกต์ --</option>
-                        {provinceFilteredSites.map(s => (
-                          <option key={s.ip_address} value={s.ip_address}>
-                            {s.ip_address} - {s.site_name}
-                          </option>
-                        ))}
+                        {provinceFilteredSites.map(s => {
+                          const mapping = project.mapping_config || {};
+                          const siteNameKey = mapping.siteName || 'site_name';
+                          const displaySiteName = s.data?.[siteNameKey] || s.site_name || '-';
+                          return (
+                            <option key={s.ip_address} value={s.ip_address}>
+                              {s.ip_address} - {displaySiteName}
+                            </option>
+                          );
+                        })}
                       </select>
                     );
                   })()}
@@ -2266,42 +2631,57 @@ const ProjectView = ({ token }: { token: string }) => {
                     </p>
                     
                     <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/20">
-                      <table className="w-full text-left border-collapse text-sm">
-                        <thead>
-                          <tr className="border-b border-slate-800 bg-slate-800/20 text-slate-400">
-                            <th className="p-3 font-semibold">รายละเอียด (Fields)</th>
-                            <th className="p-3 font-semibold text-amber-400">ไซต์ปัจจุบัน (Current)</th>
-                            <th className="p-3 font-semibold text-teal-400">ไซต์ปลายทาง (Target)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-800/50">
-                          <tr>
-                            <td className="p-3 font-medium text-slate-500">NE IP Address</td>
-                            <td className="p-3 text-slate-300 font-mono">{relocatingTask.ip_address}</td>
-                            <td className="p-3 text-slate-300 font-mono">{targetSite.ip_address}</td>
-                          </tr>
-                          <tr>
-                            <td className="p-3 font-medium text-slate-500">Site Name</td>
-                            <td className="p-3 text-slate-300">{relocatingTask.site_name || '-'}</td>
-                            <td className="p-3 text-slate-300">{targetSite.site_name || '-'}</td>
-                          </tr>
-                          <tr>
-                            <td className="p-3 font-medium text-slate-500">NE Name</td>
-                            <td className="p-3 text-slate-300">{relocatingTask.ne_name || '-'}</td>
-                            <td className="p-3 text-slate-300">{targetSite.ne_name || '-'}</td>
-                          </tr>
-                          <tr>
-                            <td className="p-3 font-medium text-slate-500">Province</td>
-                            <td className="p-3 text-slate-300">{relocatingTask.province || '-'}</td>
-                            <td className="p-3 text-slate-300">{targetSite.province || '-'}</td>
-                          </tr>
-                          <tr>
-                            <td className="p-3 font-medium text-slate-500">Brand</td>
-                            <td className="p-3 text-slate-300">{relocatingTask.brand || '-'}</td>
-                            <td className="p-3 text-slate-300">{targetSite.brand || '-'}</td>
-                          </tr>
-                        </tbody>
-                      </table>
+                      {(() => {
+                        const mapping = project.mapping_config || {};
+                        const siteNameKey = mapping.siteName || 'site_name';
+                        const neNameKey = mapping.neName || 'ne_name';
+                        const provinceKey = mapping.province || 'province';
+                        const brandKey = mapping.brand || 'brand';
+                        
+                        const getVal = (obj: any, key: string) => {
+                          if (!obj) return '-';
+                          return obj.data?.[key] || obj.survey_data?.[key] || obj[key] || '-';
+                        };
+
+                        return (
+                          <table className="w-full text-left border-collapse text-sm">
+                            <thead>
+                              <tr className="border-b border-slate-800 bg-slate-800/20 text-slate-400">
+                                <th className="p-3 font-semibold">รายละเอียด (Fields)</th>
+                                <th className="p-3 font-semibold text-amber-400">ไซต์ปัจจุบัน (Current)</th>
+                                <th className="p-3 font-semibold text-teal-400">ไซต์ปลายทาง (Target)</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-800/50">
+                              <tr>
+                                <td className="p-3 font-medium text-slate-500">IP Address</td>
+                                <td className="p-3 text-slate-300 font-mono">{relocatingTask.ip_address}</td>
+                                <td className="p-3 text-slate-300 font-mono">{targetSite.ip_address}</td>
+                              </tr>
+                              <tr>
+                                <td className="p-3 font-medium text-slate-500">Site Name<br/><span className="text-xs text-slate-600">({siteNameKey})</span></td>
+                                <td className="p-3 text-slate-300">{getVal(relocatingTask, siteNameKey)}</td>
+                                <td className="p-3 text-slate-300">{getVal(targetSite, siteNameKey)}</td>
+                              </tr>
+                              <tr>
+                                <td className="p-3 font-medium text-slate-500">NE Name<br/><span className="text-xs text-slate-600">({neNameKey})</span></td>
+                                <td className="p-3 text-slate-300">{getVal(relocatingTask, neNameKey)}</td>
+                                <td className="p-3 text-slate-300">{getVal(targetSite, neNameKey)}</td>
+                              </tr>
+                              <tr>
+                                <td className="p-3 font-medium text-slate-500">Province<br/><span className="text-xs text-slate-600">({provinceKey})</span></td>
+                                <td className="p-3 text-slate-300">{getVal(relocatingTask, provinceKey)}</td>
+                                <td className="p-3 text-slate-300">{getVal(targetSite, provinceKey)}</td>
+                              </tr>
+                              <tr>
+                                <td className="p-3 font-medium text-slate-500">Brand<br/><span className="text-xs text-slate-600">({brandKey})</span></td>
+                                <td className="p-3 text-slate-300">{getVal(relocatingTask, brandKey)}</td>
+                                <td className="p-3 text-slate-300">{getVal(targetSite, brandKey)}</td>
+                              </tr>
+                            </tbody>
+                          </table>
+                        );
+                      })()}
                     </div>
                   </div>
                 ) : (
