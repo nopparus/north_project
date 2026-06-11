@@ -15,21 +15,36 @@ import {
 const API_BASE = '/app8/api';
 
 const COLUMN_DISPLAY_MAP = {
+    'req_date': 'วันที่สร้างคำขอ',
     'installation_close_date': 'วันที่ปิดงานติดตั้ง',
     'request_id': 'รหัสใบคำขอ',
     'circuit_id': 'หมายเลขวงจร',
+    'ba': 'BA',
+    'offer_id': 'Offer ID',
+    'customer_name': 'ชื่อลูกค้า',
+    'customer_group': 'กลุ่มลูกค้า',
+    'customer_type': 'ประเภทลูกค้า',
     'province': 'จังหวัด(ติดตั้ง)',
     'main_service': 'บริการหลัก',
+    'promotion': 'โปรโมชั่น',
+    'package_name': 'แพ็คเก็จ',
     'speed': 'ความเร็ว',
     'price': 'ราคา (บาท/เดือน)',
     'service_name': 'ชื่อบริการ (Service Name)',
     'promotion_start_date': 'วันที่เริ่มโปรโมชัน',
+    'contract_period': 'ระยะเวลาสัญญา',
     'section': 'ส่วน',
+    'sales_center': 'ศูนย์บริการขาย',
     'exchange': 'ชุมสาย',
     'cpe_brand_model': 'ยี่ห้อ/รุ่นอุปกรณ์ต้นทาง',
     'olt_brand_model': 'ยี่ห้อ/รุ่น OLT',
     'cpe_status': 'สถานะอุปกรณ์ (CPE Status)',
+    'distance': 'ประมาณระยะทาง',
     'service_status': 'สถานะการใช้งาน',
+    'customer_duration': 'ระยะการเป็นลูกค้า(เดือน)',
+    'model': 'รุ่น',
+    'brand': 'ยี่ห้อ',
+    'maintenance_team': 'กองงานตรวจแก้',
 };
 
 const ALL_CIRCUITS_COLUMNS = [

@@ -1,15 +1,11 @@
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 const { Pool } = require('pg');
-const path = require('path');
 
-// --- CONFIG ---
 const DATABASE_URL = process.env.DATABASE_URL || 'postgres://postgres:postgrespassword@app8-db:5432/app8_db';
 const FILE_PATH = '/app/ONU Recoards.xlsx';
 const BATCH_SIZE = 1000;
 
-const pool = new Pool({
-    connectionString: DATABASE_URL
-});
+const pool = new Pool({ connectionString: DATABASE_URL });
 
 const COLUMN_MAP = {
     'วันที่สร้างคำขอ': 'req_date',
@@ -46,18 +42,8 @@ const COLUMN_MAP = {
 
 function formatDate(val) {
     if (!val) return null;
-    let date;
-    if (val instanceof Date) {
-        date = val;
-    } else if (typeof val === 'number') {
-        // Excel serial date
-        date = XLSX.utils.format_cell({ v: val, t: 'd' }); // This might return a string
-        date = new Date(date);
-    } else {
-        date = new Date(val);
-    }
-
-    if (isNaN(date.getTime())) return val; // Return raw if invalid
+    let date = new Date(val);
+    if (isNaN(date.getTime())) return val;
 
     const y = date.getFullYear();
     const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -70,57 +56,88 @@ function formatDate(val) {
 }
 
 async function run() {
-    console.log('Starting import from:', FILE_PATH);
+    console.log('Starting stream import from:', FILE_PATH);
     const start = Date.now();
 
     try {
-        const workbook = XLSX.readFile(FILE_PATH, { cellDates: true });
-        const sheetName = workbook.SheetNames[0];
-        const worksheet = workbook.Sheets[sheetName];
-        const rawData = XLSX.utils.sheet_to_json(worksheet);
-
-        console.log(`Read ${rawData.length} rows from Excel.`);
-
-        // Clear existing data
         await pool.query('TRUNCATE onu_records');
 
+        const workbook = new ExcelJS.stream.xlsx.WorkbookReader(FILE_PATH);
+        
+        let headerRow = null;
+        let headerIndices = {};
         let batch = [];
         let importedCount = 0;
 
-        for (let i = 0; i < rawData.length; i++) {
-            const row = rawData[i];
-            const mappedRow = {};
-
-            for (const [thai, english] of Object.entries(COLUMN_MAP)) {
-                let val = row[thai];
-                if (val === 'NULL' || val === '') {
-                    val = null;
-                }
-                if (val !== null && english.includes('date')) {
-                    val = formatDate(val);
-                }
-                if (val !== null && english === 'price' && typeof val === 'string') {
-                    val = val.replace(/,/g, '');
-                }
-                mappedRow[english] = val;
-            }
+        for await (const worksheet of workbook) {
+            console.log(`Processing worksheet...`);
             
-            // Validate circuit_id since it's the core key
-            if (!mappedRow.circuit_id) continue;
+            for await (const row of worksheet) {
+                if (!headerRow) {
+                    const values = row.values;
+                    if (!values) continue;
+                    
+                    const keywords = ['หมายเลขวงจร', 'รหัสใบคำขอ', 'ชื่อลูกค้า'];
+                    const isHeader = values.some(v => v && keywords.some(k => v.toString().toUpperCase().includes(k.toUpperCase())));
+                    
+                    if (isHeader) {
+                        headerRow = values;
+                        Object.keys(COLUMN_MAP).forEach(thaiCol => {
+                            const cleanThaiCol = thaiCol.toUpperCase();
+                            const idx = headerRow.findIndex(v => v && v.toString().replace(/[^\x20-\x7E\u0E00-\u0E7F]/g, '').trim().toUpperCase() === cleanThaiCol);
+                            if (idx !== -1) headerIndices[thaiCol] = idx;
+                        });
+                        console.log(`Found headers:`, JSON.stringify(headerIndices));
+                        continue;
+                    }
+                    continue;
+                }
 
-            batch.push(mappedRow);
+                // Process data row
+                const mappedRow = {};
+                for (const [thai, english] of Object.entries(COLUMN_MAP)) {
+                    const idx = headerIndices[thai];
+                    let val = idx !== undefined ? row.values[idx] : null;
+                    
+                    if (val && typeof val === 'object' && val.result) val = val.result;
+                    if (val === 'NULL' || val === '') val = null;
+                    
+                    if (val !== null && english.includes('date')) {
+                        val = formatDate(val);
+                    }
+                    if (val !== null && english === 'price' && typeof val === 'string') {
+                        val = val.replace(/,/g, '');
+                    }
+                    mappedRow[english] = val;
+                }
 
-            if (batch.length >= BATCH_SIZE || i === rawData.length - 1) {
-                await insertBatch(batch);
-                importedCount += batch.length;
-                console.log(`Imported ${importedCount} / ${rawData.length} rows...`);
-                batch = [];
+                if (!mappedRow.circuit_id) continue; // skip empty rows
+
+                batch.push(mappedRow);
+
+                if (batch.length >= BATCH_SIZE) {
+                    await insertBatch(batch);
+                    importedCount += batch.length;
+                    batch = [];
+                    if (importedCount % 5000 === 0) console.log(`Imported ${importedCount} rows...`);
+                }
             }
+        }
+        
+        // Insert remaining
+        if (batch.length > 0) {
+            await insertBatch(batch);
+            importedCount += batch.length;
         }
 
         const duration = (Date.now() - start) / 1000;
         console.log(`Import completed successfully! Total rows: ${importedCount}`);
         console.log(`Time taken: ${duration}s`);
+        
+        // After import, refresh MV
+        console.log('Refreshing materialized view...');
+        await pool.query('REFRESH MATERIALIZED VIEW mv_circuit_summary');
+        console.log('Done refreshing MV.');
 
     } catch (err) {
         console.error('Import failed:', err);
