@@ -1,0 +1,45 @@
+◇ injected env (0) from .env // tip: ⌘ override existing { override: true }
+Server running on port 3008
+✓ Backup tables verification complete
+ONU Get OLT row sample: {
+  id: 660844,
+  onu_actual_type: 'F680V6.0.03',
+  brand: 'ZTE',
+  province: 'อุทัยธานี',
+  project: 'ลูกค้าทั่วไป',
+  onutype: '4 GE',
+  service: null,
+  service_group: null,
+  start_date_css: null,
+  created_at: 2026-05-12T08:04:28.833Z,
+  mapped_brand: 'ZTE',
+  mapped_model: 'ZXHN F680'
+}
+ONU Get OLT row sample: {
+  id: 660844,
+  onu_actual_type: 'F680V6.0.03',
+  brand: 'ZTE',
+  province: 'อุทัยธานี',
+  project: 'ลูกค้าทั่วไป',
+  onutype: '4 GE',
+  service: null,
+  service_group: null,
+  start_date_css: null,
+  created_at: 2026-05-12T08:04:28.833Z,
+  mapped_brand: 'ZTE',
+  mapped_model: 'ZXHN F680'
+}
+ONU Get OLT row sample: {
+  id: 660844,
+  onu_actual_type: 'F680V6.0.03',
+  brand: 'ZTE',
+  province: 'อุทัยธานี',
+  project: 'ลูกค้าทั่วไป',
+  onutype: '4 GE',
+  service: null,
+  service_group: null,
+  start_date_css: null,
+  created_at: 2026-05-12T08:04:28.833Z,
+  mapped_brand: 'ZTE',
+  mapped_model: 'ZXHN F680'
+}

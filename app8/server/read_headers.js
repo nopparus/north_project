@@ -1,11 +1,11 @@
-const XLSX = require('xlsx');
-const path = process.argv[2] || 'onu_type.xlsx';
-const workbook = XLSX.readFile(path);
-const sheet = workbook.Sheets[workbook.SheetNames[0]];
-const range = XLSX.utils.decode_range(sheet['!ref']);
-const headers = [];
-for (let C = range.s.c; C <= range.e.c; ++C) {
-    const address = XLSX.utils.encode_col(C) + '1';
-    if (sheet[address]) headers.push(sheet[address].v);
+const xlsx = require('xlsx');
+const filePath = '/home/nopparus2/www/app8/ONU Recoards.xlsx';
+try {
+  const workbook = xlsx.readFile(filePath, { sheetRows: 1 });
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const headers = xlsx.utils.sheet_to_json(worksheet, { header: 1 })[0];
+  console.log(JSON.stringify(headers));
+} catch(e) {
+  console.error("Error reading file:", e);
 }
-console.log(headers);

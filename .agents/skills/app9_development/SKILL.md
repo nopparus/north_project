@@ -63,3 +63,9 @@ App9 (Site Survey Pro) is a specialized application designed for **dynamic surve
 - **Standard Header Size**: All primary headers across the application (Admin Panel, Main Menu, Project View) MUST use the standard `px-6 py-3` padding and `sticky top-0 z-50 backdrop-blur-sm shadow-xl` class to maintain a consistent height of exactly `56.88px`.
   - Class: `sticky top-0 z-50 bg-slate-900/95 backdrop-blur-sm border-b border-slate-800 px-6 py-3 flex items-center justify-between shadow-xl gap-4`
   - Avoid using `flex-col` on inner elements that could increase the header height beyond 56px.
+
+### Recent Implementations (June 2026)
+1. **Auto-Save Functionality**: Replaced manual "Save" buttons with implicit `onBlur` and `onChange` auto-saving mechanism. Survey responses immediately update in the background, showing a non-interactive "Saved Automatically" status.
+2. **Checkbox Boolean Support & Filtering Fix**: Corrected logic in the progress bar and UI filters to interpret both text `'true'` and boolean `true`. Checkboxes correctly render ticked states and dynamic filter dropdowns handle missing (`undefined`/`false`) data gracefully.
+3. **Progress Calculation Fix**: Addressed bug where the progress completion percentage (e.g., 100%) was incorrectly calculated based on the *currently filtered* items. It now accurately reflects `(completedTasks / totalTasksInProject)`.
+4. **User-Project Access Control**: Implemented `allowed_projects` (JSONB) in the `users` table. The Admin User Management view allows assigning specific `survey_projects` to Surveyor roles via checkboxes. Non-admins have their GET `/projects` and GET `/projects/:id` endpoints securely filtered to only return data for their assigned projects.

@@ -1,0 +1,44 @@
+services:
+  app9-db:
+    image: postgres:15-alpine
+    container_name: nexus-app9-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+      POSTGRES_DB: app9_db
+    volumes:
+      - ./app9/db-data:/var/lib/postgresql/data
+      - ./app9/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - nexus-network
+    restart: always
+
+  app9-backend:
+    build:
+      context: ./app9/server
+      dockerfile: Dockerfile
+    container_name: nexus-app9-backend
+    environment:
+      DATABASE_URL: postgres://postgres:postgrespassword@app9-db:5432/app9_db
+      PORT: 3009
+    depends_on:
+      - app9-db
+    networks:
+      - nexus-network
+    restart: always
+
+  app9-frontend:
+    build:
+      context: ./app9
+      dockerfile: ../Dockerfile.frontend
+    container_name: nexus-app9
+    depends_on:
+      - app9-backend
+    networks:
+      - nexus-network
+    restart: always
+
+networks:
+  nexus-network:
+    external: true
+    name: www_nexus-network

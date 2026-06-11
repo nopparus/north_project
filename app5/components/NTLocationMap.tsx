@@ -1,12 +1,12 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, useMapEvents, ZoomControl } from 'react-leaflet';
-import MarkerClusterGroup from 'react-leaflet-cluster';
+import useSupercluster from 'use-supercluster';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { locationsApi, projectSitesApi, projectRecordsApi } from '../services/api';
 import { NTLocation, Project, ProjectFieldSchema, ProjectSiteRecord } from '../types';
-import { Loader2, Search, MapPin, ExternalLink, X, Settings, Layers, Image as ImageIcon, Map as MapIcon, Globe } from 'lucide-react';
+import { Loader2, Search, MapPin, ExternalLink, X, Settings, Layers, Image as ImageIcon, Map as MapIcon, Globe, Filter } from 'lucide-react';
 
 // Fix Leaflet's default icon path issues with Vite
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png';
@@ -78,13 +78,23 @@ const MapEvents: React.FC<{
     center: [number, number];
     zoom: number;
     onClickMap: () => void;
-}> = ({ onChange, center, zoom, onClickMap }) => {
+    projectBounds?: L.LatLngBounds | null;
+}> = ({ onChange, center, zoom, onClickMap, projectBounds }) => {
     const map = useMap();
 
     // Handle external updates (e.g. search)
     useEffect(() => {
         map.setView(center, zoom);
     }, [center, zoom, map]);
+
+    // Handle project bounds (fit all markers and restrict zoom out)
+    useEffect(() => {
+        if (projectBounds && projectBounds.isValid()) {
+            const padded = projectBounds.pad(0.1); // Add 10% margin
+            map.setMaxBounds(padded);
+            map.fitBounds(padded);
+        }
+    }, [projectBounds, map]);
 
     // Handle internal map interactions
     useMapEvents({
@@ -102,29 +112,123 @@ const MapEvents: React.FC<{
     return null;
 };
 
+const SuperclusterMarkers: React.FC<{
+    locations: NTLocation[];
+    projectRecords: Map<number, ProjectSiteRecord>;
+    setEditingLocation: (loc: NTLocation) => void;
+    isMarkerClick: React.MutableRefObject<boolean>;
+}> = ({ locations, projectRecords, setEditingLocation, isMarkerClick }) => {
+    const map = useMap();
+    const [bounds, setBounds] = useState(map.getBounds());
+    const [zoom, setZoom] = useState(map.getZoom());
+
+    useMapEvents({
+        moveend: () => {
+            setBounds(map.getBounds());
+            setZoom(map.getZoom());
+        },
+        zoomend: () => {
+            setBounds(map.getBounds());
+            setZoom(map.getZoom());
+        }
+    });
+
+    const points = useMemo(() => {
+        return locations.map(loc => {
+            const record = projectRecords.get(loc.id);
+            const status = record?.customData?.status;
+            return {
+                type: 'Feature' as const,
+                properties: {
+                    cluster: false,
+                    locId: loc.id,
+                    loc,
+                    status
+                },
+                geometry: {
+                    type: 'Point' as const,
+                    coordinates: [loc.lng, loc.lat]
+                }
+            };
+        });
+    }, [locations, projectRecords]);
+
+    const { clusters, supercluster } = useSupercluster({
+        points,
+        bounds: [bounds.getWest(), bounds.getSouth(), bounds.getEast(), bounds.getNorth()],
+        zoom,
+        options: { radius: 80, maxZoom: 17 }
+    });
+
+    return (
+        <>
+            {clusters.map(cluster => {
+                const [longitude, latitude] = cluster.geometry.coordinates;
+                const { cluster: isCluster, point_count: pointCount } = cluster.properties;
+
+                if (isCluster) {
+                    return (
+                        <Marker
+                            key={`cluster-${cluster.id}`}
+                            position={[latitude, longitude]}
+                            icon={createCustomIcon('#64748b', pointCount)}
+                            eventHandlers={{
+                                click: () => {
+                                    if (supercluster) {
+                                        const expansionZoom = Math.min(supercluster.getClusterExpansionZoom(cluster.id), 18);
+                                        map.setView([latitude, longitude], expansionZoom, { animate: true });
+                                    }
+                                }
+                            }}
+                        />
+                    );
+                }
+
+                // Individual marker
+                const loc = cluster.properties.loc;
+                const status = cluster.properties.status;
+                return (
+                    <Marker
+                        key={`loc-${loc.id}`}
+                        position={[latitude, longitude]}
+                        icon={getIcon(loc.type || 'default', 1, status)}
+                        eventHandlers={{
+                            click: (e) => {
+                                isMarkerClick.current = true;
+                                setTimeout(() => { isMarkerClick.current = false; }, 200);
+                                L.DomEvent.stopPropagation(e.originalEvent);
+                                setEditingLocation(loc);
+                            }
+                        }}
+                    />
+                );
+            })}
+        </>
+    );
+};
+
 // ----------------------------------------------------
-// CENTER MODAL COMPONENT (Fixed Position)
+// SIDE DRAWER COMPONENT (Right Panel)
 // ----------------------------------------------------
-const CenterModal: React.FC<{
+const SideDrawer: React.FC<{
     onClose: () => void;
     children: React.ReactNode;
 }> = ({ onClose, children }) => {
     return (
         <div
-            className="absolute top-0 left-0 w-full h-full z-[2000] pointer-events-auto flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            className="absolute top-0 right-0 h-full w-[90%] max-w-md z-[2000] pointer-events-auto bg-white shadow-[-10px_0_30px_rgba(0,0,0,0.15)] flex flex-col animate-in slide-in-from-right duration-300"
+            onClick={(e) => e.stopPropagation()}
         >
-            <div
-                className="relative bg-white rounded-xl shadow-2xl border border-slate-200 w-[90%] max-w-sm animate-in fade-in zoom-in duration-200 p-4"
-                onClick={(e) => e.stopPropagation()} // Prevent close on content click
-            >
-                {/* Close Button */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-100 bg-slate-50/50">
+                <h3 className="font-black text-slate-700 text-sm tracking-wide">รายละเอียดสถานที่</h3>
                 <button
                     onClick={onClose}
-                    className="absolute top-3 right-3 p-1.5 bg-slate-100 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-200 transition-colors z-20"
+                    className="p-1.5 bg-white rounded-full text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shadow-sm border border-slate-200"
                 >
-                    <X size={20} />
+                    <X size={18} />
                 </button>
-
+            </div>
+            <div className="flex-1 overflow-y-auto p-4 custom-scrollbar">
                 {children}
             </div>
         </div>
@@ -159,6 +263,12 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
     const [currentBounds, setCurrentBounds] = useState<L.LatLngBounds | null>(null);
     const [currentZoom, setCurrentZoom] = useState(initialMapState.zoom);
     const [mapLayer, setMapLayer] = useState<'osm' | 'clean' | 'vivid' | 'satellite'>(initialMapState.layer);
+
+    const [projectBounds, setProjectBounds] = useState<L.LatLngBounds | null>(null);
+
+    // UI Toggle States
+    const [isFilterOpen, setIsFilterOpen] = useState(false);
+    const [isMapStylesOpen, setIsMapStylesOpen] = useState(false);
 
     const mapLayers = {
         osm: {
@@ -234,11 +344,13 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
 
         try {
             const b = bounds || currentBounds;
-            const boundsParam = b ? {
-                minLat: b.getSouth(),
-                maxLat: b.getNorth(),
-                minLng: b.getWest(),
-                maxLng: b.getEast()
+            // Pad bounds by 50% to cache nearby points and reduce fetch frequency
+            const expandedBounds = b ? b.pad(0.5) : undefined;
+            const boundsParam = expandedBounds ? {
+                minLat: expandedBounds.getSouth(),
+                maxLat: expandedBounds.getNorth(),
+                minLng: expandedBounds.getWest(),
+                maxLng: expandedBounds.getEast()
             } : undefined;
 
             const [items, records] = await Promise.all([
@@ -250,6 +362,13 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
             ]);
 
             setLocations(items);
+
+            // If it's the first load (no bounds requested) we got all locations for the project.
+            // Calculate the bounds to fit the map view to show all of them.
+            if (items.length > 0 && !boundsParam && !projectBounds) {
+                const b = new L.LatLngBounds(items.map(i => [i.lat, i.lng]));
+                if (b.isValid()) setProjectBounds(b);
+            }
 
             if (records) {
                 const recMap = new Map<number, ProjectSiteRecord>();
@@ -266,6 +385,8 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
     // Initial load for records and maybe initial locations
     useEffect(() => {
         if (!projectId) return;
+        setProjectBounds(null);
+        setCurrentBounds(null); // Force full load to re-calculate bounds
         fetchData();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [projectId]);
@@ -379,16 +500,14 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
         }
     };
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center h-full text-slate-400">
-                <Loader2 className="animate-spin mr-2" /> กำลังโหลดข้อมูลพิกัด ({locations.length})...
-            </div>
-        );
-    }
-
     return (
         <div className="relative h-full w-full flex flex-col bg-slate-900">
+            {loading && (
+                <div className="absolute top-20 left-1/2 -translate-x-1/2 z-[5000] bg-white/95 backdrop-blur-sm px-5 py-2.5 rounded-full shadow-lg border border-slate-200 flex items-center gap-3 pointer-events-none animate-in fade-in slide-in-from-top-4">
+                    <Loader2 className="animate-spin text-blue-600" size={18} />
+                    <span className="text-sm font-black text-slate-700 tracking-wide">กำลังโหลดข้อมูลพิกัด...</span>
+                </div>
+            )}
             {/* Search Bar */}
             <div className="absolute top-4 left-4 z-[1000] flex gap-2 w-full max-w-sm pointer-events-auto">
                 <div className="relative flex-1">
@@ -409,8 +528,19 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
                 </div>
             </div>
             {/* Map Selector removed - map now shows only project sites, no layer switching needed */}
-            {/* Filter Menu (Top Right) - Hidden when project enforces its own filter, UNLESS we want to show it dynamically */}
-            <div className="absolute top-4 right-4 z-[5000] bg-white p-3 rounded-xl shadow-xl border border-slate-200 w-48 pointer-events-auto">
+            {/* Filter Toggle Button */}
+            <div className="absolute top-20 left-4 z-[5000] pointer-events-auto flex flex-col gap-2">
+                <button
+                    onClick={() => setIsFilterOpen(!isFilterOpen)}
+                    className={`w-12 h-12 rounded-xl shadow-xl border transition-all flex items-center justify-center ${isFilterOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'}`}
+                    title="ตัวกรองสถานที่ (Filter)"
+                >
+                    <Filter size={20} />
+                </button>
+                
+                {/* Filter Menu (Left Side) */}
+                {isFilterOpen && (
+                <div className="bg-white p-3 rounded-xl shadow-xl border border-slate-200 w-48 pointer-events-auto animate-in fade-in slide-in-from-top-2">
                 {hasProjectFilter || !project?.fieldsSchema?.length ? (
                     <>
                         <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-3 border-b border-slate-100 pb-2">Filter Locations</h3>
@@ -484,38 +614,52 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
                         </button>
                     ))}
                 </div>
+                </div>
+                )}
             </div>
 
             {/* Map Layer Selector (Bottom Left) */}
-            <div className="absolute bottom-6 left-6 z-[4000] flex flex-col gap-2 pointer-events-auto">
-                <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-200/60 overflow-hidden flex flex-col w-44">
-                    <div className="px-3 py-2 border-b border-slate-100/50 bg-slate-50/50">
-                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Map Styles</span>
-                    </div>
-                    {(Object.entries(mapLayers) as [keyof typeof mapLayers, typeof mapLayers['osm']][]).map(([key, layer]) => {
-                        const Icon = layer.icon;
-                        const isActive = mapLayer === key;
-                        return (
-                            <button
-                                key={key}
-                                onClick={() => {
-                                    setMapLayer(key);
-                                    try {
-                                        const current = getInitialMapState();
-                                        localStorage.setItem(MAP_STATE_KEY, JSON.stringify({ ...current, layer: key }));
-                                    } catch { /* ignore */ }
-                                }}
-                                className={`flex items-center gap-3 px-3 py-2.5 transition-all text-left group border-b border-slate-50 last:border-0 ${isActive ? 'bg-blue-50/80 text-blue-600' : 'bg-transparent text-slate-500 hover:bg-slate-50'}`}
-                            >
-                                <div className={`p-1.5 rounded-lg transition-colors ${isActive ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 group-hover:bg-slate-200'}`}>
-                                    <Icon size={14} />
-                                </div>
-                                <span className={`text-[10px] font-bold tracking-tight ${isActive ? 'text-blue-700' : 'text-slate-600'}`}>
-                                    {layer.name}
-                                </span>
-                            </button>
-                        );
-                    })}
+            <div className="absolute bottom-6 left-6 z-[4000] pointer-events-auto">
+                <div className="relative flex flex-col gap-2 items-start">
+                    {isMapStylesOpen && (
+                        <div className="bg-white/95 backdrop-blur-sm rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] border border-slate-200/60 overflow-hidden flex flex-col w-44 animate-in fade-in slide-in-from-bottom-2">
+                            <div className="px-3 py-2 border-b border-slate-100/50 bg-slate-50/50">
+                                <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Map Styles</span>
+                            </div>
+                            {(Object.entries(mapLayers) as [keyof typeof mapLayers, typeof mapLayers['osm']][]).map(([key, layer]) => {
+                                const Icon = layer.icon;
+                                const isActive = mapLayer === key;
+                                return (
+                                    <button
+                                        key={key}
+                                        onClick={() => {
+                                            setMapLayer(key);
+                                            try {
+                                                const current = getInitialMapState();
+                                                localStorage.setItem(MAP_STATE_KEY, JSON.stringify({ ...current, layer: key }));
+                                            } catch { /* ignore */ }
+                                        }}
+                                        className={`flex items-center gap-3 px-3 py-2.5 transition-all text-left group border-b border-slate-50 last:border-0 ${isActive ? 'bg-blue-50/80 text-blue-600' : 'bg-transparent text-slate-500 hover:bg-slate-50'}`}
+                                    >
+                                        <div className={`p-1.5 rounded-lg transition-colors ${isActive ? 'bg-blue-100 text-blue-600' : 'bg-slate-100 group-hover:bg-slate-200'}`}>
+                                            <Icon size={14} />
+                                        </div>
+                                        <span className={`text-[10px] font-bold tracking-tight ${isActive ? 'text-blue-700' : 'text-slate-600'}`}>
+                                            {layer.name}
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+                    )}
+                    
+                    <button
+                        onClick={() => setIsMapStylesOpen(!isMapStylesOpen)}
+                        className={`w-12 h-12 rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.12)] border transition-all flex items-center justify-center ${isMapStylesOpen ? 'bg-blue-600 text-white border-blue-600' : 'bg-white/95 text-slate-700 border-slate-200/60 hover:bg-slate-50'}`}
+                        title="เปลี่ยนรูปแบบแผนที่"
+                    >
+                        <Layers size={20} />
+                    </button>
                 </div>
             </div>
 
@@ -537,48 +681,21 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
                     center={mapCenter}
                     zoom={mapZoom}
                     onClickMap={handleMapClick}
+                    projectBounds={projectBounds}
                 />
 
-                <MarkerClusterGroup
-                    chunkedLoading={true}
-                    maxClusterRadius={40}
-                    spiderfyOnMaxZoom={true}
-                    showCoverageOnHover={false}
-                    animate={true} 
-                    zoomToBoundsOnClick={true}
-                    removeOutsideVisibleBounds={true} // Performance optimization
-                    iconCreateFunction={(cluster) => {
-                        const count = cluster.getChildCount();
-                        return createCustomIcon('#64748b', count); // 64748b is slate color
-                    }}
-                >
-                    {filteredLocations.map((loc) => {
-                        const record = projectRecords.get(loc.id);
-                        const status = record?.customData?.status;
-                        
-                        return (
-                            <Marker
-                                key={loc.id}
-                                position={[loc.lat, loc.lng]}
-                                icon={getIcon(loc.type || 'default', 1, status)}
-                                eventHandlers={{
-                                    click: (e) => {
-                                        isMarkerClick.current = true;
-                                        setTimeout(() => { isMarkerClick.current = false; }, 200);
-                                        L.DomEvent.stopPropagation(e.originalEvent);
-                                        setEditingLocation(loc);
-                                    }
-                                }}
-                            />
-                        );
-                    })}
-                </MarkerClusterGroup>
+                <SuperclusterMarkers
+                    locations={filteredLocations}
+                    projectRecords={projectRecords}
+                    setEditingLocation={setEditingLocation}
+                    isMarkerClick={isMarkerClick}
+                />
             </MapContainer>
 
-            {/* CENTER MODAL: Independent Overlay */}
+            {/* SIDE DRAWER: Edit Location Details */}
             {
                 editingLocation && (
-                    <CenterModal onClose={() => setEditingLocation(null)}>
+                    <SideDrawer onClose={() => setEditingLocation(null)}>
                         <EditLocationContent
                             loc={editingLocation}
                             onUpdate={handleUpdateLocation}
@@ -590,7 +707,7 @@ const Component: React.FC<{ projectId?: string; project?: Project | null }> = ({
                                 setProjectRecords(prev => new Map(prev).set(siteId, saved));
                             }}
                         />
-                    </CenterModal>
+                    </SideDrawer>
                 )
             }
         </div >
@@ -835,7 +952,7 @@ const EditLocationContent: React.FC<{
     const isMasterProject = !hasProjectFields;
 
     return (
-        <div className="text-slate-800 font-sans max-h-[80vh] overflow-y-auto">
+        <div className="text-slate-800 font-sans pb-10">
             {/* ── Header ── */}
             <div className="flex items-center justify-between border-b pb-2 mb-3 pr-10">
                 <div>

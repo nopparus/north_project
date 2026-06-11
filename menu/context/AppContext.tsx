@@ -99,6 +99,17 @@ const DEFAULT_APPS: SubApp[] = [
     appType: 'iframe',
     iframeSrc: '/app8/',
     component: IframeApp
+  },
+  {
+    id: 'site-survey-pro',
+    name: 'Site Survey Pro',
+    description: 'ระบบสร้างฟอร์มสำรวจและจัดเก็บข้อมูลโครงการอ้างอิงตาม IP Address',
+    icon: 'ClipboardCheck',
+    color: 'text-teal-400',
+    path: '/app9',
+    appType: 'iframe',
+    iframeSrc: '/app9/',
+    component: IframeApp
   }
 ];
 

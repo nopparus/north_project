@@ -297,3 +297,10 @@ App8 ทำงานบนระบบ Docker Container ภายใต้เค
 
 ### **3. Authentication**
 - **Header Persistence**: ตรวจสอบว่า `axios.defaults.headers.common['Authorization']` ถูกตั้งค่าทันทีที่ Login และในส่วน Bootstrap เสมอเพื่อป้องกัน 401 Unauthorized ระหว่างการโหลดหน้าเว็บ
+
+### Phase 8 (Session 26): Data Expansion for ONU Records
+- **Data Source Update:** Added support for new 74MB `ONU Recoards.xlsx` file.
+- **Schema Update:** Added 15 new columns to `onu_records` and `onu_records_backup` (e.g. `req_date`, `ba`, `offer_id`, `customer_name`, `promotion`, etc.).
+- **Materialized View (`mv_circuit_summary`):** Updated to propagate the 15 new fields to dashboard circuits.
+- **Backend Import Script:** Modified `import_onu_data.js` to process the new mapping structure and batch insert the new columns.
+- **Frontend App.tsx:** Updated `COLUMN_DISPLAY_MAP` to properly render the new columns across the table views and Excel exports.
