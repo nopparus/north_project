@@ -64,10 +64,23 @@ async function runMigrations() {
           UNIQUE(dataset_id, primary_key_value)
       );
     `);
-    // Alter survey_projects to link to master_datasets
+    // Alter survey_projects to link to master_datasets and add survey controls
     await pool.query(`
       ALTER TABLE survey_projects 
-      ADD COLUMN IF NOT EXISTS master_dataset_id UUID REFERENCES master_datasets(id) ON DELETE SET NULL;
+      ADD COLUMN IF NOT EXISTS master_dataset_id UUID REFERENCES master_datasets(id) ON DELETE SET NULL,
+      ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT TRUE,
+      ADD COLUMN IF NOT EXISTS start_date TIMESTAMP,
+      ADD COLUMN IF NOT EXISTS end_date TIMESTAMP;
+    `);
+    
+    await pool.query(`
+      DO $$
+      BEGIN
+          IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='users' AND column_name='allowed_projects') THEN
+              ALTER TABLE users ADD COLUMN allowed_projects JSONB DEFAULT '[]'::jsonb;
+          END IF;
+      END
+      $$;
     `);
     console.log('Multi-Master JSONB Migrations completed successfully.');
   } catch (err) {
@@ -105,8 +118,8 @@ app.post('/api/login', async (req, res) => {
     const validPassword = await bcrypt.compare(password, user.password_hash);
     if (!validPassword) return res.status(400).json({ error: 'Invalid password' });
     
-    const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '8h' });
-    res.json({ token, user: { username: user.username, role: user.role } });
+    const token = jwt.sign({ id: user.id, username: user.username, role: user.role, allowed_projects: user.allowed_projects }, JWT_SECRET, { expiresIn: '8h' });
+    res.json({ token, user: { username: user.username, role: user.role, allowed_projects: user.allowed_projects } });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -116,7 +129,7 @@ app.post('/api/login', async (req, res) => {
 app.get('/api/users', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
-    const result = await pool.query('SELECT id, username, role FROM users ORDER BY username ASC');
+    const result = await pool.query('SELECT id, username, role, allowed_projects FROM users ORDER BY username ASC');
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -135,8 +148,8 @@ app.post('/api/users', authenticateToken, async (req, res) => {
 
     const hash = await bcrypt.hash(password, 10);
     const result = await pool.query(
-      'INSERT INTO users (username, password_hash, role) VALUES ($1, $2, $3) RETURNING id, username, role',
-      [username, hash, role]
+      'INSERT INTO users (username, password_hash, role, allowed_projects) VALUES ($1, $2, $3, $4) RETURNING id, username, role, allowed_projects',
+      [username, hash, role, req.body.allowed_projects ? JSON.stringify(req.body.allowed_projects) : '[]']
     );
     res.json(result.rows[0]);
   } catch (error) {
@@ -149,21 +162,21 @@ app.put('/api/users/:id', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
     const { id } = req.params;
-    const { username, password, role } = req.body;
+    const { username, password, role, allowed_projects } = req.body;
     if (!username || !role) return res.status(400).json({ error: 'Username and role are required' });
 
     const checkUser = await pool.query('SELECT * FROM users WHERE username = $1 AND id != $2', [username, id]);
     if (checkUser.rows.length > 0) return res.status(400).json({ error: 'Username already exists' });
 
-    let query = 'UPDATE users SET username = $1, role = $2';
-    const params = [username, role];
+    let query = 'UPDATE users SET username = $1, role = $2, allowed_projects = $3';
+    const params = [username, role, allowed_projects ? JSON.stringify(allowed_projects) : '[]'];
 
     if (password) {
       const hash = await bcrypt.hash(password, 10);
-      query += ', password_hash = $3 WHERE id = $4';
+      query += ', password_hash = $4 WHERE id = $5';
       params.push(hash, id);
     } else {
-      query += ' WHERE id = $3';
+      query += ' WHERE id = $4';
       params.push(id);
     }
 
@@ -211,13 +224,15 @@ app.post('/api/parse-survey-excel', authenticateToken, upload.single('file'), (r
       if (err) console.error('Error deleting temp survey file:', err);
     });
 
+    const rawData = xlsx.utils.sheet_to_json(worksheet, { header: 1 });
+    const headers = rawData[0] || [];
+    
+    // Fallback if data array is empty
     if (data.length === 0) return res.status(400).json({ error: 'Empty excel file' });
 
-    const headers = Object.keys(data[0]);
-    const ipKey = headers.find(h => h.toLowerCase().includes('ip')) || headers[0];
-    const otherHeaders = headers.filter(h => h !== ipKey);
+    const ipKey = headers.find(h => typeof h === 'string' && h.toLowerCase().includes('ip')) || headers[0] || '';
 
-    res.json({ headers: otherHeaders, ipKey, data });
+    res.json({ headers: headers.filter(Boolean).map(String), ipKey, data });
   } catch (error) {
     console.error(error);
     if (req.file) {
@@ -231,13 +246,13 @@ app.post('/api/create-survey-project', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
 
-    const { projectName, displayMode, masterDatasetId, formSchema, data, ipKey } = req.body;
+    const { projectName, displayMode, masterDatasetId, formSchema, data, ipKey, mappingConfig } = req.body;
     if (!projectName || !formSchema || !data || !ipKey) return res.status(400).json({ error: 'Missing required fields' });
 
     // Create Project
     const projRes = await pool.query(
-      'INSERT INTO survey_projects (project_name, form_schema, display_mode, master_dataset_id) VALUES ($1, $2, $3, $4) RETURNING project_id',
-      [projectName, JSON.stringify(formSchema), displayMode || 'form', masterDatasetId || null]
+      'INSERT INTO survey_projects (project_name, form_schema, display_mode, master_dataset_id, mapping_config) VALUES ($1, $2, $3, $4, $5) RETURNING project_id',
+      [projectName, JSON.stringify(formSchema), displayMode || 'form', masterDatasetId || null, mappingConfig ? JSON.stringify(mappingConfig) : '{}']
     );
     const projectId = projRes.rows[0].project_id;
 
@@ -594,12 +609,25 @@ app.put('/api/olt-base/:ne_ip', authenticateToken, async (req, res) => {
 
 app.get('/api/projects', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(`
+    let query = `
       SELECT p.*, m.dataset_name as master_dataset_name 
       FROM survey_projects p 
-      LEFT JOIN master_datasets m ON p.master_dataset_id = m.id 
-      ORDER BY p.created_at DESC
-    `);
+      LEFT JOIN master_datasets m ON p.master_dataset_id = m.id
+    `;
+    let params = [];
+    
+    if (req.user.role !== 'admin') {
+      const allowedProjects = req.user.allowed_projects || [];
+      if (allowedProjects.length === 0) {
+        return res.json([]);
+      }
+      query += ` WHERE p.project_id = ANY($1::uuid[])`;
+      params.push(allowedProjects);
+    }
+    
+    query += ` ORDER BY p.created_at DESC`;
+    
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -610,11 +638,17 @@ app.put('/api/projects/:id/schema', authenticateToken, async (req, res) => {
   try {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
     const { id } = req.params;
-    const { formSchema, displayMode } = req.body;
+    const { formSchema, displayMode, is_active, start_date, end_date, mappingConfig } = req.body;
     
     await pool.query(
-      'UPDATE survey_projects SET form_schema = $1, display_mode = $2 WHERE project_id = $3',
-      [JSON.stringify(formSchema), displayMode, id]
+      `UPDATE survey_projects 
+       SET form_schema = $1, display_mode = $2,
+           is_active = COALESCE($4, is_active),
+           start_date = $5,
+           end_date = $6,
+           mapping_config = COALESCE($7, mapping_config)
+       WHERE project_id = $3`,
+      [JSON.stringify(formSchema), displayMode, id, is_active, start_date || null, end_date || null, mappingConfig ? JSON.stringify(mappingConfig) : null]
     );
     res.json({ message: 'Project updated successfully' });
   } catch (error) {
@@ -721,6 +755,12 @@ app.get('/api/projects/:id/export', authenticateToken, async (req, res) => {
 app.get('/api/projects/:id', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (req.user.role !== 'admin') {
+      const allowed = req.user.allowed_projects || [];
+      if (!allowed.includes(id)) {
+        return res.status(403).json({ error: 'Access denied to this project' });
+      }
+    }
     const result = await pool.query('SELECT * FROM survey_projects WHERE project_id = $1', [id]);
     if (result.rows.length === 0) return res.status(404).json({ error: 'Project not found' });
     res.json(result.rows[0]);
@@ -732,6 +772,12 @@ app.get('/api/projects/:id', authenticateToken, async (req, res) => {
 app.get('/api/projects/:id/tasks', authenticateToken, async (req, res) => {
   try {
     const { id } = req.params;
+    if (req.user.role !== 'admin') {
+      const allowed = req.user.allowed_projects || [];
+      if (!allowed.includes(id)) {
+        return res.status(403).json({ error: 'Access denied to this project' });
+      }
+    }
     const result = await pool.query(
       `SELECT t.*, s.site_name, s.location, 
               m.data->>'province' AS province, 
@@ -754,14 +800,23 @@ app.get('/api/projects/:id/tasks', authenticateToken, async (req, res) => {
 
 app.get('/api/sites-lookup', authenticateToken, async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT primary_key_value AS ip_address, 
+    const { projectId } = req.query;
+    let query = `SELECT primary_key_value AS ip_address, 
               data->>'ne_name' AS site_name, 
               data->>'province' AS province, 
-              data->>'brand' AS brand 
-       FROM master_data_records
-       ORDER BY primary_key_value ASC`
-    );
+              data->>'brand' AS brand,
+              data
+       FROM master_data_records`;
+    let params = [];
+
+    if (projectId) {
+      query += ` WHERE dataset_id = (SELECT master_dataset_id FROM survey_projects WHERE project_id = $1)`;
+      params.push(projectId);
+    }
+    
+    query += ` ORDER BY primary_key_value ASC`;
+
+    const result = await pool.query(query, params);
     res.json(result.rows);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -871,37 +926,55 @@ app.post('/api/tasks/:id/revert-site', authenticateToken, async (req, res) => {
       [currentTask.project_id, originalIp]
     );
 
+    // Fetch project info to restore mapped master data
+    const projectRes = await client.query('SELECT master_dataset_id, form_schema FROM survey_projects WHERE project_id = $1', [currentTask.project_id]);
+    const { master_dataset_id, form_schema } = projectRes.rows[0];
+    const schemaArray = Array.isArray(form_schema) ? form_schema : [];
+
+    // Helper to clean and restore master data mapped fields
+    const restoreMasterData = async (ip_address, survey_data) => {
+      const cleanData = { ...survey_data };
+      delete cleanData['ย้ายมาจาก IP'];
+      delete cleanData['ประวัติการย้ายไซต์'];
+
+      if (master_dataset_id) {
+        const masterRes = await client.query('SELECT data FROM master_data_records WHERE dataset_id = $1 AND primary_key_value = $2', [master_dataset_id, ip_address]);
+        if (masterRes.rows.length > 0) {
+          const masterData = masterRes.rows[0].data;
+          schemaArray.forEach(f => {
+            if (f.mappedMasterColumn) {
+              cleanData[f.name] = masterData[f.mappedMasterColumn] || '';
+            }
+          });
+        }
+      }
+      return cleanData;
+    };
+
     if (siblingRes.rows.length > 0) {
       // Swapped case: swap their survey_data back and clear relocation markers
       const siblingTask = siblingRes.rows[0];
 
-      // Clean survey_data for both
-      const cleanCurrentSurveyData = { ...currentTask.survey_data };
-      delete cleanCurrentSurveyData['ย้ายมาจาก IP'];
-      delete cleanCurrentSurveyData['ประวัติการย้ายไซต์'];
-
-      const cleanSiblingSurveyData = { ...siblingTask.survey_data };
-      delete cleanSiblingSurveyData['ย้ายมาจาก IP'];
-      delete cleanSiblingSurveyData['ประวัติการย้ายไซต์'];
+      // Restore data for both tasks to their respective target IPs
+      const restoredCurrentData = await restoreMasterData(originalIp, currentTask.survey_data);
+      const restoredSiblingData = await restoreMasterData(currentTask.ip_address, siblingTask.survey_data);
 
       // Swap the clean data back to their respective original tasks
       await client.query(
         'UPDATE survey_tasks SET survey_data = $1, status = $2, updated_at = CURRENT_TIMESTAMP WHERE task_id = $3',
-        [JSON.stringify(cleanCurrentSurveyData), currentTask.status || 'Pending', siblingTask.task_id]
+        [JSON.stringify(restoredCurrentData), currentTask.status || 'Pending', siblingTask.task_id]
       );
       await client.query(
         'UPDATE survey_tasks SET survey_data = $1, status = $2, updated_at = CURRENT_TIMESTAMP WHERE task_id = $3',
-        [JSON.stringify(cleanSiblingSurveyData), siblingTask.status || 'Pending', currentTask.task_id]
+        [JSON.stringify(restoredSiblingData), siblingTask.status || 'Pending', currentTask.task_id]
       );
     } else {
-      // Direct update case: change the IP back directly and clean survey data
-      const cleanSurveyData = { ...currentTask.survey_data };
-      delete cleanSurveyData['ย้ายมาจาก IP'];
-      delete cleanSurveyData['ประวัติการย้ายไซต์'];
+      // Direct update case: change the IP back directly, clean and restore master data
+      const restoredData = await restoreMasterData(originalIp, currentTask.survey_data);
 
       await client.query(
         'UPDATE survey_tasks SET ip_address = $1, survey_data = $2, updated_at = CURRENT_TIMESTAMP WHERE task_id = $3',
-        [originalIp, JSON.stringify(cleanSurveyData), id]
+        [originalIp, JSON.stringify(restoredData), id]
       );
     }
 
@@ -1019,6 +1092,75 @@ app.delete('/api/master-datasets/:id', authenticateToken, async (req, res) => {
     if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
     await pool.query('DELETE FROM master_datasets WHERE id = $1', [req.params.id]);
     res.json({ message: 'Dataset deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get Records for a Dataset
+app.get('/api/master-datasets/:id/records', authenticateToken, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM master_data_records WHERE dataset_id = $1 ORDER BY created_at ASC', [req.params.id]);
+    res.json(result.rows);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Update a Record
+app.put('/api/master-datasets/:id/records/:recordId', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+    await pool.query('UPDATE master_data_records SET data = $1 WHERE id = $2 AND dataset_id = $3', [JSON.stringify(req.body.data), req.params.recordId, req.params.id]);
+    res.json({ message: 'Record updated' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Delete a Record
+app.delete('/api/master-datasets/:id/records/:recordId', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+    await pool.query('DELETE FROM master_data_records WHERE id = $1 AND dataset_id = $2', [req.params.recordId, req.params.id]);
+    res.json({ message: 'Record deleted' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Rename Column
+app.put('/api/master-datasets/:id/schema', authenticateToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') return res.status(403).json({ error: 'Requires admin role' });
+    const { oldName, newName } = req.body;
+    if (!oldName || !newName) return res.status(400).json({ error: 'oldName and newName required' });
+    
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+      
+      const datasetRes = await client.query('SELECT schema_config FROM master_datasets WHERE id = $1', [req.params.id]);
+      if (datasetRes.rows.length === 0) throw new Error('Dataset not found');
+      
+      let schemaConfig = datasetRes.rows[0].schema_config;
+      schemaConfig = schemaConfig.map(c => c.name === oldName ? { ...c, name: newName, label: newName } : c);
+      await client.query('UPDATE master_datasets SET schema_config = $1 WHERE id = $2', [JSON.stringify(schemaConfig), req.params.id]);
+      
+      await client.query(`
+        UPDATE master_data_records 
+        SET data = data - $1 || jsonb_build_object($2::text, data->$1)
+        WHERE dataset_id = $3 AND data ? $1
+      `, [oldName, newName, req.params.id]);
+      
+      await client.query('COMMIT');
+      res.json({ message: 'Column renamed successfully' });
+    } catch (e) {
+      await client.query('ROLLBACK');
+      throw e;
+    } finally {
+      client.release();
+    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

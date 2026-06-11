@@ -470,6 +470,7 @@ const AdminMasterDatasetsTab = ({ token }: { token: string }) => {
 
 
 const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigger }: { token: string; editingProject: any; setEditingProject: (p: any) => void; saveTrigger: number; }) => {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState<any[]>([]);
   const [masterDatasets, setMasterDatasets] = useState<any[]>([]);
   const [selectedMasterDatasetId, setSelectedMasterDatasetId] = useState('');
@@ -487,8 +488,6 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
   const [editIsActive, setEditIsActive] = useState(true);
   const [editStartDate, setEditStartDate] = useState('');
   const [editEndDate, setEditEndDate] = useState('');
-  const [mappingConfig, setMappingConfig] = useState({ siteName: '', neName: '', province: '', brand: '' });
-  const [editMappingConfig, setEditMappingConfig] = useState({ siteName: '', neName: '', province: '', brand: '' });
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [deleteInput, setDeleteInput] = useState('');
 
@@ -507,13 +506,13 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
           options: f.type === 'select' && typeof f.options === 'string' ? f.options.split(',').map((o: string) => o.trim()) : f.options,
           editable: f.editable !== false,
           visible: f.visible !== false,
-          isFilter: f.isFilter === true
+          isFilter: f.isFilter === true,
+          mappedMasterColumn: f.mappedMasterColumn
         })),
         displayMode: editDisplayMode,
         is_active: editIsActive,
         start_date: editStartDate ? new Date(editStartDate).toISOString() : null,
-        end_date: editEndDate ? new Date(editEndDate).toISOString() : null,
-        mappingConfig: editMappingConfig
+        end_date: editEndDate ? new Date(editEndDate).toISOString() : null
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -654,7 +653,8 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
       options: f.type === 'select' ? f.options.split(',').map((o: string) => o.trim()) : [],
       editable: f.editable !== false,
       visible: f.visible !== false,
-      isFilter: f.isFilter === true
+      isFilter: f.isFilter === true,
+      mappedMasterColumn: f.mappedMasterColumn
     }));
 
     try {
@@ -664,8 +664,7 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
         masterDatasetId: selectedMasterDatasetId,
         formSchema: formattedSchema,
         data: parsedData,
-        ipKey,
-        mappingConfig
+        ipKey
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -738,44 +737,12 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
               </div>
             </div>
 
-            <div className="mb-6 pt-4 border-t border-slate-800">
-              <h3 className="font-semibold text-teal-400 mb-4 text-lg">System Field Mapping</h3>
-              <p className="text-sm text-slate-400 mb-4">Select which form fields map to the core system attributes (used for Relocate Site feature).</p>
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Site Name Column</label>
-                  <select value={editMappingConfig.siteName} onChange={e => setEditMappingConfig({...editMappingConfig, siteName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
-                    <option value="">-- Select Field --</option>
-                    {editSchema.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">NE Name Column</label>
-                  <select value={editMappingConfig.neName} onChange={e => setEditMappingConfig({...editMappingConfig, neName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
-                    <option value="">-- Select Field --</option>
-                    {editSchema.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Province Column</label>
-                  <select value={editMappingConfig.province} onChange={e => setEditMappingConfig({...editMappingConfig, province: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
-                    <option value="">-- Select Field --</option>
-                    {editSchema.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1">Brand Column</label>
-                  <select value={editMappingConfig.brand} onChange={e => setEditMappingConfig({...editMappingConfig, brand: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
-                    <option value="">-- Select Field --</option>
-                    {editSchema.map(f => <option key={f.name} value={f.name}>{f.name}</option>)}
-                  </select>
-                </div>
-              </div>
-            </div>
-            
-            <h3 className="font-semibold text-teal-400 mb-4 text-lg">Edit Form Fields Configuration</h3>
+            <h3 className="font-semibold text-teal-400 mb-4 text-lg mt-6 pt-4 border-t border-slate-800">Edit Form Fields Configuration</h3>
             <div className="space-y-3">
-            {editSchema.map((field, i) => (
+            {(() => {
+              const masterDataset = masterDatasets.find(md => md.id === editingProject.master_dataset_id);
+              const masterColumns = masterDataset?.schema_config || [];
+              return editSchema.map((field, i) => (
               <div key={field.name} className="p-4 bg-slate-800/40 border border-slate-700 rounded-lg">
                 <div className="flex gap-4 items-start">
                   <div className="flex flex-col gap-1 pt-1 items-center">
@@ -830,10 +797,24 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
                          <span className="text-sm text-amber-500/80 group-hover:text-amber-400 transition-colors">Use as Filter</span>
                        </label>
                     </div>
+                    <div className="mt-3 pt-3 border-t border-slate-700/50">
+                      <label className="text-xs text-teal-400 uppercase tracking-wider block mb-1">Master Column Mapping (for Comparison)</label>
+                      <select 
+                        value={field.mappedMasterColumn || ''} 
+                        onChange={e => updateEditSchemaField(i, 'mappedMasterColumn', e.target.value)} 
+                        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none"
+                      >
+                        <option value="">-- No Mapping (Do not compare) --</option>
+                        {masterColumns.map((col: any) => (
+                          <option key={col.name} value={col.name}>{col.label || col.name}</option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 </div>
               </div>
-            ))}
+              ));
+            })()}
             </div>
 
             <div className="mt-4 flex justify-between items-center bg-slate-900/60 p-4 border border-slate-800 rounded-xl">
@@ -948,44 +929,12 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
                   </div>
                   
                   <div className="pt-4 border-t border-slate-800">
-                    <h3 className="font-semibold text-teal-400 mb-4 text-lg">System Field Mapping</h3>
-                    <p className="text-sm text-slate-400 mb-4">Select which form fields map to the core system attributes (used for Relocate Site feature).</p>
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1">Site Name Column</label>
-                        <select value={mappingConfig.siteName} onChange={e => setMappingConfig({...mappingConfig, siteName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
-                          <option value="">-- Select Field --</option>
-                          {headers.map(h => <option key={h} value={h}>{h}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1">NE Name Column</label>
-                        <select value={mappingConfig.neName} onChange={e => setMappingConfig({...mappingConfig, neName: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
-                          <option value="">-- Select Field --</option>
-                          {headers.map(h => <option key={h} value={h}>{h}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1">Province Column</label>
-                        <select value={mappingConfig.province} onChange={e => setMappingConfig({...mappingConfig, province: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
-                          <option value="">-- Select Field --</option>
-                          {headers.map(h => <option key={h} value={h}>{h}</option>)}
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1">Brand Column</label>
-                        <select value={mappingConfig.brand} onChange={e => setMappingConfig({...mappingConfig, brand: e.target.value})} className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
-                          <option value="">-- Select Field --</option>
-                          {headers.map(h => <option key={h} value={h}>{h}</option>)}
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="pt-4 border-t border-slate-800">
                     <h3 className="font-semibold text-teal-400 mb-4 text-lg">Configure Form Fields ({headers.length})</h3>
                     <div className="space-y-3">
-                    {formSchema.map((field, i) => (
+                    {(() => {
+                      const masterDataset = masterDatasets.find(md => md.id === selectedMasterDatasetId);
+                      const masterColumns = masterDataset?.schema_config || [];
+                      return formSchema.map((field, i) => (
                       <div key={field.name} className="p-4 bg-slate-800/40 border border-slate-700 rounded-lg">
                         <div className="flex gap-4 items-start">
                           <div className="flex flex-col gap-1 pt-1 items-center">
@@ -1040,10 +989,24 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
                                  <span className="text-sm text-amber-500/80 group-hover:text-amber-400 transition-colors">Use as Filter</span>
                                </label>
                             </div>
+                            <div className="mt-3 pt-3 border-t border-slate-700/50">
+                              <label className="text-xs text-teal-400 uppercase tracking-wider block mb-1">Master Column Mapping (for Comparison)</label>
+                              <select 
+                                value={field.mappedMasterColumn || ''} 
+                                onChange={e => updateSchemaField(i, 'mappedMasterColumn', e.target.value)} 
+                                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:border-teal-500 outline-none"
+                              >
+                                <option value="">-- No Mapping (Do not compare) --</option>
+                                {masterColumns.map((col: any) => (
+                                  <option key={col.name} value={col.name}>{col.label || col.name}</option>
+                                ))}
+                              </select>
+                            </div>
                           </div>
                         </div>
                       </div>
-                    ))}
+                      ));
+                    })()}
                     </div>
 
                     <div className="mt-4 flex justify-between items-center bg-slate-900/60 p-4 border border-slate-800 rounded-xl">
@@ -1119,8 +1082,7 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
                       </button>
                       <button 
                         onClick={() => {
-                          const w = window.open(`/app9/project/${proj.project_id}`, '_blank');
-                          w?.focus();
+                          navigate(`/project/${proj.project_id}`);
                         }} 
                         className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-teal-400 rounded-lg transition-colors border border-slate-700 flex items-center gap-2 font-medium"
                         title="View Data"
@@ -1133,8 +1095,6 @@ const AdminProjectsTab = ({ token, editingProject, setEditingProject, saveTrigge
                           setEditSchema(proj.form_schema.map((f: any) => ({...f, options: Array.isArray(f.options) ? f.options.join(', ') : f.options})));
                           setEditDisplayMode(proj.display_mode || 'form');
                           setEditIsActive(proj.is_active !== false);
-                          setEditMappingConfig(proj.mapping_config || { siteName: '', neName: '', province: '', brand: '' });
-                          
                           const formatLocal = (d: string) => {
                             if (!d) return '';
                             const date = new Date(d);
@@ -1233,6 +1193,9 @@ const AdminConfigTab = ({ token }: { token: string }) => {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [isCreateModal, setIsCreateModal] = useState(false);
+  const [projects, setProjects] = useState<any[]>([]);
+  const [allowedProjects, setAllowedProjects] = useState<string[]>([]);
+  const [editAllowedProjects, setEditAllowedProjects] = useState<string[]>([]);
 
   const {
     currentPage,
@@ -1247,7 +1210,19 @@ const AdminConfigTab = ({ token }: { token: string }) => {
 
   useEffect(() => {
     fetchUsers();
+    fetchProjects();
   }, []);
+
+  const fetchProjects = async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/projects`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setProjects(res.data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -1266,13 +1241,14 @@ const AdminConfigTab = ({ token }: { token: string }) => {
     setLoading(true);
     setMessage('');
     try {
-      await axios.post(`${API_BASE}/users`, { username, password, role }, {
+      await axios.post(`${API_BASE}/users`, { username, password, role, allowed_projects: role === 'admin' ? [] : allowedProjects }, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setMessage('User created successfully');
       setUsername('');
       setPassword('');
       setRole('user');
+      setAllowedProjects([]);
       setIsCreateModal(false);
       fetchUsers();
     } catch (err: any) {
@@ -1291,7 +1267,8 @@ const AdminConfigTab = ({ token }: { token: string }) => {
       await axios.put(`${API_BASE}/users/${editingUser.id}`, {
         username: editUsername,
         password: editPassword || undefined,
-        role: editRole
+        role: editRole,
+        allowed_projects: editRole === 'admin' ? [] : editAllowedProjects
       }, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -1300,6 +1277,7 @@ const AdminConfigTab = ({ token }: { token: string }) => {
       setEditUsername('');
       setEditPassword('');
       setEditRole('user');
+      setEditAllowedProjects([]);
       fetchUsers();
     } catch (err: any) {
       setMessage(err.response?.data?.error || 'Failed to update user');
@@ -1380,6 +1358,7 @@ const AdminConfigTab = ({ token }: { token: string }) => {
                             setEditingUser(u);
                             setEditUsername(u.username);
                             setEditRole(u.role);
+                            setEditAllowedProjects(u.allowed_projects || []);
                             setEditPassword('');
                           }}
                           className="text-amber-400 hover:text-amber-300 hover:bg-amber-400/10 p-1.5 rounded transition-colors"
@@ -1461,6 +1440,30 @@ const AdminConfigTab = ({ token }: { token: string }) => {
                     <option value="admin">Administrator (Full Access)</option>
                   </select>
                 </div>
+                {role === 'user' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Allowed Projects</label>
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 max-h-48 overflow-y-auto space-y-2 custom-scrollbar">
+                      {projects.map(p => (
+                        <label key={p.project_id} className="flex items-center gap-3 cursor-pointer p-2 hover:bg-slate-700/50 rounded-md">
+                          <input 
+                            type="checkbox"
+                            checked={allowedProjects.includes(p.project_id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setAllowedProjects([...allowedProjects, p.project_id]);
+                              else setAllowedProjects(allowedProjects.filter(id => id !== p.project_id));
+                            }}
+                            className="w-4 h-4 accent-teal-500 rounded bg-slate-700 border-slate-600"
+                          />
+                          <span className="text-sm text-slate-200">{p.project_name}</span>
+                        </label>
+                      ))}
+                      {projects.length === 0 && (
+                        <div className="text-sm text-slate-500 text-center py-2">No projects found</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="p-6 border-t border-slate-800 flex justify-end gap-3 bg-slate-900/50">
                 <button 
@@ -1530,6 +1533,30 @@ const AdminConfigTab = ({ token }: { token: string }) => {
                     <option value="admin">Administrator (Full Access)</option>
                   </select>
                 </div>
+                {editRole === 'user' && (
+                  <div>
+                    <label className="block text-sm font-medium text-slate-300 mb-2">Allowed Projects</label>
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 max-h-48 overflow-y-auto space-y-2 custom-scrollbar">
+                      {projects.map(p => (
+                        <label key={p.project_id} className="flex items-center gap-3 cursor-pointer p-2 hover:bg-slate-700/50 rounded-md transition-colors">
+                          <input 
+                            type="checkbox"
+                            checked={editAllowedProjects.includes(p.project_id)}
+                            onChange={(e) => {
+                              if (e.target.checked) setEditAllowedProjects([...editAllowedProjects, p.project_id]);
+                              else setEditAllowedProjects(editAllowedProjects.filter(id => id !== p.project_id));
+                            }}
+                            className="w-4 h-4 accent-amber-500 rounded bg-slate-700 border-slate-600"
+                          />
+                          <span className="text-sm text-slate-200">{p.project_name}</span>
+                        </label>
+                      ))}
+                      {projects.length === 0 && (
+                        <div className="text-sm text-slate-500 text-center py-2">No projects found</div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="p-6 border-t border-slate-800 flex justify-end gap-3 bg-slate-900/50">
                 <button 
@@ -1671,6 +1698,8 @@ const ProjectView = ({ token }: { token: string }) => {
   const [allSites, setAllSites] = useState<any[]>([]);
   const [targetSite, setTargetSite] = useState<any>(null);
   const [relocatingTask, setRelocatingTask] = useState<any>(null);
+  const [targetSearchQuery, setTargetSearchQuery] = useState('');
+  const [revertConfirmTask, setRevertConfirmTask] = useState<number | null>(null);
   const [sortField, setSortField] = useState<string | null>(null);
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
@@ -1692,9 +1721,13 @@ const ProjectView = ({ token }: { token: string }) => {
       : <ArrowDown className="w-3.5 h-3.5 text-teal-400" />;
   };
 
-  const handleRevertRelocation = async (taskId: number) => {
-    if (!window.confirm('คุณต้องการยกเลิกการย้ายไซต์กลับเป็น IP ดั้งเดิมและคืนค่าข้อมูลใช่หรือไม่? (Are you sure you want to undo this site relocation?)')) return;
+  const handleRevertRelocation = (taskId: number) => {
+    setRevertConfirmTask(taskId);
+  };
+
+  const executeRevertRelocation = async (taskId: number) => {
     try {
+      setRevertConfirmTask(null);
       await axios.post(`${API_BASE}/tasks/${taskId}/revert-site`, {}, {
         headers: { Authorization: `Bearer ${token}` }
       });
@@ -1724,7 +1757,7 @@ const ProjectView = ({ token }: { token: string }) => {
 
   const fetchSitesLookup = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/sites-lookup`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await axios.get(`${API_BASE}/sites-lookup?projectId=${id}`, { headers: { Authorization: `Bearer ${token}` } });
       setAllSites(res.data);
     } catch (err) {
       console.error(err);
@@ -1750,6 +1783,20 @@ const ProjectView = ({ token }: { token: string }) => {
     setFormData(task.survey_data || {});
   };
 
+
+  const autoSaveTask = async (taskToSave: any, newData: any) => {
+    if (!taskToSave) return;
+    try {
+      const completed = isTaskCompleted({ ...taskToSave, survey_data: newData });
+      await axios.put(`${API_BASE}/tasks/${taskToSave.task_id}`, {
+        survey_data: newData,
+        status: completed ? 'Completed' : 'Pending'
+      }, { headers: { Authorization: `Bearer ${token}` } });
+    } catch (e) {
+      console.error('Auto-save failed', e);
+    }
+  };
+
   const handleSaveSurvey = async () => {
     try {
       const completed = formData['ดำเนินการ แล้วเสร็จ'] !== undefined
@@ -1772,6 +1819,13 @@ const ProjectView = ({ token }: { token: string }) => {
   const filteredTasks = tasks.filter(t => {
     return Object.entries(filters).every(([k, v]) => {
       if (!v) return true;
+      
+      const fieldSchema = Array.isArray(project.form_schema) ? project.form_schema.find((f:any) => f.name === k) : null;
+      if (fieldSchema && fieldSchema.type === 'checkbox') {
+         const isChecked = t.survey_data?.[k] === 'true' || t.survey_data?.[k] === true;
+         return isChecked === (v === 'true');
+      }
+      
       return t.survey_data?.[k] === v;
     });
   });
@@ -1806,6 +1860,10 @@ const ProjectView = ({ token }: { token: string }) => {
   });
 
   const isTaskCompleted = (t: any) => {
+    const hasCheckbox = Array.isArray(project.form_schema) && project.form_schema.some((f: any) => f.name === 'ดำเนินการ แล้วเสร็จ' && f.type === 'checkbox');
+    if (hasCheckbox) {
+      return t.survey_data?.['ดำเนินการ แล้วเสร็จ'] === 'true' || t.survey_data?.['ดำเนินการ แล้วเสร็จ'] === true;
+    }
     if (t.survey_data && t.survey_data['ดำเนินการ แล้วเสร็จ'] !== undefined) {
       return t.survey_data['ดำเนินการ แล้วเสร็จ'] === 'true' || t.survey_data['ดำเนินการ แล้วเสร็จ'] === true;
     }
@@ -1823,8 +1881,8 @@ const ProjectView = ({ token }: { token: string }) => {
 
   const { scrollRef, events: dragEvents, isDragging } = useDraggableScroll();
 
-  const totalCount = filteredTasks.length;
-  const completedCount = filteredTasks.filter(isTaskCompleted).length;
+  const totalCount = tasks.length;
+  const completedCount = tasks.filter(isTaskCompleted).length;
   const progressPercent = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   if (!project) return <div className="text-white p-6">Loading...</div>;
@@ -1965,7 +2023,7 @@ const ProjectView = ({ token }: { token: string }) => {
                   isSurveyActive ? 'bg-teal-500 hover:bg-teal-400 text-slate-950' : 'bg-slate-700 text-slate-500 cursor-not-allowed'
                 }`}
               >
-                {isSurveyActive ? 'Save All Records' : 'Save Disabled'}
+                {isSurveyActive ? 'Saved Automatically' : 'Save Disabled'}
               </button>
             </div>
             
@@ -2054,7 +2112,7 @@ const ProjectView = ({ token }: { token: string }) => {
                             {!isSurveyActive || f.editable === false ? (
                               <span className="text-slate-300">
                                 {f.type === 'checkbox' ? (
-                                  t.survey_data?.[f.name] === 'true' ? 'Yes' : 'No'
+                                  t.survey_data?.[f.name] === 'true' || t.survey_data?.[f.name] === true ? 'Yes' : 'No'
                                 ) : f.type === 'image' ? (
                                   t.survey_data?.[f.name] ? (
                                     <img 
@@ -2084,8 +2142,10 @@ const ProjectView = ({ token }: { token: string }) => {
                                 onChange={e => {
                                   const newTasks = [...tasks];
                                   const taskIdx = newTasks.findIndex(x => x.task_id === t.task_id);
-                                  newTasks[taskIdx].survey_data = { ...newTasks[taskIdx].survey_data, [f.name]: e.target.value };
+                                  const newData = { ...newTasks[taskIdx].survey_data, [f.name]: e.target.value };
+                                  newTasks[taskIdx].survey_data = newData;
                                   setTasks(newTasks);
+                                  autoSaveTask(newTasks[taskIdx], newData);
                                 }} 
                                 className="bg-slate-800 border border-slate-700 px-2 py-1 text-sm rounded w-32 text-white focus:border-teal-500 outline-none"
                               >
@@ -2098,12 +2158,14 @@ const ProjectView = ({ token }: { token: string }) => {
                               <label className="flex items-center justify-center w-full h-full">
                                 <input 
                                   type="checkbox" 
-                                  checked={t.survey_data?.[f.name] === 'true'} 
+                                  checked={t.survey_data?.[f.name] === 'true' || t.survey_data?.[f.name] === true} 
                                   onChange={e => {
                                     const newTasks = [...tasks];
                                     const taskIdx = newTasks.findIndex(x => x.task_id === t.task_id);
-                                    newTasks[taskIdx].survey_data = { ...newTasks[taskIdx].survey_data, [f.name]: e.target.checked ? 'true' : 'false' };
+                                    const newData = { ...newTasks[taskIdx].survey_data, [f.name]: e.target.checked ? 'true' : 'false' };
+                                    newTasks[taskIdx].survey_data = newData;
                                     setTasks(newTasks);
+                                    autoSaveTask(newTasks[taskIdx], newData);
                                   }} 
                                   className="w-4 h-4 accent-teal-500 rounded bg-slate-800 border-slate-700 cursor-pointer"
                                 />
@@ -2125,6 +2187,7 @@ const ProjectView = ({ token }: { token: string }) => {
                                       delete updatedData[f.name];
                                       newTasks[taskIdx].survey_data = updatedData;
                                       setTasks(newTasks);
+                                      autoSaveTask(newTasks[taskIdx], updatedData);
                                     }}
                                     className="text-red-400 hover:text-red-300 p-0.5"
                                     title="Remove Image"
@@ -2146,8 +2209,10 @@ const ProjectView = ({ token }: { token: string }) => {
                                         const compressed = await compressImage(file);
                                         const newTasks = [...tasks];
                                         const taskIdx = newTasks.findIndex(x => x.task_id === t.task_id);
-                                        newTasks[taskIdx].survey_data = { ...newTasks[taskIdx].survey_data, [f.name]: compressed };
+                                        const newData = { ...newTasks[taskIdx].survey_data, [f.name]: compressed };
+                                        newTasks[taskIdx].survey_data = newData;
                                         setTasks(newTasks);
+                                        autoSaveTask(newTasks[taskIdx], newData);
                                       } catch (err) {
                                         alert('Failed to compress image');
                                       }
@@ -2174,6 +2239,7 @@ const ProjectView = ({ token }: { token: string }) => {
                                       delete updatedData[f.name];
                                       newTasks[taskIdx].survey_data = updatedData;
                                       setTasks(newTasks);
+                                      autoSaveTask(newTasks[taskIdx], updatedData);
                                     }}
                                     className="text-red-400 hover:text-red-300 p-0.5"
                                     title="Remove File"
@@ -2194,8 +2260,10 @@ const ProjectView = ({ token }: { token: string }) => {
                                         const dataObj = await compressFile(file);
                                         const newTasks = [...tasks];
                                         const taskIdx = newTasks.findIndex(x => x.task_id === t.task_id);
-                                        newTasks[taskIdx].survey_data = { ...newTasks[taskIdx].survey_data, [f.name]: dataObj };
+                                        const newData = { ...newTasks[taskIdx].survey_data, [f.name]: dataObj };
+                                        newTasks[taskIdx].survey_data = newData;
                                         setTasks(newTasks);
+                                        autoSaveTask(newTasks[taskIdx], newData);
                                       } catch (err) {
                                         alert('Failed to upload file');
                                       }
@@ -2211,8 +2279,10 @@ const ProjectView = ({ token }: { token: string }) => {
                                 onChange={e => {
                                   const newTasks = [...tasks];
                                   const taskIdx = newTasks.findIndex(x => x.task_id === t.task_id);
-                                  newTasks[taskIdx].survey_data = { ...newTasks[taskIdx].survey_data, [f.name]: e.target.value };
+                                  const newData = { ...newTasks[taskIdx].survey_data, [f.name]: e.target.value };
+                                  newTasks[taskIdx].survey_data = newData;
                                   setTasks(newTasks);
+                                  autoSaveTask(newTasks[taskIdx], newData);
                                 }} 
                                 className="bg-slate-800 border border-slate-700 px-2 py-1 text-sm rounded w-40 text-white focus:border-teal-500 outline-none transition-colors"
                               />
@@ -2336,7 +2406,7 @@ const ProjectView = ({ token }: { token: string }) => {
                           {!isSurveyActive || field.editable === false ? (
                             <div className="w-full bg-slate-800/30 border border-transparent rounded-lg px-4 py-2 text-slate-300">
                               {field.type === 'checkbox' ? (
-                                formData[field.name] === 'true' ? 'Yes' : 'No'
+                                formData[field.name] === 'true' || formData[field.name] === true ? 'Yes' : 'No'
                               ) : field.type === 'image' ? (
                                 formData[field.name] ? (
                                   <div className="mt-1">
@@ -2372,7 +2442,7 @@ const ProjectView = ({ token }: { token: string }) => {
                           ) : field.type === 'select' ? (
                             <select 
                               value={formData[field.name] || ''} 
-                              onChange={e => setFormData({...formData, [field.name]: e.target.value})} 
+                              onChange={e => { const newData = {...formData, [field.name]: e.target.value}; setFormData(newData); autoSaveTask(selectedTask, newData); }} 
                               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-teal-500 transition-colors"
                             >
                               <option value="">Select...</option>
@@ -2384,8 +2454,8 @@ const ProjectView = ({ token }: { token: string }) => {
                             <label className="flex items-center gap-2 cursor-pointer">
                               <input 
                                 type="checkbox" 
-                                checked={formData[field.name] === 'true'} 
-                                onChange={e => setFormData({...formData, [field.name]: e.target.checked ? 'true' : 'false'})} 
+                                checked={formData[field.name] === 'true' || formData[field.name] === true} 
+                                onChange={e => { const newData = {...formData, [field.name]: e.target.checked ? 'true' : 'false'}; setFormData(newData); autoSaveTask(selectedTask, newData); }} 
                                 className="w-5 h-5 accent-teal-500 rounded bg-slate-800 border-slate-700"
                               />
                               <span className="text-sm text-slate-300">Yes</span>
@@ -2424,7 +2494,9 @@ const ProjectView = ({ token }: { token: string }) => {
                                     if (!file) return;
                                     try {
                                       const compressed = await compressImage(file);
-                                      setFormData({ ...formData, [field.name]: compressed });
+                                      const newData = { ...formData, [field.name]: compressed };
+                                      setFormData(newData);
+                                      autoSaveTask(selectedTask, newData);
                                     } catch (err) {
                                       alert('Failed to compress image');
                                     }
@@ -2477,7 +2549,9 @@ const ProjectView = ({ token }: { token: string }) => {
                                     if (!file) return;
                                     try {
                                       const dataObj = await compressFile(file);
-                                      setFormData({ ...formData, [field.name]: dataObj });
+                                      const newData = { ...formData, [field.name]: dataObj };
+                                      setFormData(newData);
+                                      autoSaveTask(selectedTask, newData);
                                     } catch (err) {
                                       alert('Failed to upload file');
                                     }
@@ -2491,6 +2565,7 @@ const ProjectView = ({ token }: { token: string }) => {
                               type="text" 
                               value={formData[field.name] || ''}
                               onChange={e => setFormData({...formData, [field.name]: e.target.value})}
+                              onBlur={() => autoSaveTask(selectedTask, formData)}
                               className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:border-teal-500 transition-colors"
                             />
                           )}
@@ -2507,7 +2582,7 @@ const ProjectView = ({ token }: { token: string }) => {
                           isSurveyActive ? 'bg-teal-500 hover:bg-teal-600 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed'
                         }`}
                       >
-                        {isSurveyActive ? 'Save Survey' : 'Save Disabled'}
+                        {isSurveyActive ? 'Saved Automatically' : 'Save Disabled'}
                       </button>
                   </div>
                 </div>
@@ -2586,32 +2661,68 @@ const ProjectView = ({ token }: { token: string }) => {
                 <div className="flex flex-col gap-1.5">
                   <label className="text-xs text-slate-400 uppercase font-bold tracking-wider font-semibold">เลือกไซต์ปลายทาง (Target Site)</label>
                   {(() => {
+                    const formSchema = Array.isArray(project.form_schema) ? project.form_schema : [];
+                    const provinceField = formSchema.find((f: any) => {
+                      const n = (f.label || f.name).toLowerCase();
+                      return n.includes('province') || n.includes('จังหวัด') || n.includes('ส่วนงาน');
+                    });
+                    const surveyProvKey = provinceField?.name || 'province';
+                    const masterProvKey = provinceField?.mappedMasterColumn || 'province';
+                    
+                    const getSurveyVal = (obj: any, key: string) => obj?.survey_data?.[key] || obj?.data?.[key] || obj?.[key];
+                    const getMasterVal = (obj: any, key: string) => obj?.data?.[key] || obj?.[key];
+
+                    const currentProvince = getSurveyVal(relocatingTask, surveyProvKey);
+
                     const projectIps = new Set(tasks.map((t: any) => t.ip_address));
                     const provinceFilteredSites = allSites.filter((s: any) => 
-                      s.province === relocatingTask.province && 
+                      getMasterVal(s, masterProvKey) === currentProvince && 
                       !projectIps.has(s.ip_address)
                     );
 
+                    const filteredBySearch = provinceFilteredSites.filter(s => {
+                      if (!targetSearchQuery) return true;
+                      const term = targetSearchQuery.toLowerCase();
+                      const formSchema = Array.isArray(project.form_schema) ? project.form_schema : [];
+                      const siteNameField = formSchema.find((f: any) => (f.label || f.name).toLowerCase().includes('site') || (f.label || f.name).includes('ชื่อ'));
+                      const siteNameKey = siteNameField?.mappedMasterColumn || siteNameField?.name || 'site_name';
+                      const displaySiteName = s.data?.[siteNameKey] || s.site_name || '-';
+                      return s.ip_address.toLowerCase().includes(term) || displaySiteName.toLowerCase().includes(term);
+                    });
+
                     return (
-                      <select
-                        value={targetSite?.ip_address || ''}
-                        onChange={(e) => {
-                          const targetIp = e.target.value;
-                          if (!targetIp) {
-                            setTargetSite(null);
-                            return;
-                          }
-                          const tSite = allSites.find(s => s.ip_address === targetIp);
-                          if (tSite) {
-                            setTargetSite(tSite);
-                          }
-                        }}
-                        className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-teal-500 transition-colors"
-                      >
-                        <option value="">-- เลือกไซต์ในจังหวัด {relocatingTask.province || '-'} ที่ยังไม่มีในโปรเจกต์ --</option>
-                        {provinceFilteredSites.map(s => {
-                          const mapping = project.mapping_config || {};
-                          const siteNameKey = mapping.siteName || 'site_name';
+                      <div className="flex flex-col gap-2">
+                        <div className="relative">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                          <input
+                            type="text"
+                            placeholder="ค้นหา IP หรือ ชื่อไซต์... (พิมพ์เพื่อค้นหา)"
+                            value={targetSearchQuery}
+                            onChange={(e) => setTargetSearchQuery(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-teal-500 transition-colors"
+                          />
+                        </div>
+                        <select
+                          size={6}
+                          value={targetSite?.ip_address || ''}
+                          onChange={(e) => {
+                            const targetIp = e.target.value;
+                            if (!targetIp) {
+                              setTargetSite(null);
+                              return;
+                            }
+                            const tSite = allSites.find(s => s.ip_address === targetIp);
+                            if (tSite) {
+                              setTargetSite(tSite);
+                            }
+                          }}
+                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300 focus:outline-none focus:border-teal-500 transition-colors custom-scrollbar"
+                        >
+                          <option value="">-- เลือกไซต์ใน {currentProvince ? `จังหวัด ${currentProvince}` : 'จังหวัดเดียวกัน'} ที่ยังไม่มีในโปรเจกต์ --</option>
+                          {filteredBySearch.map(s => {
+                          const formSchema = Array.isArray(project.form_schema) ? project.form_schema : [];
+                          const siteNameField = formSchema.find((f: any) => (f.label || f.name).toLowerCase().includes('site') || (f.label || f.name).includes('ชื่อ'));
+                          const siteNameKey = siteNameField?.mappedMasterColumn || siteNameField?.name || 'site_name';
                           const displaySiteName = s.data?.[siteNameKey] || s.site_name || '-';
                           return (
                             <option key={s.ip_address} value={s.ip_address}>
@@ -2620,6 +2731,7 @@ const ProjectView = ({ token }: { token: string }) => {
                           );
                         })}
                       </select>
+                      </div>
                     );
                   })()}
                 </div>
@@ -2632,52 +2744,47 @@ const ProjectView = ({ token }: { token: string }) => {
                     
                     <div className="border border-slate-800 rounded-xl overflow-hidden bg-slate-950/20">
                       {(() => {
-                        const mapping = project.mapping_config || {};
-                        const siteNameKey = mapping.siteName || 'site_name';
-                        const neNameKey = mapping.neName || 'ne_name';
-                        const provinceKey = mapping.province || 'province';
-                        const brandKey = mapping.brand || 'brand';
+                        const formSchema = Array.isArray(project.form_schema) ? project.form_schema : [];
+                        const mappedFields = formSchema.filter((f: any) => f.mappedMasterColumn);
                         
-                        const getVal = (obj: any, key: string) => {
-                          if (!obj) return '-';
-                          return obj.data?.[key] || obj.survey_data?.[key] || obj[key] || '-';
+                        const getSurveyVal = (obj: any, key: string) => {
+                          if (!obj || !key) return '-';
+                          return obj.survey_data?.[key] || obj.data?.[key] || obj[key] || '-';
+                        };
+                        const getMasterVal = (obj: any, key: string) => {
+                          if (!obj || !key) return '-';
+                          return obj.data?.[key] || obj[key] || '-';
                         };
 
                         return (
                           <table className="w-full text-left border-collapse text-sm">
                             <thead>
                               <tr className="border-b border-slate-800 bg-slate-800/20 text-slate-400">
-                                <th className="p-3 font-semibold">รายละเอียด (Fields)</th>
-                                <th className="p-3 font-semibold text-amber-400">ไซต์ปัจจุบัน (Current)</th>
-                                <th className="p-3 font-semibold text-teal-400">ไซต์ปลายทาง (Target)</th>
+                                <th className="px-3 py-2 font-semibold">รายละเอียด (Fields)</th>
+                                <th className="px-3 py-2 font-semibold text-amber-400">ไซต์ปัจจุบัน (Current)</th>
+                                <th className="px-3 py-2 font-semibold text-teal-400">ไซต์ปลายทาง (Target)</th>
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-800/50">
                               <tr>
-                                <td className="p-3 font-medium text-slate-500">IP Address</td>
-                                <td className="p-3 text-slate-300 font-mono">{relocatingTask.ip_address}</td>
-                                <td className="p-3 text-slate-300 font-mono">{targetSite.ip_address}</td>
+                                <td className="px-3 py-1.5 font-medium text-slate-500">IP Address</td>
+                                <td className="px-3 py-1.5 text-slate-300 font-mono">{relocatingTask.ip_address}</td>
+                                <td className="px-3 py-1.5 text-slate-300 font-mono">{targetSite.ip_address}</td>
                               </tr>
-                              <tr>
-                                <td className="p-3 font-medium text-slate-500">Site Name<br/><span className="text-xs text-slate-600">({siteNameKey})</span></td>
-                                <td className="p-3 text-slate-300">{getVal(relocatingTask, siteNameKey)}</td>
-                                <td className="p-3 text-slate-300">{getVal(targetSite, siteNameKey)}</td>
-                              </tr>
-                              <tr>
-                                <td className="p-3 font-medium text-slate-500">NE Name<br/><span className="text-xs text-slate-600">({neNameKey})</span></td>
-                                <td className="p-3 text-slate-300">{getVal(relocatingTask, neNameKey)}</td>
-                                <td className="p-3 text-slate-300">{getVal(targetSite, neNameKey)}</td>
-                              </tr>
-                              <tr>
-                                <td className="p-3 font-medium text-slate-500">Province<br/><span className="text-xs text-slate-600">({provinceKey})</span></td>
-                                <td className="p-3 text-slate-300">{getVal(relocatingTask, provinceKey)}</td>
-                                <td className="p-3 text-slate-300">{getVal(targetSite, provinceKey)}</td>
-                              </tr>
-                              <tr>
-                                <td className="p-3 font-medium text-slate-500">Brand<br/><span className="text-xs text-slate-600">({brandKey})</span></td>
-                                <td className="p-3 text-slate-300">{getVal(relocatingTask, brandKey)}</td>
-                                <td className="p-3 text-slate-300">{getVal(targetSite, brandKey)}</td>
-                              </tr>
+                              {mappedFields.length > 0 ? mappedFields.map((f: any, idx: number) => (
+                                <tr key={idx}>
+                                  <td className="px-3 py-1.5 font-medium text-slate-500 flex flex-col justify-center h-full">
+                                    <span className="leading-tight">{f.label || f.name}</span>
+                                    <span className="text-[10px] text-slate-600 leading-tight">({f.name} / {f.mappedMasterColumn})</span>
+                                  </td>
+                                  <td className="px-3 py-1.5 text-slate-300 align-middle">{getSurveyVal(relocatingTask, f.name)}</td>
+                                  <td className="px-3 py-1.5 text-slate-300 align-middle">{getMasterVal(targetSite, f.mappedMasterColumn)}</td>
+                                </tr>
+                              )) : (
+                                <tr>
+                                  <td colSpan={3} className="px-3 py-4 text-center text-slate-500 italic">ไม่ได้ตั้งค่า Field Mapping ไว้ในโปรเจกต์นี้</td>
+                                </tr>
+                              )}
                             </tbody>
                           </table>
                         );
@@ -2703,9 +2810,21 @@ const ProjectView = ({ token }: { token: string }) => {
                     if (!targetSite) return;
                     try {
                       const completed = (relocatingTask.survey_data?.['ดำเนินการ แล้วเสร็จ'] === 'true' || relocatingTask.survey_data?.['ดำเนินการ แล้วเสร็จ'] === true);
+                      
+                      // Auto-update mapped fields with target site's master data
+                      const newSurveyData = { ...relocatingTask.survey_data };
+                      const formSchema = Array.isArray(project.form_schema) ? project.form_schema : [];
+                      const getMasterVal = (obj: any, key: string) => obj?.data?.[key] || obj?.[key] || '';
+                      
+                      formSchema.forEach((f: any) => {
+                        if (f.mappedMasterColumn) {
+                          newSurveyData[f.name] = getMasterVal(targetSite, f.mappedMasterColumn);
+                        }
+                      });
+
                       await axios.post(`${API_BASE}/tasks/${relocatingTask.task_id}/change-site`, {
                         target_ip_address: targetSite.ip_address,
-                        current_survey_data: relocatingTask.survey_data || {},
+                        current_survey_data: newSurveyData,
                         current_status: completed ? 'Completed' : 'Pending'
                       }, {
                         headers: { Authorization: `Bearer ${token}` }
@@ -2759,6 +2878,39 @@ const ProjectView = ({ token }: { token: string }) => {
               alt="Preview" 
               className="max-w-full max-h-full rounded shadow-2xl object-contain"
             />
+          </div>
+        )}
+
+        {revertConfirmTask && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+            <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-md shadow-2xl p-6 animate-in zoom-in-95 duration-200">
+              <div className="flex items-center gap-4 mb-4">
+                <div className="w-12 h-12 bg-amber-500/20 text-amber-400 rounded-full flex items-center justify-center shrink-0 border border-amber-500/30">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold text-white mb-1">ยกเลิกการย้ายไซต์ (Undo Relocation)</h3>
+                  <p className="text-sm text-slate-400">การดำเนินการนี้จะคืนค่าข้อมูลและ IP Address กลับเป็นค่าเดิม</p>
+                </div>
+              </div>
+              <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 mb-6">
+                <p className="text-slate-300 text-sm">คุณต้องการยกเลิกการย้ายไซต์กลับเป็น IP ดั้งเดิมและคืนค่าข้อมูลใช่หรือไม่?</p>
+              </div>
+              <div className="flex justify-end gap-3">
+                <button 
+                  onClick={() => setRevertConfirmTask(null)}
+                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-sm font-medium transition-colors border border-slate-700"
+                >
+                  ยกเลิก (Cancel)
+                </button>
+                <button 
+                  onClick={() => executeRevertRelocation(revertConfirmTask)}
+                  className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-bold shadow-lg shadow-amber-500/20 transition-all hover:-translate-y-0.5"
+                >
+                  ยืนยัน (Confirm)
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
